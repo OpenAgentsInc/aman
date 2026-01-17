@@ -1,4 +1,4 @@
-//! Activist notification utilities for Aman.
+//! Message listener utilities for Aman.
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

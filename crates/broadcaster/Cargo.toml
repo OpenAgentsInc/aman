@@ -1,0 +1,11 @@
+[package]
+name = "broadcaster"
+version = "0.1.0"
+edition = "2021"
+
+description = "Signal-native broadcast utilities for Aman."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
