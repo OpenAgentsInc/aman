@@ -35,6 +35,7 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 - `broadcaster` owns outbound delivery, retries, and chunking.
 - `regional_event_listener` ingests regional events and emits `RegionEvent` records.
 - `signal-daemon` is the HTTP/SSE client used by `message_listener` and `broadcaster`.
+- `database` provides SQLite persistence for users, topics, and subscriptions.
 
 For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 

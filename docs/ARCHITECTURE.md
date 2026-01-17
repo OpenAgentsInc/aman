@@ -5,6 +5,7 @@
 - Signal-native messaging experience.
 - Opt-in regional alerts for activists and human-rights defenders.
 - Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`.
+- Data persistence crate: `database` (SQLite via SQLx).
 - Test harness crate: `mock-brain` (mock implementations for message flow testing).
 - Regional event ingestion as a subsystem/service (documented under `agent_brain::regional_events`).
 - For planned phases beyond the MVP, see `ROADMAP.md`.
@@ -27,6 +28,9 @@
 - `broadcaster` (crate: `crates/broadcaster`)
   - Owns outbound delivery via `signal-daemon` (HTTP to signal-cli daemon).
   - Handles chunking, retries, and throttling.
+- `database` (crate: `crates/database`)
+  - SQLite persistence for users, topics, and notification subscriptions.
+  - Runs migrations and exposes async CRUD helpers.
 - `mock-brain` (crate: `crates/mock-brain`)
   - Mock brain implementations for testing message processing without an AI backend.
 - `regional_event_listener` (subsystem)
@@ -35,6 +39,7 @@
 - Local storage
   - Signal account keys/credentials (managed by `signal-cli`).
   - Bot state: contacts, messages, subscriptions, dedupe.
+  - Database tables: users, topics, notifications (via `database` crate).
 - OpenAI-compatible API endpoint
   - Responses API for text generation.
 
@@ -60,6 +65,14 @@ Example:
 - `region`: "Iran"
 - `topics`: ["censorship", "shutdowns"]
 - `created_at`
+
+### User/Topic/Notification (SQLite)
+
+The `database` crate models subscriptions as topics:
+
+- `User` (id is a stable Signal UUID or address, name, language)
+- `Topic` (slug, e.g., `iran`, `vpn+iran`)
+- `Notification` (topic_slug + user_id, created_at)
 
 ### RegionEvent
 
@@ -269,6 +282,7 @@ AccessPolicy content:
 - **Broadcaster**: component that sends outbound Signal messages.
 - **signal-cli daemon**: signal-cli process exposing HTTP/SSE and JSON-RPC.
 - **signal-daemon**: Rust client for the signal-cli daemon.
+- **database**: SQLite persistence crate for users, topics, and notifications.
 - **nostr-persistence**: crate that publishes and indexes Nostr metadata into SQLite.
 - **mock-brain**: test harness crate for message flow and signal-daemon integration.
 - **DocManifest**: planned event describing a document and its chunks.

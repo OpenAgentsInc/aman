@@ -10,6 +10,7 @@ next phases: RAG and Nostr-based persistence.
 - `agent-brain` is a stub and needs core logic implementation.
 - `regional_event_listener` exists as a documented subsystem; intake wiring is still pending.
 - `nostr-persistence` crate is started (publisher/indexer foundation).
+- `database` crate exists for users/topics/notifications (SQLx + migrations).
 
 ## Phase 0 - Signal MVP hardening
 
@@ -21,6 +22,7 @@ Goal: complete and stabilize the Signal-native assistant with opt-in regional al
   - regional event intake (fixture endpoint or file-based ingest)
   - service binaries that wire `message-listener`, `agent-brain`, and `broadcaster`
 - Persistence
+  - Wire `database` crate into services for user/topic/subscription persistence
   - SQLite schema for contacts, messages, subscriptions, dedupe
   - at-least-once delivery with idempotent sends
 - Ops and safety

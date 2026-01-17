@@ -21,6 +21,7 @@ This document defines what Aman stores, what it does not store, and the default 
 - `contacts`: identity, last_seen timestamp.
 - `messages`: message id, sender id, timestamp, direction, status.
 - `subscriptions`: identity -> region/topics, created_at, updated_at.
+- `users`, `topics`, `notifications`: subscription store (via `database` crate).
 - Optional: short context buffer or rolling summary (if enabled).
 
 ## What is not stored

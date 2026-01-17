@@ -188,6 +188,7 @@ curl -N http://127.0.0.1:8080/api/v1/events
 | `broadcaster` | Signal outbound delivery using signal-daemon |
 | `agent-brain` | Onboarding, routing, and API calls |
 | `mock-brain` | Mock brain implementations for testing message flows |
+| `database` | SQLite persistence (users/topics/notifications) via SQLx |
 | `nostr-persistence` | Nostr publisher/indexer for durable doc/chunk metadata |
 
 See individual READMEs in `crates/*/README.md` for API documentation.
