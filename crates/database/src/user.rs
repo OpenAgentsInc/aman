@@ -130,3 +130,32 @@ pub async fn list_users(pool: &SqlitePool) -> Result<Vec<User>> {
 
     Ok(users)
 }
+
+/// Count total users.
+pub async fn count_users(pool: &SqlitePool) -> Result<i64> {
+    let count = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(*) FROM users
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(count)
+}
+
+/// Count users grouped by language.
+pub async fn count_users_by_language(pool: &SqlitePool) -> Result<Vec<(String, i64)>> {
+    let rows = sqlx::query_as::<_, (String, i64)>(
+        r#"
+        SELECT language, COUNT(*) as count
+        FROM users
+        GROUP BY language
+        ORDER BY count DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
+}

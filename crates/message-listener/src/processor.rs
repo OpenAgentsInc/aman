@@ -147,8 +147,8 @@ impl<B: Brain> MessageProcessor<B> {
             return ProcessResult::Skipped { reason };
         }
 
-        // Convert to inbound message
-        let inbound = match envelope.to_inbound_message() {
+        // Convert to inbound message with full attachment paths
+        let inbound = match envelope.to_inbound_message_with_config(self.client.config()) {
             Some(msg) => msg,
             None => {
                 return ProcessResult::Skipped {

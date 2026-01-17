@@ -10,11 +10,17 @@ path = "src/lib.rs"
 [dependencies]
 brain-core = { path = "../brain-core" }
 async-trait = "0.1"
+base64 = "0.22"
+futures = "0.3"
 opensecret = "0.2.7"
 serde_json = "1"
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "fs"] }
 tracing = "0.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 dotenvy = "0.15"
+tracing-subscriber = "0.3"
+
+[[example]]
+name = "test_chat"
