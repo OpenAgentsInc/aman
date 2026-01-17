@@ -21,12 +21,7 @@ tracing = "0.1"
 [dev-dependencies]
 chrono = "0.4"
 dotenvy = "0.15"
-grok-brain = { path = "../grok-brain" }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = "0.3"
 
 [[example]]
 name = "test_chat"
-
-[[example]]
-name = "test_with_grok"
