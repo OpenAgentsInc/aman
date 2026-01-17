@@ -46,6 +46,7 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 
 Optional: `message_listener` can also run a `MessageProcessor` that calls a `Brain`
 (mock or MapleBrain) directly and sends replies via `signal-daemon`.
+`agent-brain` also ships a simple `agent_brain_bot` binary for local Signal MVP use.
 
 For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 

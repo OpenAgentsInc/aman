@@ -1,82 +1,88 @@
-# agent_brain
+# agent-brain
 
 ## Responsibility
 
-The agent brain owns the core decision layer: onboarding state machine, subscription routing, and OpenAI-compatible API
-calls. It decides whether to respond conversationally, update a subscription, or fan out a regional alert.
+Core decision layer for Aman. AgentBrain handles onboarding, subscription state, and regional alert routing.
+It implements the shared `Brain` trait so it can be used directly with the message listener.
 
 ## Public interfaces
 
 Consumes:
 
-- `InboundMessage` (from `message_listener`)
-- `RegionEvent` (from `regional_event_listener`)
+- `InboundMessage` (from `message-listener`)
+- `RegionEvent` (for alert fanout)
 
 Produces:
 
-- `OutboundMessage` (to `broadcaster`)
-- subscription state updates (to the state store)
+- `OutboundMessage` (to `broadcaster` or `message-listener` processor)
+- Subscription updates in SQLite (via `database`)
 
 ## Onboarding and state machine
 
 - New contacts are prompted to opt in to regional alerts.
 - Regions are parsed from user input ("Iran", "Syria", etc.).
-- Users can opt out at any time with "stop" or "unsubscribe".
-
-See `docs/ARCHITECTURE.md` for the authoritative state machine.
+- Users can opt out with "stop" or "unsubscribe".
 
 ## Subscription storage
 
-MVP intent: store subscriptions in SQLite with fields for identity, region, topics, and timestamps.
+Uses the `database` crate (SQLite) for users, topics, and notifications.
 
-## OpenAI call boundary
-
-Inputs:
-
-- minimal user text + optional short context
-- system prompt defining safety posture and onboarding behavior
-
-Outputs:
-
-- short, actionable replies
-- optional clarifying questions for ambiguous regions
-
-Prefer `store: false` (or equivalent) with the Responses API.
-
-## Command handling (MVP)
+## Commands (MVP)
 
 - `help`
+- `status`
 - `subscribe <region>`
 - `region <region>`
-- `status`
 - `stop` / `unsubscribe`
 
-## How to run it
-
-MVP target command (adjust to your runtime):
+## Run (Signal bot)
 
 ```bash
-cargo run --bin agent-brain -- --db "$SQLITE_PATH" --model "$MODEL"
+export SQLITE_PATH="./data/aman.db"
+export AMAN_DEFAULT_LANGUAGE="English"
+export AMAN_NUMBER="+15551234567"
+export HTTP_ADDR="127.0.0.1:8080"
+
+cargo run -p agent-brain --bin agent_brain_bot
 ```
 
-## How to test it
+Optional multi-account mode:
 
-- `cargo test`
-- Use fixture inputs for `InboundMessage` and `RegionEvent` to validate state transitions.
+```bash
+export SIGNAL_DAEMON_ACCOUNT="+15551234567"
+```
+
+## Send a regional event
+
+```bash
+cat <<'JSON' > /tmp/region-event.json
+{
+  "region": "Iran",
+  "kind": "outage",
+  "severity": "urgent",
+  "confidence": "high",
+  "summary": "Reported nationwide connectivity disruption.",
+  "source_refs": ["https://example.org/report"],
+  "ts": "2025-01-01T12:00:00Z"
+}
+JSON
+
+cargo run -p agent-brain --bin region_event_send -- /tmp/region-event.json
+```
 
 ## Failure modes
 
-- Region parsing fails or is ambiguous.
-- OpenAI-compatible API timeouts or rate limits.
-- Duplicate inbound messages cause repeated onboarding prompts.
+- Missing or invalid `SQLITE_PATH`.
+- Unknown region input (responds with help/choices).
+- signal-cli daemon unavailable when sending alerts.
 
 ## Future work
 
-- RAG integration with retrieval and citations.
-- Nostr-backed document manifests and chunk references.
-- Query routing between chat and RAG flows.
+- Dedupe logic for inbound messages.
+- RAG integration for richer responses.
+- Nostr-backed document metadata ingestion.
 
 ## Security notes
 
 - Do not log message bodies by default.
-- Store only minimal context required for the state machine.
+- Treat the SQLite database and signal-cli storage as sensitive.

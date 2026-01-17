@@ -40,8 +40,9 @@
   - Optional integration via `message-listener` (feature `maple`).
 - `agent_brain` (crate: `crates/agent-brain`)
   - Owns message handling, onboarding state machine, and routing decisions.
-  - Calls the OpenAI-compatible Responses API.
+  - Implements the `Brain` trait for use with `message_listener`.
   - Decides when to respond vs. when to update subscription state.
+  - Provides a simple `agent_brain_bot` binary for local Signal MVP use.
 - `broadcaster` (crate: `crates/broadcaster`)
   - Owns outbound delivery via `signal-daemon` (HTTP to signal-cli daemon).
   - Handles chunking, retries, and throttling.
@@ -54,6 +55,7 @@
 - `regional_event_listener` (subsystem)
   - Ingests regional events from external feeds or fixtures.
   - Normalizes to `RegionEvent` and hands off to `agent_brain`.
+  - MVP helper: `region_event_send` reads a JSON event file and fans out alerts.
 - Local storage
   - Signal account keys/credentials (managed by `signal-cli`).
   - Bot state: contacts, messages, subscriptions, dedupe.
@@ -190,6 +192,9 @@ Environment variables (names may be implementation-specific):
 - `SIGNAL_CLI_JAR`: path to `signal-cli.jar`.
 - `HTTP_ADDR`: HTTP bind address for signal-cli daemon.
 - `SQLITE_PATH`: bot state database path.
+- `AMAN_DEFAULT_LANGUAGE`: default language label for new contacts.
+- `SIGNAL_DAEMON_URL`: base URL for signal-cli daemon (optional override).
+- `SIGNAL_DAEMON_ACCOUNT`: account selector for daemon multi-account mode (optional).
 - `OPENAI_API_KEY`: API key for an OpenAI-compatible provider (if used by `agent_brain`).
 - `MODEL`: model name (example: `gpt-5`).
 - `STORE_OPENAI_RESPONSES`: `true` or `false`.

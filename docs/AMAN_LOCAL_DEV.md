@@ -29,9 +29,14 @@ Example values:
 ```bash
 export AMAN_NUMBER="+15551234567"
 export HTTP_ADDR="127.0.0.1:8080"
+# Optional override for daemon URL:
+# export SIGNAL_DAEMON_URL="http://127.0.0.1:8080"
+# Optional for multi-account daemon mode:
+# export SIGNAL_DAEMON_ACCOUNT="+15551234567"
 # Optional override:
 # export SIGNAL_CLI_JAR="build/signal-cli.jar"
 export SQLITE_PATH="./data/aman.db"
+export AMAN_DEFAULT_LANGUAGE="English"
 export OPENAI_API_KEY="..."   # optional (OpenAI-compatible provider)
 export MODEL="gpt-5"           # optional
 export STORE_OPENAI_RESPONSES="false"
@@ -104,14 +109,22 @@ For additional daemon modes and JSON-RPC/SSE details, see `docs/signal-cli-daemo
 
 ## 6) Start Aman services
 
-`message_listener`, `broadcaster`, and `agent_brain` are libraries. If you have service binaries in your environment,
-start them now and configure the signal-daemon base URL (`http://$HTTP_ADDR`) plus `SQLITE_PATH`.
+`agent-brain` ships a simple bot binary that wires the message listener and brain together.
 
 You can also validate the daemon connection using the `signal-daemon` examples:
 
 ```bash
 cargo run -p signal-daemon --example health_check
 cargo run -p signal-daemon --example echo_bot
+```
+
+Start the AgentBrain bot:
+
+```bash
+export SQLITE_PATH="./data/aman.db"
+export AMAN_NUMBER="+15551234567"
+export HTTP_ADDR="127.0.0.1:8080"
+cargo run -p agent-brain --bin agent_brain_bot
 ```
 
 Optional: run the message listener with a Brain implementation:
@@ -206,7 +219,13 @@ cat <<'JSON' > /tmp/region-event.json
 JSON
 ```
 
-Post it to the event intake endpoint (MVP target):
+Send it via the AgentBrain fanout helper:
+
+```bash
+cargo run -p agent-brain --bin region_event_send -- /tmp/region-event.json
+```
+
+Post it to the event intake endpoint (future target):
 
 ```bash
 curl -s -X POST http://127.0.0.1:9001/events \
