@@ -87,3 +87,20 @@ pub async fn list_topics(pool: &SqlitePool) -> Result<Vec<Topic>> {
 
     Ok(topics)
 }
+
+/// List all topics with their subscriber counts.
+pub async fn list_topics_with_subscriber_counts(pool: &SqlitePool) -> Result<Vec<(String, i64)>> {
+    let rows = sqlx::query_as::<_, (String, i64)>(
+        r#"
+        SELECT t.slug, COUNT(n.user_id) as subscriber_count
+        FROM topics t
+        LEFT JOIN notifications n ON n.topic_slug = t.slug
+        GROUP BY t.slug
+        ORDER BY t.slug
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
+}

@@ -8,25 +8,46 @@
 //! mock-brain = { path = "../mock-brain", features = ["signal-daemon"] }
 //! ```
 
+use std::path::Path;
+
 use brain_core::{Brain, BrainError, InboundAttachment, InboundMessage, OutboundMessage};
-use signal_daemon::{Attachment, Envelope, SendResult};
+use signal_daemon::{Attachment, DaemonConfig, Envelope, SendResult};
 
 /// Extension trait for converting signal-daemon Envelope to InboundMessage.
 pub trait EnvelopeExt {
     /// Convert to an InboundMessage if this envelope contains a text message.
     ///
+    /// Note: This method does not resolve attachment file paths. For full path
+    /// resolution, use `to_inbound_message_with_config` instead.
+    ///
     /// Returns `None` if:
     /// - No data_message is present
     /// - The data_message has no text content (unless it has attachments)
     fn to_inbound_message(&self) -> Option<InboundMessage>;
+
+    /// Convert to an InboundMessage with attachment paths resolved.
+    ///
+    /// This uses the signal-cli data directory from config to construct
+    /// full paths to attachment files.
+    ///
+    /// Returns `None` if:
+    /// - No data_message is present
+    /// - The data_message has no text content (unless it has attachments)
+    fn to_inbound_message_with_config(&self, config: &DaemonConfig) -> Option<InboundMessage>;
 }
 
 /// Convert a signal-daemon Attachment to an InboundAttachment.
-fn convert_attachment(att: &Attachment) -> InboundAttachment {
+fn convert_attachment(att: &Attachment, attachments_dir: Option<&Path>) -> InboundAttachment {
+    // Resolve full path if attachments_dir is provided and id exists
+    let file_path = match (attachments_dir, &att.id) {
+        (Some(dir), Some(id)) => Some(dir.join(id).to_string_lossy().to_string()),
+        _ => att.id.clone(),
+    };
+
     InboundAttachment {
         content_type: att.content_type.clone(),
         filename: att.filename.clone(),
-        file_path: att.id.clone(), // signal-cli uses 'id' as the file path
+        file_path,
         size: att.size,
         width: att.width,
         height: att.height,
@@ -36,40 +57,49 @@ fn convert_attachment(att: &Attachment) -> InboundAttachment {
 
 impl EnvelopeExt for Envelope {
     fn to_inbound_message(&self) -> Option<InboundMessage> {
-        let data_message = self.data_message.as_ref()?;
-
-        // Convert attachments
-        let attachments: Vec<InboundAttachment> = data_message
-            .attachments
-            .iter()
-            .map(convert_attachment)
-            .collect();
-
-        // Get text content - allow empty string if there are attachments
-        let text = data_message
-            .message
-            .clone()
-            .or_else(|| {
-                if !attachments.is_empty() {
-                    Some(String::new())
-                } else {
-                    None
-                }
-            })?;
-
-        let group_id = data_message
-            .group_info
-            .as_ref()
-            .map(|g| g.group_id.clone());
-
-        Some(InboundMessage {
-            sender: self.source.clone(),
-            text,
-            timestamp: self.timestamp,
-            group_id,
-            attachments,
-        })
+        envelope_to_inbound(self, None)
     }
+
+    fn to_inbound_message_with_config(&self, config: &DaemonConfig) -> Option<InboundMessage> {
+        envelope_to_inbound(self, Some(&config.attachments_dir()))
+    }
+}
+
+/// Internal function to convert an Envelope to an InboundMessage.
+fn envelope_to_inbound(envelope: &Envelope, attachments_dir: Option<&Path>) -> Option<InboundMessage> {
+    let data_message = envelope.data_message.as_ref()?;
+
+    // Convert attachments with optional path resolution
+    let attachments: Vec<InboundAttachment> = data_message
+        .attachments
+        .iter()
+        .map(|att| convert_attachment(att, attachments_dir))
+        .collect();
+
+    // Get text content - allow empty string if there are attachments
+    let text = data_message
+        .message
+        .clone()
+        .or_else(|| {
+            if !attachments.is_empty() {
+                Some(String::new())
+            } else {
+                None
+            }
+        })?;
+
+    let group_id = data_message
+        .group_info
+        .as_ref()
+        .map(|g| g.group_id.clone());
+
+    Some(InboundMessage {
+        sender: envelope.source.clone(),
+        text,
+        timestamp: envelope.timestamp,
+        group_id,
+        attachments,
+    })
 }
 
 /// Extension trait for OutboundMessage to prepare for signal-daemon sending.
@@ -282,5 +312,40 @@ mod tests {
         };
         assert!(group.recipient_number().is_none());
         assert_eq!(group.group_id(), Some("group123"));
+    }
+
+    #[test]
+    fn test_envelope_with_config_resolves_paths() {
+        // Test that attachment paths are resolved when using config
+        let envelope = Envelope {
+            source: "+15551234567".to_string(),
+            source_number: "+15551234567".to_string(),
+            timestamp: 1234567890,
+            data_message: Some(DataMessage {
+                message: Some("Check this out!".to_string()),
+                attachments: vec![Attachment {
+                    content_type: "image/jpeg".to_string(),
+                    filename: Some("photo.jpg".to_string()),
+                    id: Some("abc123.jpeg".to_string()), // Just filename
+                    size: Some(12345),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        // Without config - just uses ID as-is
+        let inbound = envelope.to_inbound_message().unwrap();
+        assert_eq!(inbound.attachments[0].file_path, Some("abc123.jpeg".to_string()));
+
+        // With config - resolves full path
+        let config = DaemonConfig::new("http://localhost:8080")
+            .with_data_dir("/tmp/test-signal-cli");
+        let inbound_with_config = envelope.to_inbound_message_with_config(&config).unwrap();
+        assert_eq!(
+            inbound_with_config.attachments[0].file_path,
+            Some("/tmp/test-signal-cli/attachments/abc123.jpeg".to_string())
+        );
     }
 }

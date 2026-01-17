@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/admin-web",
     "crates/api",
     "crates/agent-brain",
     "crates/brain-core",
