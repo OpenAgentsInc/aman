@@ -12,6 +12,7 @@ default = []
 signal-daemon = ["dep:signal-daemon"]
 
 [dependencies]
+brain-core = { path = "../brain-core" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 thiserror = "2"

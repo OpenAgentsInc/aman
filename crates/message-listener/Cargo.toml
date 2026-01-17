@@ -8,11 +8,28 @@ description = "Signal-native message listener utilities for Aman."
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+maple = ["dep:maple-brain"]
+
 [dependencies]
+brain-core = { path = "../brain-core" }
 signal-daemon = { path = "../signal-daemon" }
+mock-brain = { path = "../mock-brain", features = ["signal-daemon"] }
+maple-brain = { path = "../maple-brain", optional = true }
 futures = "0.3"
 thiserror = "2"
 tracing = "0.1"
+tokio = { version = "1", features = ["rt", "sync"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+dotenvy = "0.15"
+tracing-subscriber = "0.3"
+
+[[example]]
+name = "processor_bot"
+
+[[example]]
+name = "maple_bot"
+required-features = ["maple"]

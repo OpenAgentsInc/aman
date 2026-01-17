@@ -1,7 +1,11 @@
-//! Mock brain implementations for testing Signal bot message processing.
+//! Mock brain implementations for Signal bot message processing.
 //!
-//! This crate provides a `Brain` trait and mock implementations for testing
-//! the message-listener and bot worker without requiring a real AI backend.
+//! This crate provides mock implementations of the `Brain` trait for testing:
+//! - `EchoBrain` - Echoes messages back
+//! - `PrefixBrain` - Adds prefix/suffix to messages
+//! - `DelayedBrain` - Wraps another brain with artificial delay
+//!
+//! For production AI processing, use the `maple-brain` crate instead.
 //!
 //! # Example
 //!
@@ -12,12 +16,7 @@
 //! async fn main() -> Result<(), mock_brain::BrainError> {
 //!     let brain = EchoBrain::new();
 //!
-//!     let message = InboundMessage {
-//!         sender: "+15551234567".to_string(),
-//!         text: "Hello!".to_string(),
-//!         timestamp: 1234567890,
-//!         group_id: None,
-//!     };
+//!     let message = InboundMessage::direct("+15551234567", "Hello!", 1234567890);
 //!
 //!     let response = brain.process(message).await?;
 //!     println!("Response: {}", response.text);
@@ -30,10 +29,6 @@
 //! - `signal-daemon`: Enable integration with signal-daemon types for
 //!   converting between Envelope and InboundMessage.
 
-mod error;
-mod message;
-mod trait_def;
-
 // Mock implementations
 mod echo;
 mod prefix;
@@ -43,9 +38,8 @@ mod delayed;
 #[cfg(feature = "signal-daemon")]
 pub mod signal_integration;
 
-pub use error::BrainError;
-pub use message::{InboundMessage, OutboundMessage};
-pub use trait_def::Brain;
+// Re-export brain-core types for convenience
+pub use brain_core::{async_trait, Brain, BrainError, InboundAttachment, InboundMessage, OutboundMessage};
 
 // Export mock implementations
 pub use echo::EchoBrain;

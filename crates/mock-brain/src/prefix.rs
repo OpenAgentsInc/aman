@@ -1,10 +1,6 @@
 //! Prefix brain implementation - transforms messages with prefix/suffix.
 
-use async_trait::async_trait;
-
-use crate::error::BrainError;
-use crate::message::{InboundMessage, OutboundMessage};
-use crate::trait_def::Brain;
+use brain_core::{async_trait, Brain, BrainError, InboundMessage, OutboundMessage};
 
 /// A brain that transforms messages by adding prefix and/or suffix.
 ///

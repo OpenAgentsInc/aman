@@ -149,3 +149,24 @@ pub struct RecipientAddress {
     #[serde(default)]
     pub number: Option<String>,
 }
+
+/// Parameters for sending a typing indicator.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TypingParams {
+    /// Account to send from (multi-account mode).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+
+    /// Recipient phone number.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub recipient: String,
+
+    /// Group ID (for group typing indicators).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+
+    /// If true, send "stopped typing" instead of "started typing".
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub stop: bool,
+}

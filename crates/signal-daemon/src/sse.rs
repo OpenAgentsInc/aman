@@ -76,14 +76,20 @@ impl MessageStream {
     }
 
     fn with_config(
-        http: reqwest::Client,
+        _http: reqwest::Client,
         config: DaemonConfig,
         reconnect_config: ReconnectConfig,
     ) -> Self {
         let url = config.events_url();
         info!("Creating SSE connection to {}", url);
 
-        let request = http.get(&url);
+        // Create a separate HTTP client for SSE without timeout
+        // SSE connections are long-lived and should not timeout
+        let sse_client = reqwest::Client::builder()
+            .build()
+            .expect("Failed to build SSE client");
+
+        let request = sse_client.get(&url);
         let event_source = request.eventsource().unwrap();
 
         Self {

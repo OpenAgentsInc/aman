@@ -1,17 +1,15 @@
 //! Integration with signal-daemon types.
 //!
 //! This module provides conversion utilities between signal-daemon's
-//! Envelope types and mock-brain's message types.
+//! Envelope types and brain-core's message types.
 //!
 //! Enable with the `signal-daemon` feature:
 //! ```toml
 //! mock-brain = { path = "../mock-brain", features = ["signal-daemon"] }
 //! ```
 
-use signal_daemon::{Envelope, SendResult};
-
-use crate::message::{InboundMessage, OutboundMessage};
-use crate::Brain;
+use brain_core::{Brain, BrainError, InboundAttachment, InboundMessage, OutboundMessage};
+use signal_daemon::{Attachment, Envelope, SendResult};
 
 /// Extension trait for converting signal-daemon Envelope to InboundMessage.
 pub trait EnvelopeExt {
@@ -19,14 +17,45 @@ pub trait EnvelopeExt {
     ///
     /// Returns `None` if:
     /// - No data_message is present
-    /// - The data_message has no text content
+    /// - The data_message has no text content (unless it has attachments)
     fn to_inbound_message(&self) -> Option<InboundMessage>;
+}
+
+/// Convert a signal-daemon Attachment to an InboundAttachment.
+fn convert_attachment(att: &Attachment) -> InboundAttachment {
+    InboundAttachment {
+        content_type: att.content_type.clone(),
+        filename: att.filename.clone(),
+        file_path: att.id.clone(), // signal-cli uses 'id' as the file path
+        size: att.size,
+        width: att.width,
+        height: att.height,
+        caption: att.caption.clone(),
+    }
 }
 
 impl EnvelopeExt for Envelope {
     fn to_inbound_message(&self) -> Option<InboundMessage> {
         let data_message = self.data_message.as_ref()?;
-        let text = data_message.message.as_ref()?;
+
+        // Convert attachments
+        let attachments: Vec<InboundAttachment> = data_message
+            .attachments
+            .iter()
+            .map(convert_attachment)
+            .collect();
+
+        // Get text content - allow empty string if there are attachments
+        let text = data_message
+            .message
+            .clone()
+            .or_else(|| {
+                if !attachments.is_empty() {
+                    Some(String::new())
+                } else {
+                    None
+                }
+            })?;
 
         let group_id = data_message
             .group_info
@@ -35,9 +64,10 @@ impl EnvelopeExt for Envelope {
 
         Some(InboundMessage {
             sender: self.source.clone(),
-            text: text.clone(),
+            text,
             timestamp: self.timestamp,
             group_id,
+            attachments,
         })
     }
 }
@@ -111,7 +141,7 @@ pub async fn process_and_respond<B: Brain>(
 pub enum ProcessError {
     /// Error from the brain during processing.
     #[error("brain error: {0}")]
-    Brain(#[from] crate::BrainError),
+    Brain(#[from] BrainError),
 
     /// Error from signal-daemon during sending.
     #[error("send error: {0}")]
@@ -121,7 +151,7 @@ pub enum ProcessError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use signal_daemon::{DataMessage, GroupInfo};
+    use signal_daemon::{Attachment, DataMessage, GroupInfo};
 
     #[test]
     fn test_envelope_to_inbound_direct() {
@@ -141,6 +171,69 @@ mod tests {
         assert_eq!(inbound.text, "Hello!");
         assert_eq!(inbound.timestamp, 1234567890);
         assert!(inbound.group_id.is_none());
+        assert!(inbound.attachments.is_empty());
+    }
+
+    #[test]
+    fn test_envelope_with_attachment() {
+        let envelope = Envelope {
+            source: "+15551234567".to_string(),
+            source_number: "+15551234567".to_string(),
+            timestamp: 1234567890,
+            data_message: Some(DataMessage {
+                message: Some("Check this out!".to_string()),
+                attachments: vec![Attachment {
+                    content_type: "image/jpeg".to_string(),
+                    filename: Some("photo.jpg".to_string()),
+                    id: Some("/tmp/signal-cli/attachments/123456".to_string()),
+                    size: Some(12345),
+                    width: Some(800),
+                    height: Some(600),
+                    caption: Some("A nice photo".to_string()),
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let inbound = envelope.to_inbound_message().unwrap();
+        assert_eq!(inbound.text, "Check this out!");
+        assert_eq!(inbound.attachments.len(), 1);
+
+        let att = &inbound.attachments[0];
+        assert_eq!(att.content_type, "image/jpeg");
+        assert_eq!(att.filename, Some("photo.jpg".to_string()));
+        assert_eq!(att.file_path, Some("/tmp/signal-cli/attachments/123456".to_string()));
+        assert_eq!(att.size, Some(12345));
+        assert_eq!(att.width, Some(800));
+        assert_eq!(att.height, Some(600));
+        assert!(att.is_image());
+        assert!(!att.is_video());
+    }
+
+    #[test]
+    fn test_envelope_attachment_only() {
+        // Message with attachment but no text
+        let envelope = Envelope {
+            source: "+15551234567".to_string(),
+            source_number: "+15551234567".to_string(),
+            timestamp: 1234567890,
+            data_message: Some(DataMessage {
+                message: None,
+                attachments: vec![Attachment {
+                    content_type: "image/png".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let inbound = envelope.to_inbound_message().unwrap();
+        assert_eq!(inbound.text, ""); // Empty text
+        assert_eq!(inbound.attachments.len(), 1);
+        assert!(inbound.has_attachments());
+        assert!(inbound.has_images());
     }
 
     #[test]

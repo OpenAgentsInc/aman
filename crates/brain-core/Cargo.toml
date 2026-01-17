@@ -1,0 +1,12 @@
+[package]
+name = "brain-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core trait and types for brain implementations in the Aman Signal bot."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+async-trait = "0.1"
+thiserror = "2"

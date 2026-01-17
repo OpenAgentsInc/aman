@@ -11,7 +11,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::DaemonConfig;
 use crate::error::DaemonError;
-use crate::types::{SendParams, SendResult};
+use crate::types::{SendParams, SendResult, TypingParams};
 
 /// JSON-RPC 2.0 request structure.
 #[derive(Debug, Serialize)]
@@ -158,6 +158,43 @@ impl SignalClient {
     ) -> Result<SendResult, DaemonError> {
         let params = SendParams::group(group_id, message);
         self.send(params).await
+    }
+
+    /// Send a typing indicator to a recipient.
+    ///
+    /// # Arguments
+    /// * `recipient` - Phone number to send typing indicator to
+    /// * `started` - true for "started typing", false for "stopped typing"
+    pub async fn send_typing(
+        &self,
+        recipient: &str,
+        started: bool,
+    ) -> Result<(), DaemonError> {
+        let params = TypingParams {
+            account: self.config.account.clone(),
+            recipient: recipient.to_string(),
+            group_id: None,
+            stop: !started,
+        };
+        // sendTyping returns an empty result on success
+        let _: serde_json::Value = self.rpc_call("sendTyping", Some(params)).await?;
+        Ok(())
+    }
+
+    /// Send a typing indicator to a group.
+    pub async fn send_typing_to_group(
+        &self,
+        group_id: &str,
+        started: bool,
+    ) -> Result<(), DaemonError> {
+        let params = TypingParams {
+            account: self.config.account.clone(),
+            recipient: String::new(),
+            group_id: Some(group_id.to_string()),
+            stop: !started,
+        };
+        let _: serde_json::Value = self.rpc_call("sendTyping", Some(params)).await?;
+        Ok(())
     }
 
     /// Start a background health monitor that periodically checks the daemon.

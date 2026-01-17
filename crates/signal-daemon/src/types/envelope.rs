@@ -1,17 +1,26 @@
 //! Envelope and message types from signal-cli daemon.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Deserialize a string that may be null as an empty string.
+fn null_to_empty_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default())
+}
 
 /// A message envelope received from Signal.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Envelope {
     /// Source phone number (e.g., "+1234567890").
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_empty_string")]
     pub source: String,
 
     /// Source phone number (same as source).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_empty_string")]
     pub source_number: String,
 
     /// Source UUID.
@@ -93,7 +102,7 @@ pub struct DataMessage {
 #[serde(rename_all = "camelCase")]
 pub struct GroupInfo {
     /// Group ID (base64 encoded).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_empty_string")]
     pub group_id: String,
 
     /// Group type (v1 or v2).
@@ -102,11 +111,11 @@ pub struct GroupInfo {
 }
 
 /// An attachment in a message.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Attachment {
     /// Content type (MIME type).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_empty_string")]
     pub content_type: String,
 
     /// Original filename.
@@ -135,7 +144,7 @@ pub struct Attachment {
 }
 
 /// Quote/reply to another message.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Quote {
     /// Original message ID.
@@ -156,11 +165,11 @@ pub struct Quote {
 }
 
 /// Reaction to a message.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reaction {
     /// The emoji reaction.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_empty_string")]
     pub emoji: String,
 
     /// Whether this removes a reaction.
@@ -181,7 +190,7 @@ pub struct Reaction {
 }
 
 /// A mention in a message.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Mention {
     /// Start position in the message.
@@ -202,7 +211,7 @@ pub struct Mention {
 }
 
 /// Sync message from a linked device.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncMessage {
     /// Sent message sync.
@@ -215,7 +224,7 @@ pub struct SyncMessage {
 }
 
 /// A message sent from another linked device.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SentMessage {
     /// Destination phone number.
@@ -236,7 +245,7 @@ pub struct SentMessage {
 }
 
 /// A read message receipt.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadMessage {
     /// Sender of the read message.
@@ -253,7 +262,7 @@ pub struct ReadMessage {
 }
 
 /// A receipt message (delivery, read, viewed).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReceiptMessage {
     /// Timestamps of messages this receipt is for.
@@ -278,11 +287,11 @@ pub struct ReceiptMessage {
 }
 
 /// A typing indicator.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TypingMessage {
     /// Action: "STARTED" or "STOPPED".
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_empty_string")]
     pub action: String,
 
     /// Timestamp.

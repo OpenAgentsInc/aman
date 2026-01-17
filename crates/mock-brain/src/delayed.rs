@@ -2,12 +2,8 @@
 
 use std::time::Duration;
 
-use async_trait::async_trait;
+use brain_core::{async_trait, Brain, BrainError, InboundMessage, OutboundMessage};
 use tokio::time::sleep;
-
-use crate::error::BrainError;
-use crate::message::{InboundMessage, OutboundMessage};
-use crate::trait_def::Brain;
 
 /// A brain that wraps another brain and adds artificial delay.
 ///

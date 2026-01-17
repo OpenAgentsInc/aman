@@ -20,4 +20,12 @@ pub enum BrainError {
     /// A timeout occurred during processing.
     #[error("processing timed out")]
     Timeout,
+
+    /// Configuration error.
+    #[error("configuration error: {0}")]
+    Configuration(String),
+
+    /// Network or API error.
+    #[error("network error: {0}")]
+    Network(String),
 }

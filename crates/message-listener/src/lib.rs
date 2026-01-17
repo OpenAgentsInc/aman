@@ -1,9 +1,9 @@
 //! Message listener utilities for Aman.
 //!
 //! This crate provides a high-level interface for receiving Signal messages
-//! using the signal-cli daemon's SSE endpoint.
+//! and processing them through a Brain implementation.
 //!
-//! # Example
+//! # Basic Usage
 //!
 //! ```no_run
 //! use message_listener::MessageListener;
@@ -32,11 +32,43 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! # Using MessageProcessor with a Brain
+//!
+//! ```no_run
+//! use message_listener::{MessageProcessor, ProcessorConfig, EchoBrain};
+//! use signal_daemon::{DaemonConfig, SignalClient};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let client = SignalClient::connect(DaemonConfig::default()).await?;
+//! let brain = EchoBrain::with_prefix("Echo: ");
+//! let config = ProcessorConfig::with_bot_number("+15551234567");
+//!
+//! let processor = MessageProcessor::new(client, brain, config);
+//! processor.run().await?;
+//! # Ok(())
+//! # }
+//! ```
+
+mod processor;
 
 use futures::stream::Stream;
 use signal_daemon::{DaemonConfig, DaemonError, MessageStream, SignalClient};
 use thiserror::Error;
 use tracing::info;
+
+// Re-export processor types
+pub use processor::{MessageProcessor, ProcessorConfig, ProcessorError, ProcessResult};
+
+// Re-export brain-core types for convenience
+pub use brain_core::{Brain, BrainError, InboundAttachment, InboundMessage, OutboundMessage};
+
+// Re-export mock brain implementations
+pub use mock_brain::{EchoBrain, PrefixBrain, DelayedBrain};
+
+// Re-export maple-brain when feature is enabled
+#[cfg(feature = "maple")]
+pub use maple_brain::{MapleBrain, MapleBrainConfig};
 
 // Re-export Envelope and ReconnectConfig for users
 pub use signal_daemon::{Envelope, ReconnectConfig};

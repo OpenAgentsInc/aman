@@ -1,10 +1,6 @@
 //! Echo brain implementation - echoes messages back.
 
-use async_trait::async_trait;
-
-use crate::error::BrainError;
-use crate::message::{InboundMessage, OutboundMessage};
-use crate::trait_def::Brain;
+use brain_core::{async_trait, Brain, BrainError, InboundMessage, OutboundMessage};
 
 /// A simple brain that echoes messages back to the sender.
 ///
