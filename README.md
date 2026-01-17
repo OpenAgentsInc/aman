@@ -54,13 +54,7 @@ See the runbook: `docs/AMAN_LOCAL_DEV.md`.
 - Rust toolchain (for crates)
 - A phone number for the bot's Signal account
 
-### 1. Initialize submodules
-
-```bash
-git submodule update --init
-```
-
-### 2. Build signal-cli
+### 1. Build signal-cli
 
 ```bash
 ./scripts/build-signal-cli.sh
@@ -68,7 +62,7 @@ git submodule update --init
 
 This builds a fat JAR at `build/signal-cli.jar`.
 
-### 3. Register Signal account
+### 2. Register Signal account
 
 First-time registration:
 
@@ -89,7 +83,7 @@ After receiving the code:
 ./scripts/signal-cli.sh -a +1234567890 verify <CODE>
 ```
 
-### 4. Run the daemon
+### 3. Run the daemon
 
 ```bash
 ./scripts/run-signal-daemon.sh +1234567890

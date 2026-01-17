@@ -3,11 +3,11 @@
 # Run signal-cli daemon for testing.
 #
 # Usage:
-#   ./scripts/run-signal-daemon.sh                    # Uses AMAN_NUMBER env var
+#   ./scripts/run-signal-daemon.sh                    # Uses AMAN_NUMBER from .env
 #   ./scripts/run-signal-daemon.sh +1234567890        # Specify account
 #   AMAN_NUMBER=+1234567890 ./scripts/run-signal-daemon.sh
 #
-# Environment variables:
+# Environment variables (can be set in .env):
 #   AMAN_NUMBER     - Signal phone number (required if not passed as argument)
 #   SIGNAL_CLI_JAR  - Path to signal-cli.jar (default: build/signal-cli.jar)
 #   HTTP_ADDR       - HTTP bind address (default: 127.0.0.1:8080)
@@ -15,8 +15,8 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# Load common utilities and .env
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 # Configuration
 SIGNAL_CLI_JAR="${SIGNAL_CLI_JAR:-$PROJECT_ROOT/build/signal-cli.jar}"
@@ -27,7 +27,7 @@ ACCOUNT="${1:-${AMAN_NUMBER:-}}"
 if [ -z "$ACCOUNT" ]; then
     echo "Error: No account specified." >&2
     echo "Usage: $0 <phone_number>" >&2
-    echo "   or: AMAN_NUMBER=+1234567890 $0" >&2
+    echo "   or: Set AMAN_NUMBER in .env file" >&2
     exit 1
 fi
 

@@ -9,8 +9,9 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# Load common utilities and .env
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+
 SIGNAL_CLI_DIR="$PROJECT_ROOT/repos/signal-cli"
 BUILD_DIR="$PROJECT_ROOT/build"
 OUTPUT_JAR="$BUILD_DIR/signal-cli.jar"

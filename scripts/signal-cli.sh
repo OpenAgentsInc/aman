@@ -8,14 +8,14 @@
 #   ./scripts/signal-cli.sh -a +1234567890 verify 123456
 #   ./scripts/signal-cli.sh -a +1234567890 daemon --http=127.0.0.1:8080
 #
-# Environment variables:
+# Environment variables (can be set in .env):
 #   SIGNAL_CLI_JAR  - Path to signal-cli.jar (default: build/signal-cli.jar)
 #
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# Load common utilities and .env
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 SIGNAL_CLI_JAR="${SIGNAL_CLI_JAR:-$PROJECT_ROOT/build/signal-cli.jar}"
 

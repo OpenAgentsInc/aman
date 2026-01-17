@@ -1,9 +1,13 @@
 //! Simple echo bot example.
 //!
-//! Run with: AMAN_NUMBER=+1234567890 cargo run --example echo_bot
+//! Run with: cargo run --example echo_bot
+//!
+//! Configuration via .env file or environment variables:
+//!   AMAN_NUMBER     - If set, spawns daemon automatically
+//!   SIGNAL_CLI_JAR  - JAR path (default: ../../build/signal-cli.jar)
 //!
 //! Or start daemon separately and run without AMAN_NUMBER:
-//!   Terminal 1: ./scripts/run-signal-daemon.sh +1234567890
+//!   Terminal 1: ./scripts/run-signal-daemon.sh
 //!   Terminal 2: cargo run --example echo_bot
 
 use futures::StreamExt;
@@ -13,6 +17,9 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load .env file if present (from project root)
+    let _ = dotenvy::from_path("../../.env");
+
     // Check if we should spawn daemon or connect to existing
     let account = env::var("AMAN_NUMBER").ok();
 

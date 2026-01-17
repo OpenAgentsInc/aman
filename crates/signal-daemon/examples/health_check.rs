@@ -2,11 +2,13 @@
 //!
 //! Run with: cargo run --example health_check
 //!
-//! Set AMAN_NUMBER environment variable or it will try to connect to existing daemon.
+//! Configuration via .env file or environment variables:
+//!   AMAN_NUMBER     - If set, spawns daemon automatically
+//!   SIGNAL_CLI_JAR  - JAR path (default: ../../build/signal-cli.jar)
 //!
 //! Examples:
-//!   AMAN_NUMBER=+1234567890 cargo run --example health_check   # Spawns daemon
-//!   cargo run --example health_check                            # Connects to existing
+//!   cargo run --example health_check                     # Uses .env or connects to existing
+//!   AMAN_NUMBER=+1234567890 cargo run --example health_check  # Override .env
 
 use signal_daemon::{DaemonConfig, ProcessConfig, SignalClient};
 use std::env;
@@ -14,6 +16,9 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load .env file if present (from project root)
+    let _ = dotenvy::from_path("../../.env");
+
     // Check if we should spawn daemon or connect to existing
     let account = env::var("AMAN_NUMBER").ok();
 
