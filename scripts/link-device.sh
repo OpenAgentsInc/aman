@@ -2,12 +2,24 @@
 #
 # Link signal-cli as a secondary device to an existing Signal account.
 #
-# This generates a QR code that you scan with your primary Signal app
-# (Settings > Linked Devices > Link New Device).
+# This is the RECOMMENDED approach for development because:
+#   - Multiple machines can link to the same account
+#   - Your phone remains the primary device
+#   - Easy to unlink/relink without losing the account
+#
+# How it works:
+#   1. This script generates a QR code in the terminal
+#   2. You scan the QR with your phone's Signal app
+#   3. Your phone authorizes this machine as a secondary device
+#   4. This machine can now send/receive messages on your account
 #
 # Usage:
 #   ./scripts/link-device.sh                    # Uses default device name "aman-bot"
 #   ./scripts/link-device.sh "My Server"        # Custom device name
+#
+# Requirements:
+#   qrencode - Install with: sudo apt install qrencode (Debian/Ubuntu)
+#                            brew install qrencode (macOS)
 #
 # Environment variables (can be set in .env):
 #   SIGNAL_CLI_JAR  - Path to signal-cli.jar (default: build/signal-cli.jar)
@@ -27,27 +39,57 @@ if [ ! -f "$SIGNAL_CLI_JAR" ]; then
     exit 1
 fi
 
-echo "=== Linking Device: $DEVICE_NAME ==="
+# Check for qrencode
+if ! command -v qrencode &> /dev/null; then
+    echo "Error: qrencode is not installed" >&2
+    echo "" >&2
+    echo "Install it with:" >&2
+    echo "  Ubuntu/Debian: sudo apt install qrencode" >&2
+    echo "  macOS:         brew install qrencode" >&2
+    echo "  Fedora:        sudo dnf install qrencode" >&2
+    echo "  Arch:          sudo pacman -S qrencode" >&2
+    exit 1
+fi
+
+echo "=== Link Device: $DEVICE_NAME ==="
 echo ""
-echo "A QR code URI will be generated below."
+echo "This will link this machine as a secondary device to your Signal account."
 echo ""
-echo "To link:"
-echo "  1. Open Signal on your primary device (phone)"
-echo "  2. Go to Settings > Linked Devices"
-echo "  3. Tap 'Link New Device'"
-echo "  4. Scan the QR code (or use the URI with a QR generator)"
+echo "STEPS:"
+echo "  1. A QR code will appear below"
+echo "  2. Open Signal on your phone"
+echo "  3. Go to: Settings > Linked Devices > Link New Device"
+echo "  4. Scan the QR code"
+echo "  5. Approve the link on your phone"
 echo ""
-echo "Waiting for link request..."
+echo "Generating link..."
 echo ""
 
-java -jar "$SIGNAL_CLI_JAR" link -n "$DEVICE_NAME"
+# Run signal-cli link and process its output
+# When we see a tsdevice:// URI, display it as a QR code
+java -jar "$SIGNAL_CLI_JAR" link -n "$DEVICE_NAME" 2>&1 | while IFS= read -r line; do
+    if [[ "$line" == tsdevice://* ]] || [[ "$line" == sgnl://* ]]; then
+        echo "=== Scan this QR code with your phone ==="
+        echo ""
+        echo "$line" | qrencode -t UTF8
+        echo ""
+        echo "URI: $line"
+        echo ""
+        echo "Waiting for you to scan and approve on your phone..."
+    else
+        echo "$line"
+    fi
+done
 
 echo ""
-echo "=== Device Linked Successfully ==="
+echo "=== Link Complete ==="
 echo ""
-echo "Your linked account number should now be available."
-echo "You can verify with:"
-echo "  ./scripts/signal-cli.sh -a <YOUR_NUMBER> receive"
+echo "If linking succeeded, this device is now connected to your Signal account."
 echo ""
-echo "Or start the daemon:"
-echo "  ./scripts/run-signal-daemon.sh <YOUR_NUMBER>"
+echo "To find your account number, check your phone or run:"
+echo "  ls ~/.local/share/signal-cli/data/"
+echo ""
+echo "Then start the daemon with:"
+echo "  ./scripts/run-signal-daemon.sh +1234567890"
+echo "  # Or set AMAN_NUMBER in .env and run:"
+echo "  ./scripts/run-signal-daemon.sh"

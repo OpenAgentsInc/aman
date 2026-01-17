@@ -62,6 +62,7 @@ Located in `scripts/`:
 | `build-signal-cli.sh` | Build signal-cli fat JAR to `build/signal-cli.jar` |
 | `signal-cli.sh` | General wrapper - pass any args to signal-cli |
 | `register-signal.sh` | Register/re-register a Signal account |
+| `link-device.sh` | Link as secondary device to existing account (recommended for dev) |
 | `run-signal-daemon.sh` | Run signal-cli daemon for development |
 
 ## signal-cli Setup
@@ -73,7 +74,41 @@ Located in `scripts/`:
 # Output: build/signal-cli.jar
 ```
 
-### Register Account
+### Account Setup: Two Paths
+
+There are two ways to set up a Signal account for signal-cli:
+
+| Path | Description | Best For |
+|------|-------------|----------|
+| **Linking** (recommended) | Link as secondary device to your phone | Development, multi-machine setups |
+| **Registration** | Register a new standalone account | Production, dedicated bot numbers |
+
+**For development, use Linking.** This allows multiple machines (laptops, servers) to share your Signal account, and your phone remains the primary device for easy management.
+
+### Path A: Link to Existing Account (Recommended for Dev)
+
+Link this machine as a secondary device to your phone's Signal account:
+
+```bash
+# Install qrencode (required for QR display)
+sudo apt install qrencode    # Debian/Ubuntu
+brew install qrencode        # macOS
+
+# Link with default device name "aman-bot"
+./scripts/link-device.sh
+
+# Link with custom device name (useful for multiple machines)
+./scripts/link-device.sh "My Laptop"
+./scripts/link-device.sh "Dev Server"
+```
+
+The script displays a QR code directly in the terminal. Scan with your phone: Settings > Linked Devices > Link New Device.
+
+**Multi-machine setup:** Run `link-device.sh` on each machine with a unique device name. Each will appear in your phone's Linked Devices list.
+
+### Path B: Register New Account (Production)
+
+Register a dedicated phone number as a standalone Signal account:
 
 ```bash
 # Request SMS verification
@@ -82,9 +117,11 @@ Located in `scripts/`:
 # If captcha required
 ./scripts/register-signal.sh +1234567890 --captcha
 
-# Verify with code
+# Verify with code received via SMS
 ./scripts/signal-cli.sh -a +1234567890 verify <CODE>
 ```
+
+**Note:** A registered account is tied to one device. To use on multiple machines, you'd need to copy `~/.local/share/signal-cli/data/` (not recommended due to sync issues).
 
 ### Run Daemon
 

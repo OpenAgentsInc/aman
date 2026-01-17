@@ -54,6 +54,7 @@ See the runbook: `docs/AMAN_LOCAL_DEV.md`.
 
 - Java 21+ (for signal-cli)
 - Rust toolchain (for crates)
+- qrencode (for device linking QR codes): `sudo apt install qrencode` or `brew install qrencode`
 - A phone number for the bot's Signal account
 
 Copy the example env file and edit values as needed:
@@ -71,9 +72,42 @@ cp .env.example .env
 This builds a fat JAR at `build/signal-cli.jar`.
 If the build script reports a missing submodule, run `git submodule update --init --recursive`.
 
-### 2. Register Signal account
+### 2. Set up Signal account
 
-First-time registration:
+There are two ways to set up a Signal account:
+
+| Path | Description | Best For |
+|------|-------------|----------|
+| **Linking** (recommended) | Link as secondary device to your phone | Development, multi-machine setups |
+| **Registration** | Register a new standalone account | Production, dedicated bot numbers |
+
+#### Option A: Link to existing account (Recommended for development)
+
+This is the **preferred approach for development** because:
+- Multiple machines (laptops, servers) can link to the same account
+- Your phone remains the primary device for easy management
+- Easy to unlink/relink without losing the account
+
+```bash
+# Install qrencode (required for QR display)
+sudo apt install qrencode    # Debian/Ubuntu
+brew install qrencode        # macOS
+
+# Link with default device name "aman-bot"
+./scripts/link-device.sh
+
+# Link with custom device name (useful for multiple machines)
+./scripts/link-device.sh "My Laptop"
+./scripts/link-device.sh "Dev Server"
+```
+
+The script displays a QR code directly in the terminal. Scan with your phone: **Settings > Linked Devices > Link New Device**
+
+**Multi-machine setup:** Run `link-device.sh` on each machine with a unique device name. Each device appears in your phone's Linked Devices list.
+
+#### Option B: Register new account (Production)
+
+Register a dedicated phone number as a standalone Signal account:
 
 ```bash
 # Request SMS verification code
@@ -91,6 +125,8 @@ After receiving the code:
 ```bash
 ./scripts/signal-cli.sh -a +1234567890 verify <CODE>
 ```
+
+**Note:** A registered account is tied to one machine. To use on multiple machines, you'd need to copy `~/.local/share/signal-cli/data/` (not recommended due to sync issues).
 
 ### 3. Run the daemon
 
@@ -123,6 +159,7 @@ curl -N http://127.0.0.1:8080/api/v1/events
 | `scripts/build-signal-cli.sh` | Build signal-cli fat JAR to `build/signal-cli.jar` |
 | `scripts/signal-cli.sh` | General wrapper - pass any args to signal-cli |
 | `scripts/register-signal.sh` | Register/re-register a Signal account |
+| `scripts/link-device.sh` | Link as secondary device to existing account (recommended for dev) |
 | `scripts/run-signal-daemon.sh` | Run signal-cli daemon for development |
 
 ### Environment Variables
