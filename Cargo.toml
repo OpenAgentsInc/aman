@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/agent-brain",
     "crates/broadcaster",
+    "crates/database",
     "crates/message-listener",
     "crates/mock-brain",
     "crates/signal-daemon",
