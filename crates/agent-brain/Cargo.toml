@@ -9,3 +9,8 @@ description = "Signal-native agent brain utilities for Aman."
 path = "src/lib.rs"
 
 [dependencies]
+nostr-persistence = { path = "../nostr-persistence", optional = true }
+
+[features]
+default = []
+nostr = ["nostr-persistence"]

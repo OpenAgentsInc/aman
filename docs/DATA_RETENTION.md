@@ -34,6 +34,7 @@ This document defines what Aman stores, what it does not store, and the default 
 
 These items are planned for the RAG and Nostr phases and are not part of the MVP.
 
+- Nostr event log (`nostr_events`) with raw JSON for rehydration.
 - Document manifests and chunk metadata (Nostr events).
 - Encrypted document blobs stored in object storage or IPFS.
 - Embedding artifacts or references used to rebuild the local vector DB.

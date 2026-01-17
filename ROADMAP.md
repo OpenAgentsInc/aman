@@ -9,6 +9,7 @@ next phases: RAG and Nostr-based persistence.
 - `signal-daemon`, `message-listener`, and `broadcaster` are working as libraries.
 - `agent-brain` is a stub and needs core logic implementation.
 - `regional_event_listener` exists as a documented subsystem; intake wiring is still pending.
+- `nostr-persistence` crate is started (publisher/indexer foundation).
 
 ## Phase 0 - Signal MVP hardening
 
@@ -48,6 +49,7 @@ Goal: support document and YouTube ingestion with retrieval and citations.
 
 Goal: make the knowledge base portable and resilient.
 
+- `nostr-persistence` crate (publisher + indexer) is in progress.
 - Nostr event schema
   - DocManifest events
   - Chunk events
@@ -86,6 +88,7 @@ Goal: enforce strong privacy defaults for closed-society contexts.
 ## Planned artifacts
 
 - service binaries for listener/brain/broadcaster
+- `crates/nostr-persistence` (publisher + indexer)
 - `crates/ingester` (docs + YouTube ingestion)
-- Nostr publisher/indexer module (inside `ingester` or separate crate)
+- Nostr publisher/indexer module (provided by `nostr-persistence`)
 - Vector DB schema and rehydration tooling

@@ -122,6 +122,39 @@ curl -s -X POST http://127.0.0.1:9001/events \
 
 You should see outbound alerts sent to all subscribers of the region.
 
+## 9) Run Nostr indexer locally (Phase 2 foundation)
+
+Pick relays that retain custom kinds. Relay retention varies by operator (see NIP-11).
+
+Start the indexer (SQLite will be created if missing):
+
+```bash
+cargo run -p nostr-persistence --bin nostr-indexer -- \
+  --relay wss://relay.damus.io \
+  --db ./data/nostr.db
+```
+
+Publish a fixture DocManifest:
+
+```bash
+cargo run -p nostr-persistence --bin nostr-publish-fixture -- \
+  --relay wss://relay.damus.io \
+  --key <NOSTR_SECRET_KEY> \
+  --doc crates/nostr-persistence/fixtures/doc.json
+```
+
+If encryption is enabled, set a key:
+
+```bash
+export NOSTR_SECRETBOX_KEY="hex:32-byte-hex-key"
+```
+
+Verify SQLite tables:
+
+```bash
+sqlite3 ./data/nostr.db "select doc_id, title from docs;"
+```
+
 ## Troubleshooting
 
 - Not receiving messages:

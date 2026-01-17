@@ -137,6 +137,9 @@ Environment variables (names may be implementation-specific):
 - `STORE_OPENAI_RESPONSES`: `true` or `false`.
 - `REGION_POLL_INTERVAL_SECONDS`: event ingester cadence.
 - `LOG_LEVEL`: log verbosity.
+- `NOSTR_RELAYS`: comma-separated relay URLs (Phase 2).
+- `NOSTR_DB_PATH`: SQLite path for Nostr indexer (Phase 2).
+- `NOSTR_SECRETBOX_KEY`: optional symmetric key for payload encryption (Phase 2).
 
 For daemon setup details, see `docs/signal-cli-daemon.md`.
 
@@ -156,17 +159,17 @@ Planned additions beyond the Signal MVP:
 - New `ingester` crate for documents and YouTube transcripts.
 - Nostr relay integration for durable, syncable knowledge state.
 - Local vector DB (Qdrant, FAISS, or equivalent) rebuilt from Nostr events.
+- `nostr-persistence` crate to publish and index Nostr events into SQLite.
 
 ### Planned data model (RAG + Nostr)
 
 - DocManifest event
-  - `doc_id`, `owner_id`, `created_at`, `language`, `mime`, `title`
-  - `source_hash`, encryption metadata
-  - list of chunk IDs
-- Chunk event
-  - `chunk_id`, `doc_id`, offsets
-  - encrypted chunk text or pointer to encrypted blob
-  - optional embedding reference
+  - `doc_id`, `title`, `lang`, `mime`, `source_type`
+  - `content_hash`, `blob_ref`, timestamps
+  - inline `chunks` list (id, ord, offsets, chunk_hash, blob_ref)
+- ChunkRef event
+  - `chunk_id`, `doc_id`, `ord`, offsets
+  - `chunk_hash`, `blob_ref`, timestamps
 - Embedding artifact
   - model name/version
   - vector bytes (compressed) or reference
@@ -181,6 +184,79 @@ Planned additions beyond the Signal MVP:
 - Large blobs live in object storage or IPFS with references in Nostr.
 - Vector search happens locally; indexes are rebuilt from the relay log.
 
+### Nostr persistence implementation plan
+
+- Event kinds (parameterized replaceable, 30000-39999):
+  - DocManifest: 30090 (d=doc_id)
+  - ChunkRef: 30091 (d=chunk_id)
+  - AccessPolicy: 30092 (d=scope_id)
+- Required tags:
+  - d tag for addressability
+  - k tag with semantic label (doc_manifest, chunk_ref, policy)
+  - enc tag when content is encrypted (secretbox-v1)
+- Content format:
+  - JSON when unencrypted
+  - base64 ciphertext when encrypted
+- Relay retention varies by operator (see NIP-11). Choose relays that retain custom kinds.
+- Implementation uses rust-nostr (`nostr-sdk`).
+
+### JSON schema (authoritative)
+
+DocManifest content:
+
+```json
+{
+  "schema_version": 1,
+  "created_at": 1735689600,
+  "updated_at": 1735689600,
+  "doc_id": "doc_iran_connectivity_001",
+  "title": "Connectivity Disruption Summary",
+  "lang": "en",
+  "mime": "text/plain",
+  "source_type": "signal_paste",
+  "content_hash": "sha256:...",
+  "blob_ref": "s3://...",
+  "chunks": [
+    {
+      "chunk_id": "chunk_iran_001",
+      "ord": 0,
+      "offsets": { "start": 0, "end": 512 },
+      "chunk_hash": "sha256:...",
+      "blob_ref": "s3://..."
+    }
+  ]
+}
+```
+
+ChunkRef content:
+
+```json
+{
+  "schema_version": 1,
+  "created_at": 1735689600,
+  "updated_at": 1735689600,
+  "chunk_id": "chunk_iran_001",
+  "doc_id": "doc_iran_connectivity_001",
+  "ord": 0,
+  "offsets": { "start": 0, "end": 512 },
+  "chunk_hash": "sha256:...",
+  "blob_ref": "s3://..."
+}
+```
+
+AccessPolicy content:
+
+```json
+{
+  "schema_version": 1,
+  "created_at": 1735689600,
+  "updated_at": 1735689600,
+  "scope_id": "workspace_01",
+  "readers": ["npub..."],
+  "notes": "Optional human-readable policy notes"
+}
+```
+
 ## Glossary
 
 - **SignalIdentity**: stable identifier for a Signal contact.
@@ -190,6 +266,7 @@ Planned additions beyond the Signal MVP:
 - **Broadcaster**: component that sends outbound Signal messages.
 - **signal-cli daemon**: signal-cli process exposing HTTP/SSE and JSON-RPC.
 - **signal-daemon**: Rust client for the signal-cli daemon.
+- **nostr-persistence**: crate that publishes and indexes Nostr metadata into SQLite.
 - **DocManifest**: planned event describing a document and its chunks.
 - **Chunk**: planned unit of text for retrieval and citations.
 - **Embedding artifact**: planned vector or reference for retrieval.

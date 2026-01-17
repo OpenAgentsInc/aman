@@ -186,6 +186,7 @@ curl -N http://127.0.0.1:8080/api/v1/events
 | `message-listener` | Signal inbound transport using signal-daemon |
 | `broadcaster` | Signal outbound delivery using signal-daemon |
 | `agent-brain` | Onboarding, routing, and API calls |
+| `nostr-persistence` | Nostr publisher/indexer for durable doc/chunk metadata |
 
 See individual READMEs in `crates/*/README.md` for API documentation.
 

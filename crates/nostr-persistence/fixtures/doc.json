@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "created_at": 1735689600,
+  "updated_at": 1735689600,
+  "doc_id": "doc_iran_connectivity_001",
+  "title": "Connectivity Disruption Summary",
+  "lang": "en",
+  "mime": "text/plain",
+  "source_type": "signal_paste",
+  "content_hash": "sha256:3b4d5c6e7f",
+  "blob_ref": "s3://aman-docs/doc_iran_connectivity_001",
+  "chunks": [
+    {
+      "chunk_id": "chunk_iran_001",
+      "ord": 0,
+      "offsets": { "start": 0, "end": 512 },
+      "chunk_hash": "sha256:aa11bb22",
+      "blob_ref": "s3://aman-docs/chunk_iran_001"
+    }
+  ]
+}
