@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A message envelope received from Signal.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Envelope {
     /// Source phone number (e.g., "+1234567890").
@@ -48,7 +48,7 @@ pub struct Envelope {
 }
 
 /// A data message containing the actual message content.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DataMessage {
     /// Message timestamp.
@@ -89,7 +89,7 @@ pub struct DataMessage {
 }
 
 /// Information about a group.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GroupInfo {
     /// Group ID (base64 encoded).

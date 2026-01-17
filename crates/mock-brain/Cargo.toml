@@ -13,7 +13,7 @@ signal-daemon = ["dep:signal-daemon"]
 
 [dependencies]
 async-trait = "0.1"
-tokio = { version = "1", features = ["rt", "sync"] }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 thiserror = "2"
 
 # Optional: integration with signal-daemon types
@@ -23,3 +23,7 @@ signal-daemon = { path = "../signal-daemon", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 futures = "0.3"
 dotenvy = "0.15"
+
+[[example]]
+name = "echo_with_signal"
+required-features = ["signal-daemon"]
