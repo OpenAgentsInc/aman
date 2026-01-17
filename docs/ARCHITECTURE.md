@@ -140,11 +140,10 @@ Environment variables (names may be implementation-specific):
 - Do not log message bodies by default.
 - Prefer `store: false` (or equivalent) for the OpenAI-compatible Responses API.
 
-## Future architecture (Web UI, RAG, and Nostr)
+## Future architecture (RAG and Nostr)
 
 Planned additions beyond the Signal MVP:
 
-- Web UI for chat and uploads, with Signal as the trust channel for session bootstrapping.
 - RAG pipeline integrated into `agent_brain`.
 - New `ingester` crate for documents and YouTube transcripts.
 - Nostr relay integration for durable, syncable knowledge state.

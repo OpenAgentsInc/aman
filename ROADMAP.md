@@ -1,7 +1,7 @@
 # Aman Roadmap
 
 This roadmap captures what still needs to be built beyond the current Signal MVP. It separates MVP hardening from the
-next phases: Web UI, RAG, and Nostr-based persistence.
+next phases: RAG and Nostr-based persistence.
 
 ## Phase 0 - Signal MVP hardening
 
@@ -20,20 +20,7 @@ Goal: complete and stabilize the Signal-native assistant with opt-in regional al
   - retention windows and opt-out handling
   - structured config and health checks
 
-## Phase 1 - Web UI and session bridge
-
-Goal: add a browser surface while keeping Signal as the trust channel.
-
-- Web UI
-  - chat interface
-  - uploads entry point
-  - citations/snippets view
-- Session bridge
-  - magic link or one-time code delivered via Signal
-  - short-lived session tokens
-- Minimal access control model tied to Signal identity
-
-## Phase 2 - RAG pipeline and ingester crate
+## Phase 1 - RAG pipeline and ingester crate
 
 Goal: support document and YouTube ingestion with retrieval and citations.
 
@@ -50,7 +37,7 @@ Goal: support document and YouTube ingestion with retrieval and citations.
   - retrieval-augmented prompts
   - query routing between chat and RAG
 
-## Phase 3 - Nostr persistence and sync
+## Phase 2 - Nostr persistence and sync
 
 Goal: make the knowledge base portable and resilient.
 
@@ -66,7 +53,7 @@ Goal: make the knowledge base portable and resilient.
   - Nostr stores metadata, hashes, and policies
   - large blobs stored in object storage or IPFS with references in Nostr
 
-## Phase 4 - Safety and high-risk workflows
+## Phase 3 - Safety and high-risk workflows
 
 Goal: enforce strong privacy defaults for closed-society contexts.
 
@@ -83,16 +70,14 @@ Goal: enforce strong privacy defaults for closed-society contexts.
 
 ## Decisions to lock early
 
-- Auth model for Signal -> Web UI sessions
 - Location of vector search (local DB vs remote)
 - What is stored on Nostr vs in object storage
 - Event schema for documents and embeddings
+- How citations/snippets are presented over Signal
 - Default retention and logging policies
 
 ## Planned artifacts
 
 - `crates/ingester` (docs + YouTube ingestion)
 - Nostr publisher/indexer module (inside `ingester` or separate crate)
-- Web UI package (frontend)
 - Vector DB schema and rehydration tooling
-

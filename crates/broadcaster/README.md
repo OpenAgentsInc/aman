@@ -42,7 +42,7 @@ cargo run --bin broadcaster -- --rpc-url "$SIGNAL_CLI_RPC_URL" --db "$SQLITE_PAT
 
 ## Roadmap
 
-- See `ROADMAP.md` for planned Web UI and RAG phases. The broadcaster remains the outbound Signal delivery layer.
+- See `ROADMAP.md` for planned RAG and Nostr phases. The broadcaster remains the outbound Signal delivery layer.
 
 ## Security notes
 

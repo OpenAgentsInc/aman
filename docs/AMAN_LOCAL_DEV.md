@@ -2,7 +2,7 @@
 
 This runbook is for a local MVP setup using `signal-cli` and the Aman services.
 
-Scope: this runbook covers the Signal MVP only. Web UI, RAG, and Nostr components are planned and documented in
+Scope: this runbook covers the Signal MVP only. RAG and Nostr components are planned and documented in
 `ROADMAP.md`.
 
 ## 1) Prereqs

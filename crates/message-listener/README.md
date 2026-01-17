@@ -51,7 +51,7 @@ cargo run --bin message-listener -- --rpc-url "$SIGNAL_CLI_RPC_URL" --db "$SQLIT
 
 ## Roadmap
 
-- See `ROADMAP.md` for planned Web UI and RAG phases. The listener remains the inbound Signal transport layer.
+- See `ROADMAP.md` for planned RAG and Nostr phases. The listener remains the inbound Signal transport layer.
 
 ## Security notes
 

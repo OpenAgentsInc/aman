@@ -67,7 +67,6 @@ See the runbook: `docs/AMAN_LOCAL_DEV.md`.
 
 ## Future work
 
-- Web UI for chat and uploads (Signal remains the trust channel).
 - RAG pipeline with ingestion for documents and YouTube.
 - Nostr relay persistence and local vector DB rehydration.
 

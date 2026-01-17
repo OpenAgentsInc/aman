@@ -46,7 +46,6 @@ For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 
 ## Future phases (planned)
 
-- Web UI for chat and uploads, with Signal as the trust channel.
 - RAG pipeline for documents and YouTube transcripts.
 - Nostr relay persistence and local vector DB rehydration.
 
