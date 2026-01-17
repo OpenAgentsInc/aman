@@ -31,6 +31,7 @@ The web UI currently talks directly to the OpenAI-compatible API and is not yet 
 - `broadcaster`: outbound Signal delivery, chunking, retries.
 - `regional_event_listener`: regional event ingestion and normalization.
 - `web`: Next.js UI for browser chat (separate from Signal flow).
+- `api`: OpenAI-compatible inference gateway for local/dev web UI.
 
 ## Message and event flow
 
@@ -52,6 +53,11 @@ Web UI flow:
 
 1. Browser -> Next.js app in `web/`.
 2. `/api/chat` streams responses from the OpenAI-compatible API.
+
+OpenAI-compatible API flow:
+
+1. Web UI or client -> `api` service.
+2. `api` returns OpenAI-style chat completions (stubbed echo for now).
 
 ## Quickstart (dev)
 
@@ -173,6 +179,18 @@ npm install
 npm run dev
 ```
 
+To point the web UI at the local Aman API instead of OpenAI:
+
+```bash
+cd web
+cat <<'EOF' > .env.local
+AMAN_API_BASE_URL=http://127.0.0.1:8787
+AMAN_API_KEY=aman-local
+AMAN_API_MODEL=aman-chat
+EOF
+npm run dev
+```
+
 ## Scripts
 
 | Script | Description |
@@ -211,6 +229,7 @@ npm run dev
 | `agent-brain` | Onboarding, routing, and API calls |
 | `mock-brain` | Mock brain implementations for testing message flows |
 | `database` | SQLite persistence (users/topics/notifications) via SQLx |
+| `api` | OpenAI-compatible chat API (local inference gateway) |
 | `nostr-persistence` | Nostr publisher/indexer for durable doc/chunk metadata |
 
 See individual READMEs in `crates/*/README.md` for API documentation.

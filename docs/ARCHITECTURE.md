@@ -4,7 +4,7 @@
 
 - Signal-native messaging experience.
 - Opt-in regional alerts for activists and human-rights defenders.
-- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`.
+- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`.
 - Data persistence crate: `database` (SQLite via SQLx).
 - Test harness crate: `mock-brain` (mock implementations for message flow testing).
 - Regional event ingestion as a subsystem/service (documented under `agent_brain::regional_events`).
@@ -17,6 +17,9 @@
 - Web UI (Next.js app in `web/`)
   - Browser-based chat surface with `/api/chat`.
   - Uses the OpenAI-compatible API directly; not yet wired to Signal services.
+- `api` (crate: `crates/api`)
+  - OpenAI-compatible inference gateway (`/v1/chat/completions`, `/v1/models`).
+  - Currently returns stubbed echo responses for local/dev use.
 - `signal-daemon` (crate: `crates/signal-daemon`)
   - HTTP/SSE client for signal-cli daemon.
   - Shared dependency for inbound and outbound transport.
@@ -139,6 +142,11 @@ Region parsing:
 
 1. Browser -> Next.js app in `web/`.
 2. `/api/chat` streams responses from the OpenAI-compatible API.
+
+### OpenAI-compatible API flow (current)
+
+1. Web UI or client -> `api` service.
+2. `api` returns OpenAI-style chat completions (stubbed echo).
 
 ## Reliability
 
@@ -290,6 +298,7 @@ AccessPolicy content:
 - **Broadcaster**: component that sends outbound Signal messages.
 - **signal-cli daemon**: signal-cli process exposing HTTP/SSE and JSON-RPC.
 - **signal-daemon**: Rust client for the signal-cli daemon.
+- **api**: OpenAI-compatible inference gateway (chat completions).
 - **database**: SQLite persistence crate for users, topics, and notifications.
 - **nostr-persistence**: crate that publishes and indexes Nostr metadata into SQLite.
 - **mock-brain**: test harness crate for message flow and signal-daemon integration.

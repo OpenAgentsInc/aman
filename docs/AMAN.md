@@ -37,6 +37,7 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 - `signal-daemon` is the HTTP/SSE client used by `message_listener` and `broadcaster`.
 - `database` provides SQLite persistence for users, topics, and subscriptions.
 - Web UI in `web/` provides browser-based chat via `/api/chat` (separate from Signal flow).
+- `api` provides an OpenAI-compatible inference endpoint for the web UI.
 
 For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 

@@ -120,12 +120,24 @@ Optional: send a test message via JSON-RPC:
 ./scripts/send-message.sh +15551234567 "Hello from JSON-RPC"
 ```
 
-## 8) Run the web UI (optional)
+## 8) Run the Aman API (optional)
+
+Start the OpenAI-compatible API gateway:
+
+```bash
+export AMAN_API_ADDR="127.0.0.1:8787"
+export AMAN_API_TOKEN="aman-local"
+cargo run -p api
+```
+
+## 9) Run the web UI (optional)
 
 ```bash
 cd web
 cat <<'EOF' > .env.local
-OPENAI_API_KEY=sk-...
+AMAN_API_BASE_URL=http://127.0.0.1:8787
+AMAN_API_KEY=aman-local
+AMAN_API_MODEL=aman-chat
 EOF
 npm install
 npm run dev
@@ -133,7 +145,7 @@ npm run dev
 
 Open http://localhost:3000 in your browser.
 
-## 9) Simulate a RegionEvent
+## 10) Simulate a RegionEvent
 
 Create a local event file:
 
@@ -161,7 +173,7 @@ curl -s -X POST http://127.0.0.1:9001/events \
 
 You should see outbound alerts sent to all subscribers of the region.
 
-## 10) Run Nostr indexer locally (Phase 2 foundation)
+## 11) Run Nostr indexer locally (Phase 2 foundation)
 
 Pick relays that retain custom kinds. Relay retention varies by operator (see NIP-11).
 

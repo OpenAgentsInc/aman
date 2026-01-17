@@ -8,6 +8,14 @@ First, add your OpenAI API key to `.env.local` file:
 OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
+To use the local Aman API instead of OpenAI, set:
+
+```
+AMAN_API_BASE_URL=http://127.0.0.1:8787
+AMAN_API_KEY=aman-local
+AMAN_API_MODEL=aman-chat
+```
+
 Then, run the development server:
 
 ```bash
