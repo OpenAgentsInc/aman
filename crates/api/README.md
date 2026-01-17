@@ -14,7 +14,7 @@ OpenAI-compatible API gateway for local Aman inference.
 export AMAN_API_ADDR="127.0.0.1:8787"
 export AMAN_API_TOKEN="aman-local"   # optional
 export AMAN_API_MODEL="aman-chat"
-export AMAN_KB_PATH="./data/kb"      # optional (txt/md/jsonl files)
+export AMAN_KB_PATH="./knowledge"    # optional (txt/md/jsonl files)
 cargo run -p api
 ```
 

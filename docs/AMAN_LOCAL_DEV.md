@@ -131,7 +131,7 @@ Start the OpenAI-compatible API gateway:
 export AMAN_API_ADDR="127.0.0.1:8787"
 export AMAN_API_TOKEN="aman-local"
 export AMAN_API_MODEL="aman-chat"
-export AMAN_KB_PATH="./data/kb"
+export AMAN_KB_PATH="./knowledge"
 cargo run -p api
 ```
 
