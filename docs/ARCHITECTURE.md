@@ -5,6 +5,7 @@
 - Signal-native messaging experience.
 - Opt-in regional alerts for activists and human-rights defenders.
 - Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`.
+- Test harness crate: `mock-brain` (mock implementations for message flow testing).
 - Regional event ingestion as a subsystem/service (documented under `agent_brain::regional_events`).
 - For planned phases beyond the MVP, see `ROADMAP.md`.
 
@@ -26,6 +27,8 @@
 - `broadcaster` (crate: `crates/broadcaster`)
   - Owns outbound delivery via `signal-daemon` (HTTP to signal-cli daemon).
   - Handles chunking, retries, and throttling.
+- `mock-brain` (crate: `crates/mock-brain`)
+  - Mock brain implementations for testing message processing without an AI backend.
 - `regional_event_listener` (subsystem)
   - Ingests regional events from external feeds or fixtures.
   - Normalizes to `RegionEvent` and hands off to `agent_brain`.
@@ -267,6 +270,7 @@ AccessPolicy content:
 - **signal-cli daemon**: signal-cli process exposing HTTP/SSE and JSON-RPC.
 - **signal-daemon**: Rust client for the signal-cli daemon.
 - **nostr-persistence**: crate that publishes and indexes Nostr metadata into SQLite.
+- **mock-brain**: test harness crate for message flow and signal-daemon integration.
 - **DocManifest**: planned event describing a document and its chunks.
 - **Chunk**: planned unit of text for retrieval and citations.
 - **Embedding artifact**: planned vector or reference for retrieval.

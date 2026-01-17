@@ -55,6 +55,7 @@ See the runbook: `docs/AMAN_LOCAL_DEV.md`.
 - Java 21+ (for signal-cli)
 - Rust toolchain (for crates)
 - qrencode (for device linking QR codes): `sudo apt install qrencode` or `brew install qrencode`
+- jq (for `scripts/send-message.sh`)
 - A phone number for the bot's Signal account
 
 Copy the example env file and edit values as needed:
@@ -186,6 +187,7 @@ curl -N http://127.0.0.1:8080/api/v1/events
 | `message-listener` | Signal inbound transport using signal-daemon |
 | `broadcaster` | Signal outbound delivery using signal-daemon |
 | `agent-brain` | Onboarding, routing, and API calls |
+| `mock-brain` | Mock brain implementations for testing message flows |
 | `nostr-persistence` | Nostr publisher/indexer for durable doc/chunk metadata |
 
 See individual READMEs in `crates/*/README.md` for API documentation.

@@ -11,6 +11,8 @@ Scope: this runbook covers the Signal MVP only. RAG and Nostr components are pla
 - A Signal phone number for Aman (SMS or voice verification).
 - An OpenAI-compatible API key.
 - Rust toolchain (for crates and examples).
+- qrencode (for linking a device via QR): `sudo apt install qrencode` or `brew install qrencode`.
+- jq (for `scripts/send-message.sh`).
 
 ## 2) Environment
 
@@ -44,7 +46,22 @@ git submodule update --init --recursive
 ./scripts/build-signal-cli.sh
 ```
 
-## 4) Register Aman's Signal number
+## 4) Set up Aman's Signal account
+
+Choose one path:
+
+### Option A: Link as a secondary device (recommended for dev)
+
+Link this machine to your phone's Signal account:
+
+```bash
+./scripts/link-device.sh "My Laptop"
+./scripts/link-device.sh "Dev Server"
+```
+
+Scan the QR code in Signal: Settings > Linked Devices > Link New Device.
+
+### Option B: Register a dedicated account (production)
 
 ```bash
 ./scripts/register-signal.sh "$AMAN_NUMBER"
@@ -63,6 +80,8 @@ After receiving the code:
 ```bash
 ./scripts/signal-cli.sh -a "$AMAN_NUMBER" verify <CODE>
 ```
+
+To reset local Signal state, use `./scripts/unlink-device.sh` (removes local data).
 
 ## 5) Start signal-cli daemon
 
@@ -93,6 +112,12 @@ From your Signal app, send a message to Aman's number. You should see:
 - `message_listener` log an inbound message.
 - `agent_brain` respond with onboarding.
 - `broadcaster` send a reply.
+
+Optional: send a test message via JSON-RPC:
+
+```bash
+./scripts/send-message.sh +15551234567 "Hello from JSON-RPC"
+```
 
 ## 8) Simulate a RegionEvent
 
