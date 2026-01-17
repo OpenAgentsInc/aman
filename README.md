@@ -93,12 +93,10 @@ This is the **preferred approach for development** because:
 sudo apt install qrencode    # Debian/Ubuntu
 brew install qrencode        # macOS
 
-# Link with default device name "aman-bot"
-./scripts/link-device.sh
-
-# Link with custom device name (useful for multiple machines)
+# Link with a device name (required)
 ./scripts/link-device.sh "My Laptop"
 ./scripts/link-device.sh "Dev Server"
+./scripts/link-device.sh "aman-prod"
 ```
 
 The script displays a QR code directly in the terminal. Scan with your phone: **Settings > Linked Devices > Link New Device**
@@ -160,6 +158,7 @@ curl -N http://127.0.0.1:8080/api/v1/events
 | `scripts/signal-cli.sh` | General wrapper - pass any args to signal-cli |
 | `scripts/register-signal.sh` | Register/re-register a Signal account |
 | `scripts/link-device.sh` | Link as secondary device to existing account (recommended for dev) |
+| `scripts/unlink-device.sh` | Remove local Signal data and unlink this device |
 | `scripts/run-signal-daemon.sh` | Run signal-cli daemon for development |
 
 ### Environment Variables

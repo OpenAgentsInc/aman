@@ -14,8 +14,12 @@
 #   4. This machine can now send/receive messages on your account
 #
 # Usage:
-#   ./scripts/link-device.sh                    # Uses default device name "aman-bot"
-#   ./scripts/link-device.sh "My Server"        # Custom device name
+#   ./scripts/link-device.sh <device-name>
+#
+# Examples:
+#   ./scripts/link-device.sh "My Laptop"
+#   ./scripts/link-device.sh "Dev Server"
+#   ./scripts/link-device.sh "aman-prod"
 #
 # Requirements:
 #   qrencode - Install with: sudo apt install qrencode (Debian/Ubuntu)
@@ -31,7 +35,17 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 SIGNAL_CLI_JAR="${SIGNAL_CLI_JAR:-$PROJECT_ROOT/build/signal-cli.jar}"
-DEVICE_NAME="${1:-aman-bot}"
+DEVICE_NAME="${1:-}"
+
+if [ -z "$DEVICE_NAME" ]; then
+    echo "Usage: $0 <device-name>" >&2
+    echo "" >&2
+    echo "Examples:" >&2
+    echo "  $0 \"My Laptop\"" >&2
+    echo "  $0 \"Dev Server\"" >&2
+    echo "  $0 \"aman-prod\"" >&2
+    exit 1
+fi
 
 if [ ! -f "$SIGNAL_CLI_JAR" ]; then
     echo "Error: signal-cli.jar not found at $SIGNAL_CLI_JAR" >&2
