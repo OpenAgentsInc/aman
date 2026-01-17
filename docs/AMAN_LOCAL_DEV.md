@@ -36,6 +36,9 @@ export MODEL="gpt-5"
 export STORE_OPENAI_RESPONSES="false"
 export REGION_POLL_INTERVAL_SECONDS="60"
 export LOG_LEVEL="info"
+export AMAN_API_ADDR="127.0.0.1:8787"
+export AMAN_API_TOKEN="aman-local"
+export AMAN_API_MODEL="aman-chat"
 ```
 
 ## 3) Fetch and build signal-cli

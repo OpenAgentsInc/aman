@@ -169,6 +169,9 @@ Environment variables (names may be implementation-specific):
 - `STORE_OPENAI_RESPONSES`: `true` or `false`.
 - `REGION_POLL_INTERVAL_SECONDS`: event ingester cadence.
 - `LOG_LEVEL`: log verbosity.
+- `AMAN_API_ADDR`: bind address for the OpenAI-compatible gateway (api crate).
+- `AMAN_API_TOKEN`: bearer token for API access (optional).
+- `AMAN_API_MODEL`: default model name for the gateway.
 - `NOSTR_RELAYS`: comma-separated relay URLs (Phase 2).
 - `NOSTR_DB_PATH`: SQLite path for Nostr indexer (Phase 2).
 - `NOSTR_SECRETBOX_KEY`: optional symmetric key for payload encryption (Phase 2).
