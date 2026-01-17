@@ -15,6 +15,7 @@ This document defines what Aman stores, what it does not store, and the default 
 
 - Private keys, registration data, and account metadata.
 - Location (typical): `$XDG_DATA_HOME/signal-cli/data/` or `$HOME/.local/share/signal-cli/data/`.
+- Attachments may be written to disk by signal-cli and referenced by local file path.
 
 ### Bot state (SQLite or equivalent)
 
@@ -23,11 +24,12 @@ This document defines what Aman stores, what it does not store, and the default 
 - `subscriptions`: identity -> region/topics, created_at, updated_at.
 - `users`, `topics`, `notifications`: subscription store (via `database` crate).
 - Optional: short context buffer or rolling summary (if enabled).
+- Optional: attachment metadata (filename, content type, local file path) if persisted for processing.
 
 ## What is not stored
 
 - Full transcripts unless short-context mode is enabled.
-- Attachments or media (MVP is text-only).
+- Attachment contents or media binaries (MVP responses are text-only).
 - Precise location data or unnecessary metadata.
 - Raw OpenAI requests/responses when `store: false` is used.
 

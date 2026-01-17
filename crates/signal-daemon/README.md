@@ -60,6 +60,10 @@ client.send(params).await?;
 let params = SendParams::text("+1234567890", "This is a reply")
     .with_quote(1234567890123, "+0987654321");
 client.send(params).await?;
+
+// Typing indicator
+client.send_typing("+1234567890", true).await?;
+client.send_typing("+1234567890", false).await?;
 ```
 
 ### Receive Messages (SSE Stream)

@@ -2,13 +2,13 @@ This is the [assistant-ui](https://github.com/Yonom/assistant-ui) starter projec
 
 ## Getting Started
 
-First, add your OpenAI API key to `.env.local` file:
+First, add your OpenAI-compatible API key to `.env.local` file (if using a hosted provider):
 
 ```
 OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-To use the local Aman API instead of OpenAI, set:
+To use the local Aman API instead of a hosted provider, set:
 
 ```
 AMAN_API_BASE_URL=http://127.0.0.1:8787

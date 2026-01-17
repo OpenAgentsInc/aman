@@ -175,6 +175,7 @@ curl -X POST http://localhost:8080/api/v1/rpc \
 | `getSelfNumber` | Get bot's phone number |
 | `listDevices` | List linked devices |
 | `updateProfile` | Update profile name/avatar |
+| `sendTyping` | Send typing indicator (start/stop) |
 | `subscribeReceive` | Manual subscription for messages |
 | `unsubscribeReceive` | Stop a subscription |
 

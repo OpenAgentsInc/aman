@@ -1,9 +1,10 @@
-# message_listener
+# message-listener
 
 ## Responsibility
 
 The message listener owns Signal inbound transport. It connects to the signal-cli daemon via the `signal-daemon` crate,
-normalizes inbound messages, and writes `InboundMessage` records to the shared state store for `agent_brain` to consume.
+normalizes inbound messages into `InboundMessage` values (including attachment metadata), and can optionally run a
+`MessageProcessor` to invoke a Brain implementation and send responses.
 
 ## Public interfaces
 
@@ -13,12 +14,13 @@ Consumes:
 
 Produces:
 
-- `InboundMessage` with fields: `message_id`, `sender_id`, `ts`, `body`, `source_device`
-- persisted inbound records for dedupe and replay safety
+- `InboundMessage` (brain-core)
+- `OutboundMessage` (brain-core)
 
-Handoff to agent_brain:
+Processing:
 
-- MVP intent: write to SQLite `messages` table and an `inbound_queue` table.
+- `MessageProcessor` calls a `Brain` implementation and sends replies via `signal-daemon`.
+- For queue-based systems, persist `InboundMessage` to your store for `agent_brain` to consume.
 
 ## Signal-cli mode
 
@@ -32,19 +34,32 @@ Fallback:
 
 ## How to run it
 
-This crate is a library. Use it from a service binary that configures `signal-daemon` with the daemon base URL
-(`http://$HTTP_ADDR`). For daemon setup, see `docs/signal-cli-daemon.md`.
+This crate is a library. Use it from a service binary or run the examples.
+
+Examples (requires a running signal-cli daemon):
+
+```bash
+# Echo processor using mock-brain
+cargo run -p message-listener --example processor_bot
+
+# MapleBrain (OpenSecret) processor
+export MAPLE_API_KEY="..."
+cargo run -p message-listener --example maple_bot --features maple
+```
+
+For daemon setup, see `docs/signal-cli-daemon.md`.
 
 ## How to test it
 
-- `cargo test`
-- Inject a sample JSON-RPC `receive` payload and confirm normalization.
+- `cargo test -p message-listener`
+- Use the examples above with a local signal-cli daemon.
 
 ## Failure modes
 
-- `signal-cli` daemon not running or unreachable.
-- Missed messages if receive loop is not active.
+- signal-cli daemon not running or unreachable.
 - Duplicate deliveries without dedupe persistence.
+- Attachments present but files missing or inaccessible.
+- MapleBrain config/attestation failures when using OpenSecret.
 
 ## Roadmap
 
@@ -52,5 +67,5 @@ This crate is a library. Use it from a service binary that configures `signal-da
 
 ## Security notes
 
-- Do not log raw message bodies by default.
+- Do not log raw message bodies or attachment file paths by default.
 - Protect signal-cli storage paths and credentials.

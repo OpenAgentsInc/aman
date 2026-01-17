@@ -6,7 +6,9 @@
 - Opt-in regional alerts for activists and human-rights defenders.
 - Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`.
 - Data persistence crate: `database` (SQLite via SQLx).
-- Test harness crate: `mock-brain` (mock implementations for message flow testing).
+- Brain interface crate: `brain-core` (shared Brain trait and message types).
+- Optional brain crate: `maple-brain` (OpenSecret-based AI backend).
+- Test harness crate: `mock-brain` (mock implementations for message flow testing, built on `brain-core`).
 - Regional event ingestion as a subsystem/service (documented under `agent_brain::regional_events`).
 - For planned phases beyond the MVP, see `ROADMAP.md`.
 
@@ -28,8 +30,14 @@
   - Shared dependency for inbound and outbound transport.
 - `message_listener` (crate: `crates/message-listener`)
   - Owns Signal inbound transport via `signal-daemon` (HTTP/SSE).
-  - Normalizes inbound messages into `InboundMessage` records.
+  - Normalizes inbound messages into `InboundMessage` records (including attachments metadata).
   - Emits normalized events into the local queue/state store.
+- `brain-core` (crate: `crates/brain-core`)
+  - Shared Brain trait and message types for AI backends.
+  - Defines attachments metadata (`InboundAttachment`) for inbound processing.
+- `maple-brain` (crate: `crates/maple-brain`)
+  - OpenSecret-based Brain implementation with attestation handshake and per-sender history.
+  - Optional integration via `message-listener` (feature `maple`).
 - `agent_brain` (crate: `crates/agent-brain`)
   - Owns message handling, onboarding state machine, and routing decisions.
   - Calls the OpenAI-compatible Responses API.
@@ -42,6 +50,7 @@
   - Runs migrations and exposes async CRUD helpers.
 - `mock-brain` (crate: `crates/mock-brain`)
   - Mock brain implementations for testing message processing without an AI backend.
+  - Built on the `brain-core` trait and message types.
 - `regional_event_listener` (subsystem)
   - Ingests regional events from external feeds or fixtures.
   - Normalizes to `RegionEvent` and hands off to `agent_brain`.
@@ -133,6 +142,13 @@ Region parsing:
 5. `agent_brain` produces `OutboundMessage`.
 6. `broadcaster` sends via `signal-daemon` to signal-cli daemon.
 
+### MessageProcessor flow (optional)
+
+1. Signal -> `message_listener` receives inbound envelope.
+2. `MessageProcessor` converts to `InboundMessage` (including attachments metadata).
+3. `MessageProcessor` calls a `Brain` implementation (mock or MapleBrain).
+4. `MessageProcessor` sends `OutboundMessage` via `signal-daemon`.
+
 ### Event flow (notifications)
 
 1. `regional_event_listener` observes an event for a region.
@@ -174,9 +190,16 @@ Environment variables (names may be implementation-specific):
 - `SIGNAL_CLI_JAR`: path to `signal-cli.jar`.
 - `HTTP_ADDR`: HTTP bind address for signal-cli daemon.
 - `SQLITE_PATH`: bot state database path.
-- `OPENAI_API_KEY`: API key for OpenAI-compatible provider.
+- `OPENAI_API_KEY`: API key for an OpenAI-compatible provider (if used by `agent_brain`).
 - `MODEL`: model name (example: `gpt-5`).
 - `STORE_OPENAI_RESPONSES`: `true` or `false`.
+- `MAPLE_API_KEY`: OpenSecret API key for `maple-brain`.
+- `MAPLE_API_URL`: optional API URL override (default: `https://api.opensecret.cloud`).
+- `MAPLE_MODEL`: OpenSecret model name.
+- `MAPLE_SYSTEM_PROMPT`: optional system prompt override.
+- `MAPLE_MAX_TOKENS`: max tokens for MapleBrain responses.
+- `MAPLE_TEMPERATURE`: temperature for MapleBrain responses.
+- `MAPLE_MAX_HISTORY_TURNS`: per-sender history length.
 - `REGION_POLL_INTERVAL_SECONDS`: event ingester cadence.
 - `LOG_LEVEL`: log verbosity.
 - `AMAN_API_ADDR`: bind address for the OpenAI-compatible gateway (api crate).
@@ -318,6 +341,8 @@ AccessPolicy content:
 - **nostr-persistence**: crate that publishes and indexes Nostr metadata into SQLite.
 - **ingester**: chunks documents and publishes/indexes Nostr events.
 - **mock-brain**: test harness crate for message flow and signal-daemon integration.
+- **brain-core**: shared Brain trait and message types for AI backends.
+- **maple-brain**: OpenSecret-backed Brain implementation.
 - **DocManifest**: planned event describing a document and its chunks.
 - **Chunk**: planned unit of text for retrieval and citations.
 - **Embedding artifact**: planned vector or reference for retrieval.

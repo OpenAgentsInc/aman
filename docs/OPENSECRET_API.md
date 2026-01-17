@@ -10,7 +10,7 @@ OpenSecret provides an OpenAI-compatible API with end-to-end encryption. Request
 - OpenAI-compatible chat completions API
 - End-to-end encryption for prompts and responses
 - Streaming support
-- No API key required (authentication handled via SDK)
+- Authentication varies by SDK (browser SDK uses user auth; MapleBrain uses an API key)
 
 ## Setup
 
@@ -211,7 +211,12 @@ This provides true end-to-end encryption where prompts and responses are never v
 
 ## Integration with Aman
 
-For server-side usage in Aman (without React), you'll need to:
+For server-side usage in Aman (without React), MapleBrain uses the Rust `opensecret` SDK and an API key:
+
+- Set `MAPLE_API_KEY` (required) and optional `MAPLE_API_URL`, `MAPLE_MODEL`.
+- MapleBrain performs an attestation handshake on startup.
+
+If you want to build your own non-React integration, you'll need to:
 
 1. Authenticate and obtain tokens via the OpenSecret REST API
 2. Use the tokens to make requests to `/v1/chat/completions`

@@ -5,9 +5,8 @@ Mock brain implementations for testing Signal bot message processing.
 ## Overview
 
 This crate provides:
-- `Brain` trait - async interface for processing messages
-- `InboundMessage` / `OutboundMessage` - message types
 - Mock implementations: `EchoBrain`, `PrefixBrain`, `DelayedBrain`
+- Re-exports of the `Brain` trait and message types from `brain-core`
 - Optional signal-daemon integration
 
 ## Usage
@@ -61,7 +60,7 @@ if let Some(inbound) = envelope.to_inbound_message() {
 
 ```rust
 use async_trait::async_trait;
-use mock_brain::{Brain, BrainError, InboundMessage, OutboundMessage};
+use brain_core::{Brain, BrainError, InboundMessage, OutboundMessage};
 
 struct MyBrain;
 

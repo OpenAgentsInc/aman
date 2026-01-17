@@ -7,7 +7,9 @@ It also includes a separate web UI in `web/` for browser-based chat.
 It runs a dedicated Signal account on a server using `signal-cli`.
 Inbound messages are decrypted locally and normalized by `message_listener`.
 An `agent_brain` service handles onboarding and routing decisions.
-It calls an OpenAI-compatible Responses API for generation (example docs: [OpenAI Platform][1]).
+Signal message handling can use pluggable Brain implementations (see `brain-core`), including MapleBrain (OpenSecret)
+or mock brains for testing.
+The web UI uses an OpenAI-compatible Responses API for generation (example docs: [OpenAI Platform][1]).
 Replies are sent back to Signal via `broadcaster`.
 Aman can also deliver opt-in regional alerts to subscribed contacts.
 Alerts are driven by a regional event listener and a subscription state machine.
@@ -20,7 +22,7 @@ The web UI currently talks directly to the OpenAI-compatible API and is not yet 
 - Signal-native chat with a dedicated server-side account.
 - Opt-in regional alerts with a simple state machine.
 - Minimal storage for dedupe and short context.
-- No attachments or document upload.
+- Text-only responses; attachments are received but not processed.
 - Web UI for browser chat (Next.js app in `web/`).
 
 ## Component overview
@@ -32,6 +34,8 @@ The web UI currently talks directly to the OpenAI-compatible API and is not yet 
 - `regional_event_listener`: regional event ingestion and normalization.
 - `web`: Next.js UI for browser chat (separate from Signal flow).
 - `api`: OpenAI-compatible inference gateway for local/dev web UI.
+- `brain-core`: shared Brain trait and message types for AI backends.
+- `maple-brain`: OpenSecret-backed Brain implementation (optional).
 - `ingester`: file chunking + Nostr publishing for knowledge base content.
 
 ## Message and event flow
@@ -59,6 +63,12 @@ OpenAI-compatible API flow:
 
 1. Web UI or client -> `api` service.
 2. `api` returns OpenAI-style chat completions (stubbed echo for now).
+
+Signal AI flow (optional):
+
+1. Signal -> `message_listener` -> `MessageProcessor`.
+2. `MessageProcessor` calls a `Brain` implementation (mock or MapleBrain).
+3. Responses send back via `signal-daemon`.
 
 Nostr ingestion flow (local/dev):
 
@@ -221,6 +231,7 @@ To use the full Nostr flow, set `NOSTR_DB_PATH` and ingest documents via the `in
 | `AMAN_NUMBER` | - | Bot's Signal phone number |
 | `SIGNAL_CLI_JAR` | `build/signal-cli.jar` | Path to signal-cli JAR |
 | `HTTP_ADDR` | `127.0.0.1:8080` | Daemon HTTP bind address |
+| `MAPLE_API_KEY` | - | OpenSecret API key (MapleBrain) |
 
 ## Docs
 
@@ -228,6 +239,7 @@ To use the full Nostr flow, set `NOSTR_DB_PATH` and ingest documents via the `in
 - Aman overview: `docs/AMAN.md`
 - Data retention: `docs/DATA_RETENTION.md`
 - signal-cli daemon guide: `docs/signal-cli-daemon.md`
+- OpenSecret API: `docs/OPENSECRET_API.md`
 - Roadmap: `ROADMAP.md`
 
 ## Crates
@@ -239,6 +251,8 @@ To use the full Nostr flow, set `NOSTR_DB_PATH` and ingest documents via the `in
 | `broadcaster` | Signal outbound delivery using signal-daemon |
 | `agent-brain` | Onboarding, routing, and API calls |
 | `mock-brain` | Mock brain implementations for testing message flows |
+| `brain-core` | Shared Brain trait + message types for AI backends |
+| `maple-brain` | OpenSecret-backed Brain implementation |
 | `database` | SQLite persistence (users/topics/notifications) via SQLx |
 | `api` | OpenAI-compatible chat API (local inference gateway) |
 | `ingester` | Document chunking + Nostr publishing/indexing |

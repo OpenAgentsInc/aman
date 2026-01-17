@@ -31,6 +31,9 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 ```
 
 - `message_listener` owns inbound Signal transport and normalization.
+- `brain-core` defines the shared `Brain` trait and message types (including attachments metadata).
+- `maple-brain` provides an OpenSecret-based Brain implementation (optional).
+- `mock-brain` provides test Brain implementations for local development.
 - `agent_brain` owns the state machine, routing, and OpenAI-compatible API calls.
 - `broadcaster` owns outbound delivery, retries, and chunking.
 - `regional_event_listener` ingests regional events and emits `RegionEvent` records.
@@ -40,6 +43,9 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 - `api` provides an OpenAI-compatible inference endpoint for the web UI.
 - `api` can optionally read a local knowledge base via `AMAN_KB_PATH`.
 - `ingester` chunks files and publishes/indexes Nostr events for the knowledge base.
+
+Optional: `message_listener` can also run a `MessageProcessor` that calls a `Brain`
+(mock or MapleBrain) directly and sends replies via `signal-daemon`.
 
 For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 

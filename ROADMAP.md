@@ -7,6 +7,8 @@ next phases: RAG and Nostr-based persistence.
 
 - signal-cli daemon workflows and helper scripts are in place.
 - `signal-daemon`, `message-listener`, and `broadcaster` are working as libraries.
+- `brain-core` defines the shared Brain trait and message types.
+- `maple-brain` provides an OpenSecret-backed Brain implementation (optional).
 - `agent-brain` is a stub and needs core logic implementation.
 - `regional_event_listener` exists as a documented subsystem; intake wiring is still pending.
 - `nostr-persistence` crate is started (publisher/indexer foundation).

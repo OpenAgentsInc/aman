@@ -9,7 +9,8 @@ Scope: this runbook covers the Signal MVP only. RAG and Nostr components are pla
 
 - Java 21+ for `signal-cli`.
 - A Signal phone number for Aman (SMS or voice verification).
-- An OpenAI-compatible API key.
+- An OpenAI-compatible API key (if using `agent_brain` with a hosted model).
+- A Maple/OpenSecret API key (if using MapleBrain).
 - Rust toolchain (for crates and examples).
 - qrencode (for linking a device via QR): `sudo apt install qrencode` or `brew install qrencode`.
 - jq (for `scripts/send-message.sh`).
@@ -31,9 +32,13 @@ export HTTP_ADDR="127.0.0.1:8080"
 # Optional override:
 # export SIGNAL_CLI_JAR="build/signal-cli.jar"
 export SQLITE_PATH="./data/aman.db"
-export OPENAI_API_KEY="..."
-export MODEL="gpt-5"
+export OPENAI_API_KEY="..."   # optional (OpenAI-compatible provider)
+export MODEL="gpt-5"           # optional
 export STORE_OPENAI_RESPONSES="false"
+export MAPLE_API_KEY="..."     # required for MapleBrain
+export MAPLE_MODEL="hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4"
+export MAPLE_API_URL="https://api.opensecret.cloud"
+export MAPLE_MAX_HISTORY_TURNS="10"
 export REGION_POLL_INTERVAL_SECONDS="60"
 export LOG_LEVEL="info"
 export AMAN_API_ADDR="127.0.0.1:8787"
@@ -108,6 +113,19 @@ You can also validate the daemon connection using the `signal-daemon` examples:
 cargo run -p signal-daemon --example health_check
 cargo run -p signal-daemon --example echo_bot
 ```
+
+Optional: run the message listener with a Brain implementation:
+
+```bash
+# Echo processor using mock-brain
+cargo run -p message-listener --example processor_bot
+
+# MapleBrain (OpenSecret) processor
+export MAPLE_API_KEY="..."
+cargo run -p message-listener --example maple_bot --features maple
+```
+
+For MapleBrain configuration details, see `docs/OPENSECRET_API.md`.
 
 ## 7) Send a test message
 
