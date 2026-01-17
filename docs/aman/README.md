@@ -1,0 +1,55 @@
+# Aman: Signal-native agent + regional alerts
+
+Aman is a Signal-native assistant that also delivers opt-in regional alerts. A dedicated Signal account runs on a server
+via `signal-cli`, with a small set of services that receive inbound messages, maintain a subscription state machine, and
+broadcast alerts to subscribed contacts.
+
+## Onboarding UX (MVP)
+
+1. User messages Aman.
+2. Aman asks if the user wants regional alerts and which region.
+3. User opts in and provides a region ("Iran", "Syria", "Lebanon", etc.).
+4. Aman confirms and starts sending alerts for that region.
+
+If the user declines or sends "stop", Aman sets the contact to OptedOut and does not send alerts.
+
+## User commands (MVP)
+
+- `help`: show quick usage.
+- `subscribe <region>`: opt in and set region.
+- `region <region>`: update region.
+- `status`: show current subscription state.
+- `stop` / `unsubscribe`: opt out of alerts.
+
+## Architecture (text diagram)
+
+```
+Signal User -> signal-cli -> message_listener -> agent_brain -> broadcaster -> signal-cli -> Signal User
+                                          |
+                                          v
+                               regional_event_listener
+```
+
+- `message_listener` owns inbound Signal transport and normalization.
+- `agent_brain` owns the state machine, routing, and OpenAI-compatible API calls.
+- `broadcaster` owns outbound delivery, retries, and chunking.
+- `regional_event_listener` ingests regional events and emits `RegionEvent` records.
+
+For the authoritative architecture spec, see `docs/architecture/aman-signal-mvp.md`.
+
+## Ops and safety notes
+
+- Opt-in alerts only; "stop" must always be honored.
+- Minimal retention and minimal logging.
+- Treat the server as a trusted endpoint (Signal E2EE terminates at the server).
+- Prefer `store: false` (or equivalent) with the OpenAI-compatible Responses API.
+
+## Security notes
+
+- `signal-cli` stores keys/credentials on disk; protect the storage path.
+- Never log message bodies by default.
+
+## Links
+
+- Local dev runbook: `docs/runbooks/aman-local-dev.md`
+- Data retention policy: `docs/security/data-retention.md`
