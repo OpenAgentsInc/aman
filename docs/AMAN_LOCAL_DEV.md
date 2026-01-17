@@ -13,6 +13,7 @@ Scope: this runbook covers the Signal MVP only. RAG and Nostr components are pla
 - Rust toolchain (for crates and examples).
 - qrencode (for linking a device via QR): `sudo apt install qrencode` or `brew install qrencode`.
 - jq (for `scripts/send-message.sh`).
+- Node.js 20+ (for the web UI in `web/`).
 
 ## 2) Environment
 
@@ -119,7 +120,20 @@ Optional: send a test message via JSON-RPC:
 ./scripts/send-message.sh +15551234567 "Hello from JSON-RPC"
 ```
 
-## 8) Simulate a RegionEvent
+## 8) Run the web UI (optional)
+
+```bash
+cd web
+cat <<'EOF' > .env.local
+OPENAI_API_KEY=sk-...
+EOF
+npm install
+npm run dev
+```
+
+Open http://localhost:3000 in your browser.
+
+## 9) Simulate a RegionEvent
 
 Create a local event file:
 
@@ -147,7 +161,7 @@ curl -s -X POST http://127.0.0.1:9001/events \
 
 You should see outbound alerts sent to all subscribers of the region.
 
-## 9) Run Nostr indexer locally (Phase 2 foundation)
+## 10) Run Nostr indexer locally (Phase 2 foundation)
 
 Pick relays that retain custom kinds. Relay retention varies by operator (see NIP-11).
 

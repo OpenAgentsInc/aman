@@ -14,6 +14,9 @@
 
 - `signal-cli daemon` (process)
   - Runs the Signal account and exposes HTTP/SSE and JSON-RPC endpoints.
+- Web UI (Next.js app in `web/`)
+  - Browser-based chat surface with `/api/chat`.
+  - Uses the OpenAI-compatible API directly; not yet wired to Signal services.
 - `signal-daemon` (crate: `crates/signal-daemon`)
   - HTTP/SSE client for signal-cli daemon.
   - Shared dependency for inbound and outbound transport.
@@ -131,6 +134,11 @@ Region parsing:
 3. `agent_brain` queries subscription store.
 4. `agent_brain` creates outbound alert messages.
 5. `broadcaster` delivers to subscribed identities.
+
+### Web UI flow (current)
+
+1. Browser -> Next.js app in `web/`.
+2. `/api/chat` streams responses from the OpenAI-compatible API.
 
 ## Reliability
 

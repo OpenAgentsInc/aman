@@ -11,6 +11,7 @@ next phases: RAG and Nostr-based persistence.
 - `regional_event_listener` exists as a documented subsystem; intake wiring is still pending.
 - `nostr-persistence` crate is started (publisher/indexer foundation).
 - `database` crate exists for users/topics/notifications (SQLx + migrations).
+- `web/` Next.js UI exists for browser chat (not yet wired to Signal services).
 
 ## Phase 0 - Signal MVP hardening
 
@@ -21,6 +22,7 @@ Goal: complete and stabilize the Signal-native assistant with opt-in regional al
   - subscription storage (SQLite) and dedupe logic
   - regional event intake (fixture endpoint or file-based ingest)
   - service binaries that wire `message-listener`, `agent-brain`, and `broadcaster`
+  - optional: wire `web/` UI to `agent_brain` instead of direct OpenAI calls
 - Persistence
   - Wire `database` crate into services for user/topic/subscription persistence
   - SQLite schema for contacts, messages, subscriptions, dedupe

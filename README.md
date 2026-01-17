@@ -3,6 +3,7 @@
 ## What is Aman?
 
 Aman is a Signal-native assistant and activist notification system.
+It also includes a separate web UI in `web/` for browser-based chat.
 It runs a dedicated Signal account on a server using `signal-cli`.
 Inbound messages are decrypted locally and normalized by `message_listener`.
 An `agent_brain` service handles onboarding and routing decisions.
@@ -12,6 +13,7 @@ Aman can also deliver opt-in regional alerts to subscribed contacts.
 Alerts are driven by a regional event listener and a subscription state machine.
 The MVP is text-only with minimal retention and minimal logging.
 Components are decoupled so receiving never blocks on generation.
+The web UI currently talks directly to the OpenAI-compatible API and is not yet wired into the Signal services.
 
 ## Aman MVP
 
@@ -19,6 +21,7 @@ Components are decoupled so receiving never blocks on generation.
 - Opt-in regional alerts with a simple state machine.
 - Minimal storage for dedupe and short context.
 - No attachments or document upload.
+- Web UI for browser chat (Next.js app in `web/`).
 
 ## Component overview
 
@@ -27,6 +30,7 @@ Components are decoupled so receiving never blocks on generation.
 - `agent_brain`: onboarding, subscriptions, routing, and OpenAI-compatible API calls.
 - `broadcaster`: outbound Signal delivery, chunking, retries.
 - `regional_event_listener`: regional event ingestion and normalization.
+- `web`: Next.js UI for browser chat (separate from Signal flow).
 
 ## Message and event flow
 
@@ -44,9 +48,15 @@ Event flow:
 2. `agent_brain` queries subscriptions and creates alerts.
 3. `broadcaster` delivers alerts to subscribed identities.
 
+Web UI flow:
+
+1. Browser -> Next.js app in `web/`.
+2. `/api/chat` streams responses from the OpenAI-compatible API.
+
 ## Quickstart (dev)
 
 See the runbook: `docs/AMAN_LOCAL_DEV.md`.
+For the web UI, see `web/README.md`.
 
 ## Setup
 
@@ -56,6 +66,7 @@ See the runbook: `docs/AMAN_LOCAL_DEV.md`.
 - Rust toolchain (for crates)
 - qrencode (for device linking QR codes): `sudo apt install qrencode` or `brew install qrencode`
 - jq (for `scripts/send-message.sh`)
+- Node.js 20+ (for the web UI in `web/`)
 - A phone number for the bot's Signal account
 
 Copy the example env file and edit values as needed:
@@ -149,6 +160,17 @@ curl -X POST http://127.0.0.1:8080/api/v1/rpc \
 
 # Subscribe to incoming messages
 curl -N http://127.0.0.1:8080/api/v1/events
+```
+
+### 4. Run the web UI (optional)
+
+```bash
+cd web
+cat <<'EOF' > .env.local
+OPENAI_API_KEY=sk-...
+EOF
+npm install
+npm run dev
 ```
 
 ## Scripts
