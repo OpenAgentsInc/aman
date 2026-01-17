@@ -1,5 +1,8 @@
 use std::env;
+use std::fs;
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::extract::{Json, State};
@@ -11,11 +14,13 @@ use axum::Router;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use uuid::Uuid;
+use walkdir::WalkDir;
 
 #[derive(Clone)]
 struct AppState {
     api_token: Option<String>,
     default_model: String,
+    kb: Option<Arc<KnowledgeBase>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,10 +112,26 @@ async fn main() {
     let addr = env::var("AMAN_API_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".to_string());
     let api_token = env::var("AMAN_API_TOKEN").ok();
     let default_model = env::var("AMAN_API_MODEL").unwrap_or_else(|_| "aman-chat".to_string());
+    let kb_path = env::var("AMAN_KB_PATH").ok();
+
+    let kb = match kb_path {
+        Some(path) if !path.trim().is_empty() => match KnowledgeBase::load(PathBuf::from(path)) {
+            Ok(kb) => {
+                info!(entries = kb.entries.len(), "Loaded knowledge base");
+                Some(Arc::new(kb))
+            }
+            Err(err) => {
+                warn!(error = %err, "Failed to load knowledge base");
+                None
+            }
+        },
+        _ => None,
+    };
 
     let state = AppState {
         api_token,
         default_model,
+        kb,
     };
 
     let app = Router::new()
@@ -164,7 +185,14 @@ async fn chat_completions(
     };
 
     let user_text = last_user_text(&payload.messages);
-    let response_text = format!("Echo: {}", user_text.unwrap_or_else(|| "(no user message)".to_string()));
+    let response_text = match (user_text, &state.kb) {
+        (Some(text), Some(kb)) => match kb.search(&text) {
+            Some(hit) => format!("KB hit ({})\n\n{}", hit.source, hit.snippet),
+            None => format!("Echo: {}", text),
+        },
+        (Some(text), None) => format!("Echo: {}", text),
+        (None, _) => "Echo: (no user message)".to_string(),
+    };
 
     if payload.stream {
         let stream = stream_chat_completion(model, response_text);
@@ -312,5 +340,150 @@ impl IntoResponse for ApiError {
                 (StatusCode::UNAUTHORIZED, Json(body)).into_response()
             }
         }
+    }
+}
+
+struct KnowledgeBase {
+    entries: Vec<KbEntry>,
+}
+
+struct KbEntry {
+    source: String,
+    text: String,
+    text_lower: String,
+}
+
+struct KbMatch {
+    source: String,
+    snippet: String,
+}
+
+impl KnowledgeBase {
+    fn load(path: PathBuf) -> Result<Self, std::io::Error> {
+        if path.is_file() {
+            let entry = load_file(&path)?;
+            return Ok(Self {
+                entries: entry.into_iter().collect(),
+            });
+        }
+
+        if !path.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Knowledge base path not found: {}", path.display()),
+            ));
+        }
+
+        let mut entries = Vec::new();
+        for entry in WalkDir::new(&path).into_iter().filter_map(Result::ok) {
+            let path = entry.path();
+            if !path.is_file() || !is_supported_path(path) {
+                continue;
+            }
+            if let Ok(Some(kb_entry)) = load_file(path) {
+                entries.push(kb_entry);
+            }
+        }
+
+        Ok(Self { entries })
+    }
+
+    fn search(&self, query: &str) -> Option<KbMatch> {
+        let tokens = tokenize(query);
+        if tokens.is_empty() {
+            return None;
+        }
+
+        let mut best: Option<(&KbEntry, usize)> = None;
+        for entry in &self.entries {
+            let score = tokens
+                .iter()
+                .map(|token| entry.text_lower.matches(token).count())
+                .sum::<usize>();
+
+            if score > 0 {
+                match best {
+                    Some((_, best_score)) if best_score >= score => {}
+                    _ => best = Some((entry, score)),
+                }
+            }
+        }
+
+        let (entry, _) = best?;
+        let snippet = build_snippet(entry, &tokens);
+        Some(KbMatch {
+            source: entry.source.clone(),
+            snippet,
+        })
+    }
+}
+
+fn load_file(path: &Path) -> Result<Option<KbEntry>, std::io::Error> {
+    const MAX_BYTES: u64 = 512 * 1024;
+    const MAX_CHARS: usize = 8000;
+
+    let metadata = fs::metadata(path)?;
+    if metadata.len() == 0 || metadata.len() > MAX_BYTES {
+        return Ok(None);
+    }
+
+    let text = fs::read_to_string(path)?;
+    let trimmed: String = text.chars().take(MAX_CHARS).collect();
+    if trimmed.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let source = path.display().to_string();
+    let text_lower = trimmed.to_ascii_lowercase();
+    Ok(Some(KbEntry {
+        source,
+        text: trimmed,
+        text_lower,
+    }))
+}
+
+fn is_supported_path(path: &Path) -> bool {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some(ext) => matches!(ext.to_ascii_lowercase().as_str(), "txt" | "md" | "markdown" | "jsonl"),
+        None => false,
+    }
+}
+
+fn tokenize(query: &str) -> Vec<String> {
+    query
+        .to_ascii_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|token| token.len() > 2)
+        .take(8)
+        .map(|token| token.to_string())
+        .collect()
+}
+
+fn build_snippet(entry: &KbEntry, tokens: &[String]) -> String {
+    let lower = &entry.text_lower;
+    let mut first_hit = None;
+    for token in tokens {
+        if let Some(idx) = lower.find(token) {
+            first_hit = Some(idx);
+            break;
+        }
+    }
+
+    match first_hit {
+        Some(idx) => {
+            let prefix = entry.text.get(..idx).unwrap_or(&entry.text);
+            let start_chars = prefix.chars().count().saturating_sub(160);
+            let total_chars = entry.text.chars().count();
+            let end_chars = (start_chars + 400).min(total_chars);
+            entry
+                .text
+                .chars()
+                .skip(start_chars)
+                .take(end_chars.saturating_sub(start_chars))
+                .collect::<String>()
+                .trim()
+                .to_string()
+        }
+        None => entry.text.chars().take(400).collect(),
     }
 }

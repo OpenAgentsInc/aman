@@ -19,7 +19,7 @@
   - Uses the OpenAI-compatible API directly; not yet wired to Signal services.
 - `api` (crate: `crates/api`)
   - OpenAI-compatible inference gateway (`/v1/chat/completions`, `/v1/models`).
-  - Currently returns stubbed echo responses for local/dev use.
+  - Uses a local knowledge base (if configured) or stubbed echo responses for local/dev use.
 - `signal-daemon` (crate: `crates/signal-daemon`)
   - HTTP/SSE client for signal-cli daemon.
   - Shared dependency for inbound and outbound transport.
@@ -172,6 +172,7 @@ Environment variables (names may be implementation-specific):
 - `AMAN_API_ADDR`: bind address for the OpenAI-compatible gateway (api crate).
 - `AMAN_API_TOKEN`: bearer token for API access (optional).
 - `AMAN_API_MODEL`: default model name for the gateway.
+- `AMAN_KB_PATH`: optional path to a local knowledge base directory/file for the gateway.
 - `NOSTR_RELAYS`: comma-separated relay URLs (Phase 2).
 - `NOSTR_DB_PATH`: SQLite path for Nostr indexer (Phase 2).
 - `NOSTR_SECRETBOX_KEY`: optional symmetric key for payload encryption (Phase 2).

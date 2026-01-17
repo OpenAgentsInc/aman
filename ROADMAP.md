@@ -13,6 +13,7 @@ next phases: RAG and Nostr-based persistence.
 - `database` crate exists for users/topics/notifications (SQLx + migrations).
 - `web/` Next.js UI exists for browser chat (not yet wired to Signal services).
 - `api` crate provides an OpenAI-compatible inference gateway (stubbed echo).
+- `api` can read a local knowledge base directory/file (simple keyword match).
 
 ## Phase 0 - Signal MVP hardening
 

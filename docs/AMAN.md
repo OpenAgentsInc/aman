@@ -38,6 +38,7 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 - `database` provides SQLite persistence for users, topics, and subscriptions.
 - Web UI in `web/` provides browser-based chat via `/api/chat` (separate from Signal flow).
 - `api` provides an OpenAI-compatible inference endpoint for the web UI.
+- `api` can optionally read a local knowledge base via `AMAN_KB_PATH`.
 
 For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 

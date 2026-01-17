@@ -191,6 +191,8 @@ EOF
 npm run dev
 ```
 
+If you want the local API to use a simple knowledge base, set `AMAN_KB_PATH` when starting the api service.
+
 ## Scripts
 
 | Script | Description |

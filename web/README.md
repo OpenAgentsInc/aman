@@ -16,6 +16,8 @@ AMAN_API_KEY=aman-local
 AMAN_API_MODEL=aman-chat
 ```
 
+`AMAN_API_KEY` should match `AMAN_API_TOKEN` used by the local API (or can be omitted if the API has no token).
+
 Then, run the development server:
 
 ```bash
