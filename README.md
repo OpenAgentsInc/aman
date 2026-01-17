@@ -22,6 +22,7 @@ Components are decoupled so receiving never blocks on generation.
 
 ## Component overview
 
+- `signal-daemon`: HTTP/SSE client for signal-cli daemon.
 - `message_listener`: Signal inbound transport and message normalization.
 - `agent_brain`: onboarding, subscriptions, routing, and OpenAI-compatible API calls.
 - `broadcaster`: outbound Signal delivery, chunking, retries.
@@ -31,10 +32,11 @@ Components are decoupled so receiving never blocks on generation.
 
 Message flow:
 
-1. Signal -> `message_listener` receives inbound message.
-2. `message_listener` emits normalized `InboundMessage`.
-3. `agent_brain` decides: onboarding, chat response, or subscription update.
-4. `broadcaster` sends reply via `signal-cli`.
+1. Signal -> signal-cli daemon receives inbound message.
+2. `message_listener` reads SSE events via `signal-daemon`.
+3. `message_listener` emits normalized `InboundMessage`.
+4. `agent_brain` decides: onboarding, chat response, or subscription update.
+5. `broadcaster` sends reply via `signal-daemon` to signal-cli daemon.
 
 Event flow:
 
@@ -54,6 +56,12 @@ See the runbook: `docs/AMAN_LOCAL_DEV.md`.
 - Rust toolchain (for crates)
 - A phone number for the bot's Signal account
 
+Copy the example env file and edit values as needed:
+
+```bash
+cp .env.example .env
+```
+
 ### 1. Build signal-cli
 
 ```bash
@@ -61,6 +69,7 @@ See the runbook: `docs/AMAN_LOCAL_DEV.md`.
 ```
 
 This builds a fat JAR at `build/signal-cli.jar`.
+If the build script reports a missing submodule, run `git submodule update --init --recursive`.
 
 ### 2. Register Signal account
 
@@ -129,6 +138,7 @@ curl -N http://127.0.0.1:8080/api/v1/events
 - Architecture: `docs/ARCHITECTURE.md`
 - Aman overview: `docs/AMAN.md`
 - Data retention: `docs/DATA_RETENTION.md`
+- signal-cli daemon guide: `docs/signal-cli-daemon.md`
 - Roadmap: `ROADMAP.md`
 
 ## Crates

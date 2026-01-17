@@ -3,15 +3,22 @@
 This roadmap captures what still needs to be built beyond the current Signal MVP. It separates MVP hardening from the
 next phases: RAG and Nostr-based persistence.
 
+## Current status
+
+- signal-cli daemon workflows and helper scripts are in place.
+- `signal-daemon`, `message-listener`, and `broadcaster` are working as libraries.
+- `agent-brain` is a stub and needs core logic implementation.
+- `regional_event_listener` exists as a documented subsystem; intake wiring is still pending.
+
 ## Phase 0 - Signal MVP hardening
 
 Goal: complete and stabilize the Signal-native assistant with opt-in regional alerts.
 
 - Implement core services
-  - `message_listener` inbound normalization and dedupe
   - `agent_brain` onboarding state machine and routing
-  - `broadcaster` outbound delivery with retries and chunking
-  - `regional_event_listener` ingestion and normalization
+  - subscription storage (SQLite) and dedupe logic
+  - regional event intake (fixture endpoint or file-based ingest)
+  - service binaries that wire `message-listener`, `agent-brain`, and `broadcaster`
 - Persistence
   - SQLite schema for contacts, messages, subscriptions, dedupe
   - at-least-once delivery with idempotent sends
@@ -78,6 +85,7 @@ Goal: enforce strong privacy defaults for closed-society contexts.
 
 ## Planned artifacts
 
+- service binaries for listener/brain/broadcaster
 - `crates/ingester` (docs + YouTube ingestion)
 - Nostr publisher/indexer module (inside `ingester` or separate crate)
 - Vector DB schema and rehydration tooling

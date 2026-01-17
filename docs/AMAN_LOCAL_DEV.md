@@ -7,20 +7,27 @@ Scope: this runbook covers the Signal MVP only. RAG and Nostr components are pla
 
 ## 1) Prereqs
 
-- `signal-cli` installed and working.
+- Java 21+ for `signal-cli`.
 - A Signal phone number for Aman (SMS or voice verification).
-- Java runtime required by `signal-cli`.
 - An OpenAI-compatible API key.
+- Rust toolchain (for crates and examples).
 
 ## 2) Environment
 
-Create a local `.env` or export variables:
+Create a local `.env` (scripts load it automatically). Use the example file:
+
+```bash
+cp .env.example .env
+```
+
+Example values:
 
 ```bash
 export AMAN_NUMBER="+15551234567"
-export SIGNAL_CLI_PATH="/usr/local/bin/signal-cli"
-export SIGNAL_CLI_RPC_URL="http://127.0.0.1:8081/api/v1/rpc"
-export SQLITE_PATH="./data/aman.sqlite"
+export HTTP_ADDR="127.0.0.1:8080"
+# Optional override:
+# export SIGNAL_CLI_JAR="build/signal-cli.jar"
+export SQLITE_PATH="./data/aman.db"
 export OPENAI_API_KEY="..."
 export MODEL="gpt-5"
 export STORE_OPENAI_RESPONSES="false"
@@ -28,55 +35,58 @@ export REGION_POLL_INTERVAL_SECONDS="60"
 export LOG_LEVEL="info"
 ```
 
-## 3) Register Aman's Signal number
+## 3) Fetch and build signal-cli
+
+The build script expects the `repos/signal-cli` submodule to be present:
 
 ```bash
-$SIGNAL_CLI_PATH -a "$AMAN_NUMBER" register
-$SIGNAL_CLI_PATH -a "$AMAN_NUMBER" verify <CODE>
+git submodule update --init --recursive
+./scripts/build-signal-cli.sh
+```
+
+## 4) Register Aman's Signal number
+
+```bash
+./scripts/register-signal.sh "$AMAN_NUMBER"
 ```
 
 If SMS fails, retry with voice verification:
 
 ```bash
-$SIGNAL_CLI_PATH -a "$AMAN_NUMBER" register --voice
+./scripts/register-signal.sh "$AMAN_NUMBER" --voice
 ```
 
 If you do not want to use a personal number, use a hosted/silent SIM provider.
 
-## 4) Start signal-cli daemon
-
-Use JSON-RPC over HTTP so services can subscribe to events:
+After receiving the code:
 
 ```bash
-$SIGNAL_CLI_PATH -a "$AMAN_NUMBER" daemon --http 127.0.0.1:8081
+./scripts/signal-cli.sh -a "$AMAN_NUMBER" verify <CODE>
 ```
 
-## 5) Start Aman services
+## 5) Start signal-cli daemon
 
-Run each service in its own terminal. These commands assume service binaries exist; adjust to your runtime.
+Use the wrapper script (defaults to `HTTP_ADDR`):
 
 ```bash
-cd crates/message-listener
-cargo run --bin message-listener -- \
-  --rpc-url "$SIGNAL_CLI_RPC_URL" \
-  --db "$SQLITE_PATH"
+./scripts/run-signal-daemon.sh
 ```
+
+For additional daemon modes and JSON-RPC/SSE details, see `docs/signal-cli-daemon.md`.
+
+## 6) Start Aman services
+
+`message_listener`, `broadcaster`, and `agent_brain` are libraries. If you have service binaries in your environment,
+start them now and configure the signal-daemon base URL (`http://$HTTP_ADDR`) plus `SQLITE_PATH`.
+
+You can also validate the daemon connection using the `signal-daemon` examples:
 
 ```bash
-cd crates/agent-brain
-cargo run --bin agent-brain -- \
-  --db "$SQLITE_PATH" \
-  --model "$MODEL"
+cargo run -p signal-daemon --example health_check
+cargo run -p signal-daemon --example echo_bot
 ```
 
-```bash
-cd crates/broadcaster
-cargo run --bin broadcaster -- \
-  --rpc-url "$SIGNAL_CLI_RPC_URL" \
-  --db "$SQLITE_PATH"
-```
-
-## 6) Send a test message
+## 7) Send a test message
 
 From your Signal app, send a message to Aman's number. You should see:
 
@@ -84,7 +94,7 @@ From your Signal app, send a message to Aman's number. You should see:
 - `agent_brain` respond with onboarding.
 - `broadcaster` send a reply.
 
-## 7) Simulate a RegionEvent
+## 8) Simulate a RegionEvent
 
 Create a local event file:
 

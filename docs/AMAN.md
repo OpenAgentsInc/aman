@@ -24,16 +24,17 @@ If the user declines or sends "stop", Aman sets the contact to OptedOut and does
 ## Architecture (text diagram)
 
 ```
-Signal User -> signal-cli -> message_listener -> agent_brain -> broadcaster -> signal-cli -> Signal User
-                                          |
-                                          v
-                               regional_event_listener
+Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_brain -> broadcaster -> signal-daemon -> signal-cli daemon -> Signal User
+                                                           |
+                                                           v
+                                                regional_event_listener
 ```
 
 - `message_listener` owns inbound Signal transport and normalization.
 - `agent_brain` owns the state machine, routing, and OpenAI-compatible API calls.
 - `broadcaster` owns outbound delivery, retries, and chunking.
 - `regional_event_listener` ingests regional events and emits `RegionEvent` records.
+- `signal-daemon` is the HTTP/SSE client used by `message_listener` and `broadcaster`.
 
 For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 
@@ -58,4 +59,5 @@ For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 
 - Local dev runbook: `docs/AMAN_LOCAL_DEV.md`
 - Data retention policy: `docs/DATA_RETENTION.md`
+- signal-cli daemon guide: `docs/signal-cli-daemon.md`
 - Roadmap: `ROADMAP.md`

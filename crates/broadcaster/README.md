@@ -3,7 +3,7 @@
 ## Responsibility
 
 The broadcaster owns outbound delivery to Signal identities. It accepts `OutboundMessage` records and sends them via
-`signal-cli`, applying chunking, retries, and rate limits.
+the signal-cli daemon using the `signal-daemon` crate, applying chunking, retries, and rate limits.
 
 ## Public interfaces
 
@@ -23,11 +23,8 @@ Produces:
 
 ## How to run it
 
-MVP target command (adjust to your runtime):
-
-```bash
-cargo run --bin broadcaster -- --rpc-url "$SIGNAL_CLI_RPC_URL" --db "$SQLITE_PATH"
-```
+This crate is a library. Use it from a service binary that configures `signal-daemon` with the daemon base URL
+(`http://$HTTP_ADDR`). For daemon setup, see `docs/signal-cli-daemon.md`.
 
 ## How to test it
 

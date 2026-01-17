@@ -2,14 +2,14 @@
 
 ## Responsibility
 
-The message listener owns Signal inbound transport. It receives encrypted messages via `signal-cli`, normalizes them, and
-writes `InboundMessage` records to the shared state store for `agent_brain` to consume.
+The message listener owns Signal inbound transport. It connects to the signal-cli daemon via the `signal-daemon` crate,
+normalizes inbound messages, and writes `InboundMessage` records to the shared state store for `agent_brain` to consume.
 
 ## Public interfaces
 
 Consumes:
 
-- `signal-cli` events (daemon mode JSON-RPC + SSE preferred for MVP)
+- SSE stream from signal-cli daemon (via `signal-daemon`)
 
 Produces:
 
@@ -24,7 +24,7 @@ Handoff to agent_brain:
 
 Preferred:
 
-- `signal-cli daemon --http` with JSON-RPC and SSE events (`/api/v1/events`).
+- signal-cli daemon `--http` with SSE events (`/api/v1/events`).
 
 Fallback:
 
@@ -32,11 +32,8 @@ Fallback:
 
 ## How to run it
 
-MVP target command (adjust to your runtime):
-
-```bash
-cargo run --bin message-listener -- --rpc-url "$SIGNAL_CLI_RPC_URL" --db "$SQLITE_PATH"
-```
+This crate is a library. Use it from a service binary that configures `signal-daemon` with the daemon base URL
+(`http://$HTTP_ADDR`). For daemon setup, see `docs/signal-cli-daemon.md`.
 
 ## How to test it
 

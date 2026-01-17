@@ -4,14 +4,19 @@
 
 - Signal-native messaging experience.
 - Opt-in regional alerts for activists and human-rights defenders.
-- Three crates: `message-listener`, `agent-brain`, `broadcaster`.
+- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`.
 - Regional event ingestion as a subsystem/service (documented under `agent_brain::regional_events`).
 - For planned phases beyond the MVP, see `ROADMAP.md`.
 
 ## Components
 
+- `signal-cli daemon` (process)
+  - Runs the Signal account and exposes HTTP/SSE and JSON-RPC endpoints.
+- `signal-daemon` (crate: `crates/signal-daemon`)
+  - HTTP/SSE client for signal-cli daemon.
+  - Shared dependency for inbound and outbound transport.
 - `message_listener` (crate: `crates/message-listener`)
-  - Owns Signal inbound transport via `signal-cli`.
+  - Owns Signal inbound transport via `signal-daemon` (HTTP/SSE).
   - Normalizes inbound messages into `InboundMessage` records.
   - Emits normalized events into the local queue/state store.
 - `agent_brain` (crate: `crates/agent-brain`)
@@ -19,7 +24,7 @@
   - Calls the OpenAI-compatible Responses API.
   - Decides when to respond vs. when to update subscription state.
 - `broadcaster` (crate: `crates/broadcaster`)
-  - Owns outbound delivery to Signal identities via `signal-cli`.
+  - Owns outbound delivery via `signal-daemon` (HTTP to signal-cli daemon).
   - Handles chunking, retries, and throttling.
 - `regional_event_listener` (subsystem)
   - Ingests regional events from external feeds or fixtures.
@@ -94,13 +99,14 @@ Region parsing:
 
 ### Message flow (chat)
 
-1. Signal -> `message_listener` receives inbound message.
-2. `message_listener` emits normalized `InboundMessage`.
-3. `agent_brain` decides:
+1. Signal -> signal-cli daemon receives inbound message.
+2. `message_listener` subscribes to SSE via `signal-daemon`.
+3. `message_listener` emits normalized `InboundMessage`.
+4. `agent_brain` decides:
    - onboarding step, or
    - normal chat response.
-4. `agent_brain` produces `OutboundMessage`.
-5. `broadcaster` sends via `signal-cli`.
+5. `agent_brain` produces `OutboundMessage`.
+6. `broadcaster` sends via `signal-daemon` to signal-cli daemon.
 
 ### Event flow (notifications)
 
@@ -123,14 +129,16 @@ Region parsing:
 Environment variables (names may be implementation-specific):
 
 - `AMAN_NUMBER`: Signal account in E.164 format.
-- `SIGNAL_CLI_PATH`: path to `signal-cli`.
-- `SIGNAL_CLI_RPC_URL`: JSON-RPC endpoint if using daemon mode.
+- `SIGNAL_CLI_JAR`: path to `signal-cli.jar`.
+- `HTTP_ADDR`: HTTP bind address for signal-cli daemon.
 - `SQLITE_PATH`: bot state database path.
 - `OPENAI_API_KEY`: API key for OpenAI-compatible provider.
 - `MODEL`: model name (example: `gpt-5`).
 - `STORE_OPENAI_RESPONSES`: `true` or `false`.
 - `REGION_POLL_INTERVAL_SECONDS`: event ingester cadence.
 - `LOG_LEVEL`: log verbosity.
+
+For daemon setup details, see `docs/signal-cli-daemon.md`.
 
 ## Safety posture
 
@@ -180,6 +188,8 @@ Planned additions beyond the Signal MVP:
 - **RegionEvent**: normalized alert event for a region.
 - **Subscription**: mapping from identity to region/topics.
 - **Broadcaster**: component that sends outbound Signal messages.
+- **signal-cli daemon**: signal-cli process exposing HTTP/SSE and JSON-RPC.
+- **signal-daemon**: Rust client for the signal-cli daemon.
 - **DocManifest**: planned event describing a document and its chunks.
 - **Chunk**: planned unit of text for retrieval and citations.
 - **Embedding artifact**: planned vector or reference for retrieval.
