@@ -108,6 +108,8 @@ async fn main() -> database::Result<()> {
 The initial migration seeds these topics:
 
 - `iran`
+- `syria`
+- `lebanon`
 - `uganda`
 - `venezuela`
 - `bitcoin`

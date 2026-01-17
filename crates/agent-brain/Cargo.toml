@@ -9,6 +9,17 @@ description = "Signal-native agent brain utilities for Aman."
 path = "src/lib.rs"
 
 [dependencies]
+brain-core = { path = "../brain-core" }
+database = { path = "../database" }
+message-listener = { path = "../message-listener" }
+signal-daemon = { path = "../signal-daemon" }
+broadcaster = { path = "../broadcaster" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+dotenvy = "0.15"
 nostr-persistence = { path = "../nostr-persistence", optional = true }
 
 [features]
