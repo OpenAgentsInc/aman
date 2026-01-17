@@ -30,6 +30,15 @@ This document defines what Aman stores, what it does not store, and the default 
 - Precise location data or unnecessary metadata.
 - Raw OpenAI requests/responses when `store: false` is used.
 
+## Planned data categories (Phase 2+)
+
+These items are planned for the RAG and Nostr phases and are not part of the MVP.
+
+- Document manifests and chunk metadata (Nostr events).
+- Encrypted document blobs stored in object storage or IPFS.
+- Embedding artifacts or references used to rebuild the local vector DB.
+- Access policy and provenance events.
+
 ## Retention windows (defaults)
 
 - Dedupe metadata: 7 days.

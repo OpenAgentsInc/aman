@@ -40,6 +40,10 @@ cargo run --bin broadcaster -- --rpc-url "$SIGNAL_CLI_RPC_URL" --db "$SQLITE_PAT
 - Duplicate sends after restart if state is not persisted.
 - Oversized messages without chunking.
 
+## Roadmap
+
+- See `ROADMAP.md` for planned Web UI and RAG phases. The broadcaster remains the outbound Signal delivery layer.
+
 ## Security notes
 
 - Avoid logging full outbound content in production.

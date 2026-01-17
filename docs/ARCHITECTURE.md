@@ -6,6 +6,7 @@
 - Opt-in regional alerts for activists and human-rights defenders.
 - Three crates: `message-listener`, `agent-brain`, `broadcaster`.
 - Regional event ingestion as a subsystem/service (documented under `agent_brain::regional_events`).
+- For planned phases beyond the MVP, see `ROADMAP.md`.
 
 ## Components
 
@@ -139,6 +140,40 @@ Environment variables (names may be implementation-specific):
 - Do not log message bodies by default.
 - Prefer `store: false` (or equivalent) for the OpenAI-compatible Responses API.
 
+## Future architecture (Web UI, RAG, and Nostr)
+
+Planned additions beyond the Signal MVP:
+
+- Web UI for chat and uploads, with Signal as the trust channel for session bootstrapping.
+- RAG pipeline integrated into `agent_brain`.
+- New `ingester` crate for documents and YouTube transcripts.
+- Nostr relay integration for durable, syncable knowledge state.
+- Local vector DB (Qdrant, FAISS, or equivalent) rebuilt from Nostr events.
+
+### Planned data model (RAG + Nostr)
+
+- DocManifest event
+  - `doc_id`, `owner_id`, `created_at`, `language`, `mime`, `title`
+  - `source_hash`, encryption metadata
+  - list of chunk IDs
+- Chunk event
+  - `chunk_id`, `doc_id`, offsets
+  - encrypted chunk text or pointer to encrypted blob
+  - optional embedding reference
+- Embedding artifact
+  - model name/version
+  - vector bytes (compressed) or reference
+  - checksum
+- Access policy and provenance events
+  - who can read/share/export
+  - audit history and signatures
+
+### Storage split (planned)
+
+- Nostr stores metadata, hashes, and access policy events.
+- Large blobs live in object storage or IPFS with references in Nostr.
+- Vector search happens locally; indexes are rebuilt from the relay log.
+
 ## Glossary
 
 - **SignalIdentity**: stable identifier for a Signal contact.
@@ -146,6 +181,9 @@ Environment variables (names may be implementation-specific):
 - **RegionEvent**: normalized alert event for a region.
 - **Subscription**: mapping from identity to region/topics.
 - **Broadcaster**: component that sends outbound Signal messages.
+- **DocManifest**: planned event describing a document and its chunks.
+- **Chunk**: planned unit of text for retrieval and citations.
+- **Embedding artifact**: planned vector or reference for retrieval.
 
 ## Security notes
 

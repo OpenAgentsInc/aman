@@ -44,13 +44,14 @@ Event flow:
 
 ## Quickstart (dev)
 
-See the runbook: `docs/runbooks/aman-local-dev.md`.
+See the runbook: `docs/AMAN_LOCAL_DEV.md`.
 
 ## Docs
 
-- Architecture: `docs/architecture/aman-signal-mvp.md`
-- Aman overview: `docs/aman/README.md`
-- Data retention: `docs/security/data-retention.md`
+- Architecture: `docs/ARCHITECTURE.md`
+- Aman overview: `docs/AMAN.md`
+- Data retention: `docs/DATA_RETENTION.md`
+- Roadmap: `ROADMAP.md`
 
 ## Crates
 
@@ -66,9 +67,9 @@ See the runbook: `docs/runbooks/aman-local-dev.md`.
 
 ## Future work
 
-- Document upload + RAG.
-- Optional web UI.
-- Nostr relay persistence.
+- Web UI for chat and uploads (Signal remains the trust channel).
+- RAG pipeline with ingestion for documents and YouTube.
+- Nostr relay persistence and local vector DB rehydration.
 
 [1]: https://platform.openai.com/docs/api-reference/responses?utm_source=chatgpt.com "Responses | OpenAI API Reference"
 [2]: https://platform.openai.com/docs/guides/your-data?utm_source=chatgpt.com "Data controls in the OpenAI platform"

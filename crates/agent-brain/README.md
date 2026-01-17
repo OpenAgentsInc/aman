@@ -23,7 +23,7 @@ Produces:
 - Regions are parsed from user input ("Iran", "Syria", etc.).
 - Users can opt out at any time with "stop" or "unsubscribe".
 
-See `docs/architecture/aman-signal-mvp.md` for the authoritative state machine.
+See `docs/ARCHITECTURE.md` for the authoritative state machine.
 
 ## Subscription storage
 
@@ -69,6 +69,12 @@ cargo run --bin agent-brain -- --db "$SQLITE_PATH" --model "$MODEL"
 - Region parsing fails or is ambiguous.
 - OpenAI-compatible API timeouts or rate limits.
 - Duplicate inbound messages cause repeated onboarding prompts.
+
+## Future work
+
+- RAG integration with retrieval and citations.
+- Nostr-backed document manifests and chunk references.
+- Query routing between chat and RAG flows.
 
 ## Security notes
 

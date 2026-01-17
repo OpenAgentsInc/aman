@@ -35,7 +35,7 @@ Signal User -> signal-cli -> message_listener -> agent_brain -> broadcaster -> s
 - `broadcaster` owns outbound delivery, retries, and chunking.
 - `regional_event_listener` ingests regional events and emits `RegionEvent` records.
 
-For the authoritative architecture spec, see `docs/architecture/aman-signal-mvp.md`.
+For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 
 ## Ops and safety notes
 
@@ -44,6 +44,12 @@ For the authoritative architecture spec, see `docs/architecture/aman-signal-mvp.
 - Treat the server as a trusted endpoint (Signal E2EE terminates at the server).
 - Prefer `store: false` (or equivalent) with the OpenAI-compatible Responses API.
 
+## Future phases (planned)
+
+- Web UI for chat and uploads, with Signal as the trust channel.
+- RAG pipeline for documents and YouTube transcripts.
+- Nostr relay persistence and local vector DB rehydration.
+
 ## Security notes
 
 - `signal-cli` stores keys/credentials on disk; protect the storage path.
@@ -51,5 +57,6 @@ For the authoritative architecture spec, see `docs/architecture/aman-signal-mvp.
 
 ## Links
 
-- Local dev runbook: `docs/runbooks/aman-local-dev.md`
-- Data retention policy: `docs/security/data-retention.md`
+- Local dev runbook: `docs/AMAN_LOCAL_DEV.md`
+- Data retention policy: `docs/DATA_RETENTION.md`
+- Roadmap: `ROADMAP.md`
