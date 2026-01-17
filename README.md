@@ -242,8 +242,6 @@ To use the full Nostr flow, set `NOSTR_DB_PATH` and ingest documents via the `in
 | `SQLITE_PATH` | `./data/aman.db` | SQLite path for subscriptions/state |
 | `AMAN_DEFAULT_LANGUAGE` | `English` | Default language label for new contacts |
 | `SIGNAL_DAEMON_URL` | - | Override daemon base URL (optional) |
-| `SIGNAL_DAEMON_ACCOUNT` | - | Account selector for multi-account daemon mode |
-| `ADMIN_ADDR` | `127.0.0.1:8788` | Admin web bind address |
 | `MAPLE_API_KEY` | - | OpenSecret API key (MapleBrain) |
 | `MAPLE_API_URL` | `https://enclave.trymaple.ai` | Maple/OpenSecret API URL |
 | `MAPLE_MODEL` | `llama-3.3-70b` | Text model for MapleBrain |
