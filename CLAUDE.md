@@ -24,50 +24,103 @@ This decoupling prevents slow API calls from blocking inbound message handling.
 
 Located in `crates/`:
 
-- **broadcaster** - Signal-native broadcast utilities for sending messages via signal-cli
-- **message-listener** - Signal-native message listener utilities for receiving messages from signal-cli
+| Crate | Description | Status |
+|-------|-------------|--------|
+| **signal-daemon** | Core client for signal-cli daemon (HTTP/SSE), process spawning | Working |
+| **broadcaster** | Signal outbound delivery using signal-daemon | Working |
+| **message-listener** | Signal inbound transport using signal-daemon | Working |
+| **agent-brain** | Onboarding, routing, and API calls | Stub |
 
-Both crates are currently stubs (edition 2021, no dependencies yet). There is no workspace-level Cargo.toml; each crate is built independently.
+There is no workspace-level Cargo.toml; each crate is built independently.
 
 ## Build Commands
 
 ```bash
+# Build signal-cli JAR (required first)
+./scripts/build-signal-cli.sh
+
 # Build a specific crate
-cargo build -p broadcaster
-cargo build -p message-listener
+cd crates/signal-daemon && cargo build
+cd crates/broadcaster && cargo build
+cd crates/message-listener && cargo build
 
-# Run tests for a specific crate
-cargo test -p broadcaster
-cargo test -p message-listener
+# Run tests
+cd crates/signal-daemon && cargo test
 
-# Run a single test
-cargo test -p <crate> <test_name>
+# Run examples
+cd crates/signal-daemon
+AMAN_NUMBER=+1234567890 cargo run --example health_check
+AMAN_NUMBER=+1234567890 cargo run --example echo_bot
 ```
 
-## signal-cli Submodule
+## Scripts
 
-The `repos/signal-cli/` directory is a Git submodule containing the Java-based signal-cli tool.
+Located in `scripts/`:
+
+| Script | Description |
+|--------|-------------|
+| `build-signal-cli.sh` | Build signal-cli fat JAR to `build/signal-cli.jar` |
+| `signal-cli.sh` | General wrapper - pass any args to signal-cli |
+| `register-signal.sh` | Register/re-register a Signal account |
+| `run-signal-daemon.sh` | Run signal-cli daemon for development |
+
+## signal-cli Setup
+
+### Build
 
 ```bash
-# Initialize submodule after clone
-git submodule update --init
-
-# Build signal-cli (from repos/signal-cli/)
-./gradlew build
-./gradlew installDist
+./scripts/build-signal-cli.sh
+# Output: build/signal-cli.jar
 ```
 
-signal-cli provides CLI and daemon mode (JSON-RPC with SSE stream) for Signal integration. See `docs/signal-cli-daemon.md` for detailed daemon setup, JSON-RPC/D-Bus interfaces, and event subscription.
+### Register Account
+
+```bash
+# Request SMS verification
+./scripts/register-signal.sh +1234567890
+
+# If captcha required
+./scripts/register-signal.sh +1234567890 --captcha
+
+# Verify with code
+./scripts/signal-cli.sh -a +1234567890 verify <CODE>
+```
+
+### Run Daemon
+
+```bash
+./scripts/run-signal-daemon.sh +1234567890
+# Or: AMAN_NUMBER=+1234567890 ./scripts/run-signal-daemon.sh
+```
+
+### Test Endpoints
+
+```bash
+# Health check
+curl http://127.0.0.1:8080/api/v1/check
+
+# Version
+curl -X POST http://127.0.0.1:8080/api/v1/rpc \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"version","id":1}'
+
+# Subscribe to events
+curl -N http://127.0.0.1:8080/api/v1/events
+```
 
 ## Configuration
 
 Environment variables (via `.env`):
-- `OPENAI_API_KEY` - API key for OpenAI-compatible provider
-- `AMAN_NUMBER` - Signal phone number for the bot
-- `SIGNAL_CLI_PATH` - Path to signal-cli binary
-- `MODEL` - Model to use (optional)
-- `STORE_OPENAI_RESPONSES` - Set to "false" to disable API-side storage
-- `SQLITE_PATH` - Local database path
+
+| Variable | Description |
+|----------|-------------|
+| `AMAN_NUMBER` | Signal phone number for the bot |
+| `SIGNAL_CLI_JAR` | Path to signal-cli.jar (default: `build/signal-cli.jar`) |
+| `HTTP_ADDR` | Daemon HTTP bind address (default: `127.0.0.1:8080`) |
+| `OPENAI_API_KEY` | API key for OpenAI-compatible provider |
+| `MODEL` | Model to use (optional) |
+| `STORE_OPENAI_RESPONSES` | Set to "false" to disable API-side storage |
+| `SQLITE_PATH` | Local database path |
 
 ## Data Model (planned)
 
@@ -82,3 +135,10 @@ SQLite tables for:
 - Signal E2EE terminates at the server; if server is compromised, message content is exposed
 - Use `store: false` with the API when you don't want application state retained
 - Minimize logs, use short retention, implement per-sender throttles
+
+## Key Files
+
+- `build/signal-cli.jar` - Built signal-cli fat JAR
+- `repos/signal-cli/` - signal-cli Git submodule
+- `docs/signal-cli-daemon.md` - Daemon API documentation
+- `crates/signal-daemon/README.md` - Rust client API reference

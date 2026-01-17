@@ -1,0 +1,37 @@
+# Claude Code
+.claude/
+
+# Local files
+local/
+.env
+.env.*
+
+# Build output
+build/*
+!build/.gitkeep
+
+# Rust / Cargo
+**/target/
+**/*.rs.bk
+**/Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Java / Gradle (signal-cli builds)
+repos/signal-cli/build/
+repos/signal-cli/.gradle/
+repos/signal-cli/buildSrc/build/
+repos/signal-cli/lib/build/

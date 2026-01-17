@@ -46,6 +46,90 @@ Event flow:
 
 See the runbook: `docs/AMAN_LOCAL_DEV.md`.
 
+## Setup
+
+### Prerequisites
+
+- Java 21+ (for signal-cli)
+- Rust toolchain (for crates)
+- A phone number for the bot's Signal account
+
+### 1. Initialize submodules
+
+```bash
+git submodule update --init
+```
+
+### 2. Build signal-cli
+
+```bash
+./scripts/build-signal-cli.sh
+```
+
+This builds a fat JAR at `build/signal-cli.jar`.
+
+### 3. Register Signal account
+
+First-time registration:
+
+```bash
+# Request SMS verification code
+./scripts/register-signal.sh +1234567890
+
+# If captcha is required
+./scripts/register-signal.sh +1234567890 --captcha
+
+# For voice call instead of SMS
+./scripts/register-signal.sh +1234567890 --voice
+```
+
+After receiving the code:
+
+```bash
+./scripts/signal-cli.sh -a +1234567890 verify <CODE>
+```
+
+### 4. Run the daemon
+
+```bash
+./scripts/run-signal-daemon.sh +1234567890
+
+# Or with environment variable
+AMAN_NUMBER=+1234567890 ./scripts/run-signal-daemon.sh
+```
+
+Test endpoints:
+
+```bash
+# Health check
+curl http://127.0.0.1:8080/api/v1/check
+
+# Get version
+curl -X POST http://127.0.0.1:8080/api/v1/rpc \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"version","id":1}'
+
+# Subscribe to incoming messages
+curl -N http://127.0.0.1:8080/api/v1/events
+```
+
+## Scripts
+
+| Script | Description |
+|--------|-------------|
+| `scripts/build-signal-cli.sh` | Build signal-cli fat JAR to `build/signal-cli.jar` |
+| `scripts/signal-cli.sh` | General wrapper - pass any args to signal-cli |
+| `scripts/register-signal.sh` | Register/re-register a Signal account |
+| `scripts/run-signal-daemon.sh` | Run signal-cli daemon for development |
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AMAN_NUMBER` | - | Bot's Signal phone number |
+| `SIGNAL_CLI_JAR` | `build/signal-cli.jar` | Path to signal-cli JAR |
+| `HTTP_ADDR` | `127.0.0.1:8080` | Daemon HTTP bind address |
+
 ## Docs
 
 - Architecture: `docs/ARCHITECTURE.md`
@@ -55,9 +139,14 @@ See the runbook: `docs/AMAN_LOCAL_DEV.md`.
 
 ## Crates
 
-- `crates/message-listener/README.md`
-- `crates/agent-brain/README.md`
-- `crates/broadcaster/README.md`
+| Crate | Description |
+|-------|-------------|
+| `signal-daemon` | Core client for signal-cli daemon (HTTP/SSE) |
+| `message-listener` | Signal inbound transport using signal-daemon |
+| `broadcaster` | Signal outbound delivery using signal-daemon |
+| `agent-brain` | Onboarding, routing, and API calls |
+
+See individual READMEs in `crates/*/README.md` for API documentation.
 
 ## Safety and ops
 

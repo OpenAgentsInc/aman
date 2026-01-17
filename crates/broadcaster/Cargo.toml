@@ -9,3 +9,9 @@ description = "Signal-native broadcast utilities for Aman."
 path = "src/lib.rs"
 
 [dependencies]
+signal-daemon = { path = "../signal-daemon" }
+thiserror = "2"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
