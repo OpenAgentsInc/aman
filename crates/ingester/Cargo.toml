@@ -1,0 +1,17 @@
+[package]
+name = "ingester"
+version = "0.1.0"
+edition = "2021"
+
+description = "Document ingester for Aman (Nostr publishing + local indexing)."
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+nostr-persistence = { path = "../nostr-persistence" }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+uuid = { version = "1", features = ["v4"] }

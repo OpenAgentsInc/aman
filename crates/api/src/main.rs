@@ -11,6 +11,7 @@ use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -113,19 +114,32 @@ async fn main() {
     let api_token = env::var("AMAN_API_TOKEN").ok();
     let default_model = env::var("AMAN_API_MODEL").unwrap_or_else(|_| "aman-chat".to_string());
     let kb_path = env::var("AMAN_KB_PATH").ok();
+    let nostr_db_path = env::var("NOSTR_DB_PATH").ok();
 
-    let kb = match kb_path {
-        Some(path) if !path.trim().is_empty() => match KnowledgeBase::load(PathBuf::from(path)) {
+    let kb = match nostr_db_path {
+        Some(path) if !path.trim().is_empty() => match KnowledgeBase::from_nostr_db(PathBuf::from(path)) {
             Ok(kb) => {
-                info!(entries = kb.entries.len(), "Loaded knowledge base");
+                info!(entries = kb.entries.len(), "Loaded knowledge base from Nostr DB");
                 Some(Arc::new(kb))
             }
             Err(err) => {
-                warn!(error = %err, "Failed to load knowledge base");
+                warn!(error = %err, "Failed to load knowledge base from Nostr DB");
                 None
             }
         },
-        _ => None,
+        _ => match kb_path {
+            Some(path) if !path.trim().is_empty() => match KnowledgeBase::load(PathBuf::from(path)) {
+                Ok(kb) => {
+                    info!(entries = kb.entries.len(), "Loaded knowledge base");
+                    Some(Arc::new(kb))
+                }
+                Err(err) => {
+                    warn!(error = %err, "Failed to load knowledge base");
+                    None
+                }
+            },
+            _ => None,
+        },
     };
 
     let state = AppState {
@@ -388,6 +402,35 @@ impl KnowledgeBase {
         Ok(Self { entries })
     }
 
+    fn from_nostr_db(path: PathBuf) -> Result<Self, std::io::Error> {
+        let conn = Connection::open(&path).map_err(to_io_error)?;
+        let mut stmt = conn
+            .prepare("SELECT doc_id, chunk_id, blob_ref FROM chunks")
+            .map_err(to_io_error)?;
+
+        let mut entries = Vec::new();
+        let rows = stmt
+            .query_map([], |row| {
+                let doc_id: String = row.get(0)?;
+                let chunk_id: String = row.get(1)?;
+                let blob_ref: Option<String> = row.get(2)?;
+                Ok((doc_id, chunk_id, blob_ref))
+            })
+            .map_err(to_io_error)?;
+
+        for row in rows {
+            let (doc_id, chunk_id, blob_ref) = row.map_err(to_io_error)?;
+            let Some(blob_ref) = blob_ref else { continue };
+            let Some(path) = blob_ref_to_path(&blob_ref) else { continue };
+            let source = format!("{}:{}", doc_id, chunk_id);
+            if let Ok(Some(entry)) = load_chunk_from_path(&path, source) {
+                entries.push(entry);
+            }
+        }
+
+        Ok(Self { entries })
+    }
+
     fn search(&self, query: &str) -> Option<KbMatch> {
         let tokens = tokenize(query);
         if tokens.is_empty() {
@@ -486,4 +529,43 @@ fn build_snippet(entry: &KbEntry, tokens: &[String]) -> String {
         }
         None => entry.text.chars().take(400).collect(),
     }
+}
+
+fn load_chunk_from_path(path: &Path, source: String) -> Result<Option<KbEntry>, std::io::Error> {
+    const MAX_BYTES: u64 = 512 * 1024;
+    const MAX_CHARS: usize = 8000;
+
+    let metadata = fs::metadata(path)?;
+    if metadata.len() == 0 || metadata.len() > MAX_BYTES {
+        return Ok(None);
+    }
+
+    let text = fs::read_to_string(path)?;
+    let trimmed: String = text.chars().take(MAX_CHARS).collect();
+    if trimmed.trim().is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(KbEntry {
+        source,
+        text_lower: trimmed.to_ascii_lowercase(),
+        text: trimmed,
+    }))
+}
+
+fn blob_ref_to_path(blob_ref: &str) -> Option<PathBuf> {
+    if let Some(path) = blob_ref.strip_prefix("file://") {
+        return Some(PathBuf::from(path));
+    }
+
+    let candidate = PathBuf::from(blob_ref);
+    if candidate.is_absolute() || candidate.exists() {
+        return Some(candidate);
+    }
+
+    None
+}
+
+fn to_io_error(err: rusqlite::Error) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::Other, err.to_string())
 }

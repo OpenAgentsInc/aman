@@ -7,6 +7,7 @@ members = [
     "crates/broadcaster",
     "crates/database",
     "crates/maple-brain",
+    "crates/ingester",
     "crates/message-listener",
     "crates/mock-brain",
     "crates/signal-daemon",

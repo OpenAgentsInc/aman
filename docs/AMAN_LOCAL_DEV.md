@@ -150,7 +150,27 @@ npm run dev
 
 Open http://localhost:3000 in your browser.
 
-## 10) Simulate a RegionEvent
+## 10) Ingest local knowledge (Nostr flow)
+
+Create or update chunked Nostr entries using the local knowledge file:
+
+```bash
+cargo run -p ingester -- \
+  --file knowledge/using-ai-to-improve-movements-effectiveness.md \
+  --out-dir ./data/ingest \
+  --index-db ./data/nostr.db
+```
+
+Then start the API with Nostr DB enabled:
+
+```bash
+export NOSTR_DB_PATH="./data/nostr.db"
+export AMAN_API_ADDR="127.0.0.1:8787"
+export AMAN_API_TOKEN="aman-local"
+cargo run -p api
+```
+
+## 11) Simulate a RegionEvent
 
 Create a local event file:
 
@@ -178,7 +198,7 @@ curl -s -X POST http://127.0.0.1:9001/events \
 
 You should see outbound alerts sent to all subscribers of the region.
 
-## 11) Run Nostr indexer locally (Phase 2 foundation)
+## 12) Run Nostr indexer locally (Phase 2 foundation)
 
 Pick relays that retain custom kinds. Relay retention varies by operator (see NIP-11).
 

@@ -4,7 +4,7 @@
 
 - Signal-native messaging experience.
 - Opt-in regional alerts for activists and human-rights defenders.
-- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`.
+- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`.
 - Data persistence crate: `database` (SQLite via SQLx).
 - Test harness crate: `mock-brain` (mock implementations for message flow testing).
 - Regional event ingestion as a subsystem/service (documented under `agent_brain::regional_events`).
@@ -20,6 +20,9 @@
 - `api` (crate: `crates/api`)
   - OpenAI-compatible inference gateway (`/v1/chat/completions`, `/v1/models`).
   - Uses a local knowledge base (if configured) or stubbed echo responses for local/dev use.
+- `ingester` (crate: `crates/ingester`)
+  - Chunks local files into blob refs and publishes DocManifest + ChunkRef events.
+  - Can index directly into a local Nostr SQLite DB for testing.
 - `signal-daemon` (crate: `crates/signal-daemon`)
   - HTTP/SSE client for signal-cli daemon.
   - Shared dependency for inbound and outbound transport.
@@ -148,6 +151,13 @@ Region parsing:
 1. Web UI or client -> `api` service.
 2. `api` returns OpenAI-style chat completions (stubbed echo).
 
+### Nostr ingestion flow (current)
+
+1. `ingester` chunks files and writes chunk blobs to disk.
+2. `ingester` publishes DocManifest + ChunkRef events (or indexes directly into SQLite).
+3. `nostr-indexer` stores Nostr events in `NOSTR_DB_PATH`.
+4. `api` reads from `NOSTR_DB_PATH` for knowledge base answers.
+
 ## Reliability
 
 - Deduplicate inbound messages using (message_id, timestamp window).
@@ -176,6 +186,7 @@ Environment variables (names may be implementation-specific):
 - `NOSTR_RELAYS`: comma-separated relay URLs (Phase 2).
 - `NOSTR_DB_PATH`: SQLite path for Nostr indexer (Phase 2).
 - `NOSTR_SECRETBOX_KEY`: optional symmetric key for payload encryption (Phase 2).
+- `NOSTR_SECRET_KEY`: secret key used by `ingester` when publishing to relays.
 
 For daemon setup details, see `docs/signal-cli-daemon.md`.
 
@@ -192,7 +203,7 @@ For daemon setup details, see `docs/signal-cli-daemon.md`.
 Planned additions beyond the Signal MVP:
 
 - RAG pipeline integrated into `agent_brain`.
-- New `ingester` crate for documents and YouTube transcripts.
+- Extend `ingester` crate for documents and YouTube transcripts.
 - Nostr relay integration for durable, syncable knowledge state.
 - Local vector DB (Qdrant, FAISS, or equivalent) rebuilt from Nostr events.
 - `nostr-persistence` crate to publish and index Nostr events into SQLite.
@@ -305,6 +316,7 @@ AccessPolicy content:
 - **api**: OpenAI-compatible inference gateway (chat completions).
 - **database**: SQLite persistence crate for users, topics, and notifications.
 - **nostr-persistence**: crate that publishes and indexes Nostr metadata into SQLite.
+- **ingester**: chunks documents and publishes/indexes Nostr events.
 - **mock-brain**: test harness crate for message flow and signal-daemon integration.
 - **DocManifest**: planned event describing a document and its chunks.
 - **Chunk**: planned unit of text for retrieval and citations.

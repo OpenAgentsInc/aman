@@ -32,6 +32,7 @@ The web UI currently talks directly to the OpenAI-compatible API and is not yet 
 - `regional_event_listener`: regional event ingestion and normalization.
 - `web`: Next.js UI for browser chat (separate from Signal flow).
 - `api`: OpenAI-compatible inference gateway for local/dev web UI.
+- `ingester`: file chunking + Nostr publishing for knowledge base content.
 
 ## Message and event flow
 
@@ -58,6 +59,13 @@ OpenAI-compatible API flow:
 
 1. Web UI or client -> `api` service.
 2. `api` returns OpenAI-style chat completions (stubbed echo for now).
+
+Nostr ingestion flow (local/dev):
+
+1. `ingester` chunks files and writes chunk blobs to disk.
+2. `ingester` publishes DocManifest + ChunkRef events (or indexes directly into SQLite).
+3. `nostr-indexer` stores Nostr events in `NOSTR_DB_PATH`.
+4. `api` reads from `NOSTR_DB_PATH` for knowledge base answers.
 
 ## Quickstart (dev)
 
@@ -192,6 +200,7 @@ npm run dev
 ```
 
 If you want the local API to use a simple knowledge base, set `AMAN_KB_PATH` (for example `./knowledge`) when starting the api service.
+To use the full Nostr flow, set `NOSTR_DB_PATH` and ingest documents via the `ingester` crate.
 
 ## Scripts
 
@@ -232,6 +241,7 @@ If you want the local API to use a simple knowledge base, set `AMAN_KB_PATH` (fo
 | `mock-brain` | Mock brain implementations for testing message flows |
 | `database` | SQLite persistence (users/topics/notifications) via SQLx |
 | `api` | OpenAI-compatible chat API (local inference gateway) |
+| `ingester` | Document chunking + Nostr publishing/indexing |
 | `nostr-persistence` | Nostr publisher/indexer for durable doc/chunk metadata |
 
 See individual READMEs in `crates/*/README.md` for API documentation.

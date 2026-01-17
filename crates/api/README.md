@@ -18,6 +18,8 @@ export AMAN_KB_PATH="./knowledge"    # optional (txt/md/jsonl files)
 cargo run -p api
 ```
 
+If `NOSTR_DB_PATH` is set, the API reads from the Nostr indexer DB instead of `AMAN_KB_PATH`.
+
 ## Request example
 
 ```bash
@@ -35,3 +37,4 @@ curl -s http://127.0.0.1:8787/v1/chat/completions \
 - Echoes the last user message with `Echo: <text>`.
 - Streams if `stream: true` is provided.
 - If `AMAN_KB_PATH` is set and a match is found, returns a KB snippet instead of echo.
+- If `NOSTR_DB_PATH` is set and chunk blobs are file-based, returns the best matching chunk.

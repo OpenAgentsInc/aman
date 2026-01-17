@@ -14,6 +14,7 @@ next phases: RAG and Nostr-based persistence.
 - `web/` Next.js UI exists for browser chat (not yet wired to Signal services).
 - `api` crate provides an OpenAI-compatible inference gateway (stubbed echo).
 - `api` can read a local knowledge base directory/file (simple keyword match).
+- `ingester` crate exists for chunking files and publishing/indexing Nostr events.
 
 ## Phase 0 - Signal MVP hardening
 
@@ -39,8 +40,8 @@ Goal: complete and stabilize the Signal-native assistant with opt-in regional al
 
 Goal: support document and YouTube ingestion with retrieval and citations.
 
-- New crate: `ingester`
-  - document ingestion (pdf, docx, txt)
+- Expand `ingester`
+  - document ingestion (txt, md) with chunking (baseline)
   - YouTube ingestion (transcripts + metadata)
   - text extraction and normalization
   - chunking and embedding
