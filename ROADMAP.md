@@ -11,8 +11,6 @@ next phases: RAG and Nostr-based persistence.
 - `maple-brain` provides an OpenSecret-backed Brain implementation (optional).
 - `agent-brain` implements the onboarding state machine and subscription routing.
 - `agent-brain` ships `agent_brain_bot` (Signal MVP bot) and `region_event_send` (alert fanout).
-- `agent-brain` implements the onboarding state machine and subscription routing.
-- `agent-brain` ships `agent_brain_bot` (Signal MVP bot) and `region_event_send` (alert fanout).
 - `regional_event_listener` exists as a documented subsystem; intake wiring is still pending.
 - `nostr-persistence` crate is started (publisher/indexer foundation).
 - `database` crate exists for users/topics/notifications (SQLx + migrations).
