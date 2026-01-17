@@ -1,0 +1,25 @@
+[package]
+name = "mock-brain"
+version = "0.1.0"
+edition = "2021"
+description = "Mock brain implementations for testing Signal bot message processing."
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+signal-daemon = ["dep:signal-daemon"]
+
+[dependencies]
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt", "sync"] }
+thiserror = "2"
+
+# Optional: integration with signal-daemon types
+signal-daemon = { path = "../signal-daemon", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+futures = "0.3"
+dotenvy = "0.15"

@@ -160,6 +160,7 @@ curl -N http://127.0.0.1:8080/api/v1/events
 | `scripts/link-device.sh` | Link as secondary device to existing account (recommended for dev) |
 | `scripts/unlink-device.sh` | Remove local Signal data and unlink this device |
 | `scripts/run-signal-daemon.sh` | Run signal-cli daemon for development |
+| `scripts/send-message.sh` | Send a test message via daemon JSON-RPC |
 
 ### Environment Variables
 

@@ -65,6 +65,7 @@ Located in `scripts/`:
 | `link-device.sh` | Link as secondary device to existing account (recommended for dev) |
 | `unlink-device.sh` | Remove local Signal data and unlink this device |
 | `run-signal-daemon.sh` | Run signal-cli daemon for development |
+| `send-message.sh` | Send a test message via daemon JSON-RPC |
 
 ## signal-cli Setup
 
