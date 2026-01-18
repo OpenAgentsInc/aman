@@ -332,3 +332,28 @@ textarea:focus {
         text-align: center;
     }
 }
+
+/* Proton Mail section */
+.stat-card.highlight {
+    background: #fef3c7;
+    border: 2px solid #f59e0b;
+}
+
+.stat-card.highlight .stat-value {
+    color: #d97706;
+}
+
+.email-info {
+    color: #6b7280;
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+}
+
+.error-message {
+    color: #dc2626;
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: #fef2f2;
+    border-radius: 4px;
+}

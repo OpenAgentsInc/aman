@@ -102,6 +102,18 @@ pub async fn send_api(
     State(state): State<AppState>,
     Json(req): Json<BroadcastRequest>,
 ) -> Result<Json<BroadcastResponse>> {
+    // Check if broadcaster is available
+    let broadcaster = match &state.broadcaster {
+        Some(b) => b,
+        None => {
+            return Ok(Json(BroadcastResponse {
+                sent: 0,
+                failed: 0,
+                errors: vec!["Signal daemon not connected. Cannot send broadcasts.".to_string()],
+            }));
+        }
+    };
+
     let pool = state.db.pool();
     let mut seen = std::collections::HashSet::new();
     let mut recipient_ids = Vec::new();
@@ -127,7 +139,7 @@ pub async fn send_api(
     let mut errors = Vec::new();
 
     for recipient_id in recipient_ids {
-        match state.broadcaster.send_text(&recipient_id, &req.message).await {
+        match broadcaster.send_text(&recipient_id, &req.message).await {
             Ok(_) => {
                 sent += 1;
                 info!(recipient = %recipient_id, "Broadcast sent");

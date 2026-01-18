@@ -31,15 +31,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = Database::connect(&config.database_url).await?;
     db.migrate().await?;
 
-    // Connect to broadcaster
+    // Connect to broadcaster (optional - dashboard works without it)
     let daemon_config = DaemonConfig::with_account(
         &config.signal_daemon_url,
         &config.aman_number,
     );
-    let broadcaster = Broadcaster::connect(daemon_config).await?;
+    let broadcaster = match Broadcaster::connect(daemon_config).await {
+        Ok(b) => {
+            info!("Connected to Signal daemon");
+            Some(b)
+        }
+        Err(e) => {
+            tracing::warn!("Signal daemon not available: {}. Broadcast features will be disabled.", e);
+            None
+        }
+    };
 
     // Build application state
-    let state = AppState::new(db, broadcaster);
+    let state = AppState::new(db, broadcaster, config.proton);
 
     // Build router
     let app = routes::router()

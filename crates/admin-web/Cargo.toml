@@ -25,3 +25,4 @@ tower-http = { version = "0.5", features = ["fs"] }
 database = { path = "../database" }
 broadcaster = { path = "../broadcaster" }
 signal-daemon = { path = "../signal-daemon" }
+proton-proxy = { path = "../proton-proxy" }

@@ -14,6 +14,8 @@ pub struct Config {
     pub signal_daemon_url: String,
     /// Bot phone number.
     pub aman_number: String,
+    /// Proton Mail configuration (optional).
+    pub proton: Option<proton_proxy::ProtonConfig>,
 }
 
 impl Config {
@@ -40,11 +42,15 @@ impl Config {
         let aman_number = env::var("AMAN_NUMBER")
             .map_err(|_| ConfigError::MissingAmanNumber)?;
 
+        // Proton config is optional - only load if credentials are set
+        let proton = proton_proxy::ProtonConfig::from_env().ok();
+
         Ok(Self {
             addr,
             database_url,
             signal_daemon_url,
             aman_number,
+            proton,
         })
     }
 }
