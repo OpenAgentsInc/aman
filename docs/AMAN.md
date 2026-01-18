@@ -59,7 +59,7 @@ Optional modes:
   for privacy-preserving real-time lookups.
   When `SQLITE_PATH` is set, the orchestrator persists preferences, rolling summaries,
   tool history, and clear-context events, then hydrates memory snapshots into prompts
-  with policy controls.
+  with policy controls and provenance hashes.
 
 For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 

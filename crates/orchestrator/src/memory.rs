@@ -13,6 +13,8 @@ use database::{
     clear_context_event, conversation_summary, tool_history, ConversationSummary, Database,
 };
 use serde::Deserialize;
+use tokio::time;
+use tracing::warn;
 
 /// Summary formatting policy.
 #[derive(Debug, Clone)]
@@ -112,6 +114,7 @@ pub struct MemorySettings {
     pub tool_output_max_chars: usize,
     pub prompt_policy: MemoryPromptPolicy,
     pub prompt_overrides: HashMap<String, MemoryPromptOverrides>,
+    pub compaction_interval: Option<Duration>,
 }
 
 impl Default for MemorySettings {
@@ -122,6 +125,7 @@ impl Default for MemorySettings {
             tool_output_max_chars: 2000,
             prompt_policy: MemoryPromptPolicy::default(),
             prompt_overrides: HashMap::new(),
+            compaction_interval: None,
         }
     }
 }
@@ -182,6 +186,10 @@ impl MemorySettings {
             }
         }
 
+        if let Some(seconds) = env_u64("AMAN_MEMORY_COMPACT_INTERVAL_SECS") {
+            settings.compaction_interval = seconds_to_duration(seconds);
+        }
+
         if let Some(days) = env_u64("AMAN_MEMORY_SUMMARY_TTL_DAYS") {
             settings.retention.summary_ttl = days_to_duration(days);
         }
@@ -235,6 +243,24 @@ impl MemoryStore {
 
     pub fn prompt_policy_for(&self, history_key: &str) -> MemoryPromptPolicy {
         self.settings.prompt_policy_for(history_key)
+    }
+
+    pub fn compaction_interval(&self) -> Option<Duration> {
+        self.settings.compaction_interval
+    }
+
+    pub fn spawn_compaction_task(&self) -> Option<tokio::task::JoinHandle<()>> {
+        let interval = self.settings.compaction_interval?;
+        let store = self.clone();
+        Some(tokio::spawn(async move {
+            let mut ticker = time::interval(interval);
+            loop {
+                ticker.tick().await;
+                if let Err(err) = store.compact().await {
+                    warn!("Memory compaction failed: {}", err);
+                }
+            }
+        }))
     }
 
     pub async fn get_summary(&self, history_key: &str) -> Option<String> {
@@ -376,7 +402,34 @@ impl MemoryStore {
         Ok(())
     }
 
+    pub async fn compact(&self) -> database::Result<()> {
+        self.prune_all().await?;
+
+        if let Some(max_rows) = self.settings.retention.max_tool_history_per_key {
+            let history_keys = tool_history::list_history_keys(self.database.pool()).await?;
+            for key in history_keys {
+                let _ =
+                    tool_history::prune_over_limit_for_key(self.database.pool(), &key, max_rows)
+                        .await?;
+            }
+        }
+
+        Ok(())
+    }
+
     async fn prune(&self, history_key: &str) -> database::Result<()> {
+        self.prune_all().await?;
+
+        if let Some(max_rows) = self.settings.retention.max_tool_history_per_key {
+            let _ =
+                tool_history::prune_over_limit_for_key(self.database.pool(), history_key, max_rows)
+                    .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn prune_all(&self) -> database::Result<()> {
         if let Some(ttl) = self.settings.retention.summary_ttl {
             let _ = conversation_summary::prune_older_than(self.database.pool(), ttl).await?;
         }
@@ -389,11 +442,6 @@ impl MemoryStore {
         }
         if let Some(max_rows) = self.settings.retention.max_tool_history_total {
             let _ = tool_history::prune_over_limit(self.database.pool(), max_rows).await?;
-        }
-        if let Some(max_rows) = self.settings.retention.max_tool_history_per_key {
-            let _ =
-                tool_history::prune_over_limit_for_key(self.database.pool(), history_key, max_rows)
-                    .await?;
         }
 
         if let Some(ttl) = self.settings.retention.clear_context_ttl {
@@ -486,6 +534,14 @@ fn days_to_duration(days: u64) -> Option<Duration> {
         None
     } else {
         Some(Duration::from_secs(days.saturating_mul(24 * 60 * 60)))
+    }
+}
+
+fn seconds_to_duration(seconds: u64) -> Option<Duration> {
+    if seconds == 0 {
+        None
+    } else {
+        Some(Duration::from_secs(seconds))
     }
 }
 

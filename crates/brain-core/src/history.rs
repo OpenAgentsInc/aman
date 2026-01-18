@@ -24,6 +24,14 @@ impl HistoryMessage {
         }
     }
 
+    /// Create a system message.
+    pub fn system(content: impl Into<String>) -> Self {
+        Self {
+            role: "system".to_string(),
+            content: content.into(),
+        }
+    }
+
     /// Create an assistant message.
     pub fn assistant(content: impl Into<String>) -> Self {
         Self {
@@ -58,6 +66,8 @@ impl HistoryMessage {
 pub struct ConversationHistory {
     /// Map from sender ID to their message history.
     histories: RwLock<HashMap<String, Vec<HistoryMessage>>>,
+    /// Optional system messages per sender (not counted toward max turns).
+    system_messages: RwLock<HashMap<String, HistoryMessage>>,
     /// Maximum number of turns (user + assistant pairs) to keep.
     max_turns: usize,
 }
@@ -67,6 +77,7 @@ impl ConversationHistory {
     pub fn new(max_turns: usize) -> Self {
         Self {
             histories: RwLock::new(HashMap::new()),
+            system_messages: RwLock::new(HashMap::new()),
             max_turns,
         }
     }
@@ -74,7 +85,16 @@ impl ConversationHistory {
     /// Get the conversation history for a sender.
     pub async fn get(&self, sender: &str) -> Vec<HistoryMessage> {
         let histories = self.histories.read().await;
-        histories.get(sender).cloned().unwrap_or_default()
+        let system_messages = self.system_messages.read().await;
+
+        let mut messages = Vec::new();
+        if let Some(system_message) = system_messages.get(sender) {
+            messages.push(system_message.clone());
+        }
+        if let Some(history) = histories.get(sender) {
+            messages.extend(history.clone());
+        }
+        messages
     }
 
     /// Add a user message and assistant response to the history.
@@ -86,23 +106,37 @@ impl ConversationHistory {
         history.push(HistoryMessage::assistant(assistant_msg));
 
         // Trim to max turns (each turn is 2 messages)
-        let max_messages = self.max_turns * 2;
-        if history.len() > max_messages {
-            let to_remove = history.len() - max_messages;
-            history.drain(0..to_remove);
-        }
+        trim_history(history, self.max_turns);
+    }
+
+    /// Set or replace the system message for a sender (not counted toward max turns).
+    pub async fn set_system_message(&self, sender: &str, content: impl Into<String>) {
+        let mut system_messages = self.system_messages.write().await;
+        system_messages.insert(sender.to_string(), HistoryMessage::system(content));
     }
 
     /// Clear history for a specific sender.
     pub async fn clear(&self, sender: &str) {
         let mut histories = self.histories.write().await;
         histories.remove(sender);
+        let mut system_messages = self.system_messages.write().await;
+        system_messages.remove(sender);
     }
 
     /// Clear all conversation histories.
     pub async fn clear_all(&self) {
         let mut histories = self.histories.write().await;
         histories.clear();
+        let mut system_messages = self.system_messages.write().await;
+        system_messages.clear();
+    }
+}
+
+fn trim_history(history: &mut Vec<HistoryMessage>, max_turns: usize) {
+    let max_messages = max_turns * 2;
+    if history.len() > max_messages {
+        let to_remove = history.len() - max_messages;
+        history.drain(0..to_remove);
     }
 }
 
@@ -187,5 +221,20 @@ mod tests {
 
         assert!(messages1.is_empty());
         assert!(messages2.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_system_message_in_history() {
+        let history = ConversationHistory::new(2);
+
+        history
+            .set_system_message("+1234", "Memory prompt")
+            .await;
+        history.add_exchange("+1234", "Hello", "Hi").await;
+
+        let messages = history.get("+1234").await;
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].role, "system");
+        assert_eq!(messages[0].content, "Memory prompt");
     }
 }

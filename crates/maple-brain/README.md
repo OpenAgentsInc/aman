@@ -38,6 +38,8 @@ maple-brain = { path = "../maple-brain" }
 | `MAPLE_TEMPERATURE` | No | `0.7` | Sampling temperature (0.0-2.0) |
 | `MAPLE_MAX_HISTORY_TURNS` | No | `10` | Conversation history per sender |
 | `MAPLE_MAX_TOOL_ROUNDS` | No | `2` | Max tool execution rounds per request |
+| `MAPLE_MEMORY_PROMPT_MAX_CHARS` | No | `1800` | Max memory prompt characters (0 disables) |
+| `MAPLE_MEMORY_PROMPT_MAX_TOKENS` | No | - | Approximate token cap (converted to chars) |
 
 ### System Prompt File
 
@@ -74,6 +76,9 @@ Guidelines:
 
 MapleBrain respects `InboundMessage.routing.model_override` when present, allowing
 per-request model selection from the orchestrator or other callers.
+
+If `InboundMessage.routing.memory_prompt` is present, MapleBrain injects it as a
+system message (before history) and caps it via `MAPLE_MEMORY_PROMPT_MAX_CHARS`.
 
 ## Usage
 

@@ -40,6 +40,8 @@ grok-brain = { path = "../grok-brain" }
 | `GROK_MAX_HISTORY_TURNS` | | `10` | Max conversation turns to keep |
 | `GROK_ENABLE_X_SEARCH` | | `false` | Enable X Search tool |
 | `GROK_ENABLE_WEB_SEARCH` | | `false` | Enable Web Search tool |
+| `GROK_MEMORY_PROMPT_MAX_CHARS` | | `1800` | Max memory prompt characters (0 disables) |
+| `GROK_MEMORY_PROMPT_MAX_TOKENS` | | - | Approximate token cap (converted to chars) |
 
 ### Example `.env`
 
@@ -119,6 +121,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 GrokBrain respects `InboundMessage.routing.model_override` when present, allowing
 per-request model selection from the orchestrator or other callers.
+
+If `InboundMessage.routing.memory_prompt` is present, GrokBrain injects it as a
+system message (before history) and caps it via `GROK_MEMORY_PROMPT_MAX_CHARS`.
 
 ## Real-Time Search Tools
 

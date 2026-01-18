@@ -116,6 +116,14 @@ pub struct RoutingInfo {
     pub router_prompt_hash: Option<String>,
     /// System prompt fingerprint (hash) for reproducibility.
     pub system_prompt_hash: Option<String>,
+    /// Memory prompt injected for this request, if any.
+    pub memory_prompt: Option<String>,
+    /// Memory prompt fingerprint (hash) for provenance.
+    pub memory_prompt_hash: Option<String>,
+    /// Memory source identifier (e.g., sqlite).
+    pub memory_source: Option<String>,
+    /// Summary timestamp used for the memory snapshot, if available.
+    pub memory_summary_updated_at: Option<String>,
 }
 
 /// An incoming message to be processed by the brain.

@@ -74,7 +74,7 @@ Goal: give Maple/Grok a consistent memory contract with explicit safety gates.
 - Hydrated per-sender memory into Maple/Grok on cold start (summary-first, history-last).
 - Wired `clear_context` events through memory snapshots and prompt gating.
 
-## Phase 5 - Brain memory hydration + durability wiring (next)
+## Phase 5 - Brain memory hydration + durability wiring (complete)
 
 Goal: actually use durable memory in live brain calls, not just in the orchestrator.
 

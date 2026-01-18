@@ -36,6 +36,9 @@ pub struct GrokBrainConfig {
 
     /// Enable Web Search tool for current web information.
     pub enable_web_search: bool,
+
+    /// Maximum characters for memory prompt injection (0 disables).
+    pub memory_prompt_max_chars: usize,
 }
 
 impl Default for GrokBrainConfig {
@@ -50,6 +53,7 @@ impl Default for GrokBrainConfig {
             max_history_turns: 10,
             enable_x_search: false,
             enable_web_search: false,
+            memory_prompt_max_chars: 1800,
         }
     }
 }
@@ -70,6 +74,8 @@ impl GrokBrainConfig {
     /// - `GROK_MAX_HISTORY_TURNS` - Max history turns (default: 10)
     /// - `GROK_ENABLE_X_SEARCH` - Enable X Search tool (default: false)
     /// - `GROK_ENABLE_WEB_SEARCH` - Enable Web Search tool (default: false)
+    /// - `GROK_MEMORY_PROMPT_MAX_CHARS` - Max memory prompt chars (default: 1800)
+    /// - `GROK_MEMORY_PROMPT_MAX_TOKENS` - Max memory prompt tokens (approx, optional)
     ///
     /// System prompt priority:
     /// 1. `GROK_SYSTEM_PROMPT` env var (if set)
@@ -119,6 +125,17 @@ impl GrokBrainConfig {
             .map(|v| v.to_lowercase() == "true" || v == "1")
             .unwrap_or(false);
 
+        let memory_prompt_max_chars = env::var("GROK_MEMORY_PROMPT_MAX_CHARS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .or_else(|| {
+                env::var("GROK_MEMORY_PROMPT_MAX_TOKENS")
+                    .ok()
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .map(|tokens| tokens.saturating_mul(4))
+            })
+            .unwrap_or(1800);
+
         Ok(Self {
             api_url,
             api_key,
@@ -129,6 +146,7 @@ impl GrokBrainConfig {
             max_history_turns,
             enable_x_search,
             enable_web_search,
+            memory_prompt_max_chars,
         })
     }
 
@@ -199,6 +217,12 @@ impl GrokBrainConfigBuilder {
         self
     }
 
+    /// Set the maximum memory prompt characters.
+    pub fn memory_prompt_max_chars(mut self, chars: usize) -> Self {
+        self.config.memory_prompt_max_chars = chars;
+        self
+    }
+
     /// Build the configuration.
     pub fn build(self) -> GrokBrainConfig {
         self.config
@@ -250,6 +274,7 @@ mod tests {
         assert_eq!(config.max_history_turns, 10);
         assert!(!config.enable_x_search);
         assert!(!config.enable_web_search);
+        assert_eq!(config.memory_prompt_max_chars, 1800);
     }
 
     #[test]
@@ -273,6 +298,7 @@ mod tests {
             .max_history_turns(5)
             .enable_x_search(true)
             .enable_web_search(true)
+            .memory_prompt_max_chars(1200)
             .build();
 
         assert_eq!(config.api_key, "my-key");
@@ -284,6 +310,7 @@ mod tests {
         assert_eq!(config.max_history_turns, 5);
         assert!(config.enable_x_search);
         assert!(config.enable_web_search);
+        assert_eq!(config.memory_prompt_max_chars, 1200);
     }
 
     // Environment-based tests are combined into a single test to avoid
@@ -306,6 +333,8 @@ mod tests {
             std::env::remove_var("GROK_MAX_HISTORY_TURNS");
             std::env::remove_var("GROK_ENABLE_X_SEARCH");
             std::env::remove_var("GROK_ENABLE_WEB_SEARCH");
+            std::env::remove_var("GROK_MEMORY_PROMPT_MAX_CHARS");
+            std::env::remove_var("GROK_MEMORY_PROMPT_MAX_TOKENS");
         }
 
         // Scenario 1: Missing API key should error

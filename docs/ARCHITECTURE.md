@@ -49,6 +49,7 @@
   - Provides `TextStyle` ranges and `OutboundMessage.styles` for formatted replies.
   - Provides `ConversationHistory` for per-sender message history with auto-trimming.
   - Defines MemorySnapshot/MemoryStore contract and memory prompt formatter.
+  - Routing metadata includes memory provenance (prompt hashes + source).
   - Exposes routing metadata and prompt hashing helpers for reproducibility.
 - `maple-brain` (crate: `crates/maple-brain`)
   - OpenSecret-based Brain implementation with attestation handshake, per-sender history, and vision support.
@@ -136,10 +137,10 @@ Durable memory tables used by the orchestrator:
 - `ClearContextEvent` (history_key, sender_id, created_at)
 
 The orchestrator builds a `MemorySnapshot` from these tables (summary + tool history + clear-context
-events) and injects a standardized memory block into prompts. Clear-context events gate summaries
-and tool history so old context is not rehydrated after a reset.
-Maple receives the memory block only when its in-memory history is empty; Grok always receives it
-to preserve durable context.
+events) and attaches a standardized memory prompt to routing metadata. Clear-context events gate
+summaries and tool history so old context is not rehydrated after a reset. Maple/Grok inject the
+memory prompt as a system message and refresh it on each request (capped by provider limits).
+Optional compaction runs on a timer (`AMAN_MEMORY_COMPACT_INTERVAL_SECS`) to prune TTLs and row caps.
 
 ### RegionEvent
 
@@ -332,6 +333,7 @@ Environment variables (names may be implementation-specific):
 - `AMAN_MEMORY_MAX_TOOL_HISTORY`: max tool history rows (0 disables).
 - `AMAN_MEMORY_MAX_TOOL_HISTORY_PER_KEY`: max tool rows per sender/group (0 disables).
 - `AMAN_MEMORY_MAX_CLEAR_EVENTS`: max clear-context rows (0 disables).
+- `AMAN_MEMORY_COMPACT_INTERVAL_SECS`: background compaction interval in seconds (0 disables).
 - `AMAN_MEMORY_PROMPT_MAX_CHARS`: max characters for injected memory prompt (0 disables).
 - `AMAN_MEMORY_PROMPT_MAX_TOKENS`: approximate token cap for memory prompt (converted to chars).
 - `AMAN_MEMORY_PROMPT_MAX_SUMMARY_CHARS`: max summary chars included in memory prompt.
@@ -359,6 +361,8 @@ Environment variables (names may be implementation-specific):
 - `MAPLE_TEMPERATURE`: temperature for MapleBrain responses.
 - `MAPLE_MAX_HISTORY_TURNS`: per-sender history length.
 - `MAPLE_MAX_TOOL_ROUNDS`: max tool execution rounds per request (default: 2).
+- `MAPLE_MEMORY_PROMPT_MAX_CHARS`: max memory prompt characters (0 disables).
+- `MAPLE_MEMORY_PROMPT_MAX_TOKENS`: approximate token cap for memory prompt.
 - `ROUTER_SYSTEM_PROMPT`: optional router prompt override for the orchestrator.
 - `ROUTER_PROMPT_FILE`: router prompt file path (default: `ROUTER_PROMPT.md`).
 - `GROK_API_KEY`: xAI API key for `grok-brain` / `GrokToolExecutor`.
@@ -371,6 +375,8 @@ Environment variables (names may be implementation-specific):
 - `GROK_MAX_HISTORY_TURNS`: per-sender history length.
 - `GROK_ENABLE_X_SEARCH`: enable X Search tool.
 - `GROK_ENABLE_WEB_SEARCH`: enable Web Search tool.
+- `GROK_MEMORY_PROMPT_MAX_CHARS`: max memory prompt characters (0 disables).
+- `GROK_MEMORY_PROMPT_MAX_TOKENS`: approximate token cap for memory prompt.
 - `REGION_POLL_INTERVAL_SECONDS`: event ingester cadence.
 - `LOG_LEVEL`: log verbosity.
 - `AMAN_API_ADDR`: bind address for the OpenAI-compatible gateway (api crate).

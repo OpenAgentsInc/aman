@@ -147,6 +147,7 @@ Durable memory is enabled when `SQLITE_PATH` is set. Tune summary and retention 
 | `AMAN_MEMORY_MAX_TOOL_HISTORY` | `10000` | Max tool history rows (0 disables) |
 | `AMAN_MEMORY_MAX_TOOL_HISTORY_PER_KEY` | `200` | Max tool rows per sender/group (0 disables) |
 | `AMAN_MEMORY_MAX_CLEAR_EVENTS` | `5000` | Max clear-context rows (0 disables) |
+| `AMAN_MEMORY_COMPACT_INTERVAL_SECS` | - | Background compaction interval in seconds (0 disables) |
 
 Memory prompt policy (optional):
 
@@ -164,9 +165,9 @@ Memory prompt policy (optional):
 | `AMAN_MEMORY_PROMPT_PII_POLICY` | `allow` | PII handling policy (`allow`, `redact`, `skip`) |
 | `AMAN_MEMORY_PROMPT_OVERRIDES` | - | JSON map of per-history overrides |
 
-When enabled, the orchestrator injects a standardized memory block (summary first, tool history
-after) ahead of search/tool context. Maple receives the block only when its in-memory history
-is empty; Grok always receives it to preserve durable context.
+When enabled, the orchestrator formats a standardized memory block (summary first, tool history
+after) and attaches it to routing metadata. Maple/Grok inject it as a system message and refresh
+their cached memory prompt per request, with provider-specific size caps.
 
 ## Actions
 

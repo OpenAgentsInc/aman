@@ -28,6 +28,7 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - Durable preferences + rolling conversation summaries (SQLite) with memory snapshot prompt hydration
 - Tool history + clear-context events feed memory snapshots (SQLite, if configured)
 - Memory prompt policy controls (PII redaction, per-sender overrides)
+- Memory prompt provenance hashes + optional background compaction
 - Operator broadcasts and dashboards
 - Optional web UI for browser chat
 - OpenAI-compatible API gateway (echo, orchestrator, or OpenRouter proxy modes) with local/Nostr KB injection

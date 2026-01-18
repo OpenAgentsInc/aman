@@ -220,6 +220,23 @@ impl MapleBrain {
         Some(summary)
     }
 
+    fn memory_prompt_for_message(&self, message: &InboundMessage) -> Option<String> {
+        if self.config.memory_prompt_max_chars == 0 {
+            return None;
+        }
+        let prompt = message
+            .routing
+            .as_ref()
+            .and_then(|routing| routing.memory_prompt.as_deref())?;
+        let trimmed = truncate_text(prompt, self.config.memory_prompt_max_chars);
+        let trimmed = trimmed.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }
+
     /// Process a message with status updates via callback.
     ///
     /// This is like [`Brain::process`] but allows you to receive status updates
@@ -479,6 +496,10 @@ impl MapleBrain {
 
         // Use group_id for group conversations, sender for direct messages
         let history_key = message.history_key();
+        let memory_prompt = self.memory_prompt_for_message(&message);
+        if let Some(prompt) = memory_prompt.as_ref() {
+            self.history.set_system_message(&history_key, prompt.clone()).await;
+        }
 
         debug!(
             "Processing message from {}: {} (images: {}, history_key: {})",
@@ -502,13 +523,20 @@ impl MapleBrain {
                 .await?;
 
             // For vision, we don't include history (images make context complex)
-            // Just add system prompt if present and the vision message
+            // Just add system prompt, optional memory, and the vision message
             let mut msgs = Vec::new();
 
             if let Some(ref system_prompt) = self.config.system_prompt {
                 msgs.push(ChatMessage {
                     role: "system".to_string(),
                     content: serde_json::Value::String(system_prompt.clone()),
+                    tool_calls: None,
+                });
+            }
+            if let Some(prompt) = memory_prompt.as_ref() {
+                msgs.push(ChatMessage {
+                    role: "system".to_string(),
+                    content: serde_json::Value::String(prompt.clone()),
                     tool_calls: None,
                 });
             }
@@ -725,6 +753,27 @@ fn select_model_for_message(config: &MapleBrainConfig, message: &InboundMessage)
     } else {
         config.model.clone()
     }
+}
+
+fn truncate_text(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+
+    let total_chars = text.chars().count();
+    if total_chars <= max_chars {
+        return text.to_string();
+    }
+
+    let ellipsis = "...";
+    let available = max_chars.saturating_sub(ellipsis.len());
+    let mut output: String = text.chars().take(available).collect();
+    if output.is_empty() {
+        output = text.chars().take(max_chars).collect();
+        return output;
+    }
+    output.push_str(ellipsis);
+    output
 }
 
 #[async_trait]

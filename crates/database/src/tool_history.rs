@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 
 use crate::models::ToolHistoryEntry;
 use crate::Result;
@@ -56,6 +56,25 @@ pub async fn list_tool_history(
     .await?;
 
     Ok(rows)
+}
+
+/// List distinct history keys in tool history.
+pub async fn list_history_keys(pool: &SqlitePool) -> Result<Vec<String>> {
+    let rows = sqlx::query(
+        r#"
+        SELECT DISTINCT history_key
+        FROM tool_history
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let keys = rows
+        .into_iter()
+        .filter_map(|row| row.try_get::<String, _>("history_key").ok())
+        .collect();
+
+    Ok(keys)
 }
 
 /// Prune tool history older than the specified TTL.

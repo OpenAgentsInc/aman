@@ -21,7 +21,7 @@ Defines the shared `Brain` trait, `ToolExecutor` trait, and common types used by
 - `BrainError` - Common error types for brain implementations
 - `ToolRequest` / `ToolResult` - Tool call input/output types (optional metadata)
 - `ToolRequestMeta` - Optional sender/group metadata for tools
-- `RoutingInfo` - Sensitivity/task hint/model override metadata for routing
+- `RoutingInfo` - Sensitivity/task hint/model override metadata for routing (plus memory provenance)
 - `Sensitivity` / `TaskHint` - Router hints for privacy + model selection
 - `ConversationHistory` - Per-sender conversation history with automatic trimming
 - `HistoryMessage` - Individual message in conversation history

@@ -25,7 +25,7 @@ This document defines what Aman stores, what it does not store, and the default 
 - `users`, `topics`, `notifications`: subscription store (via `database` crate).
 - `preferences`: sender/group routing preferences.
 - `conversation_summaries`: rolling summaries for routing context.
-- `tool_history`: tool execution records (sanitized inputs/outputs; avoid raw PII).
+- `tool_history`: tool execution records (sanitized inputs/outputs; avoid raw PII), plus privacy-choice outcomes.
 - `clear_context_events`: history resets for audit and retention.
 - Optional: attachment metadata (filename, content type, local file path) if persisted for processing.
 

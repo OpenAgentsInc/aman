@@ -40,6 +40,9 @@ pub struct MapleBrainConfig {
     /// Maximum number of tool call rounds to prevent infinite loops.
     /// Default: 2 (one search should usually be enough).
     pub max_tool_rounds: usize,
+
+    /// Maximum characters for memory prompt injection (0 disables).
+    pub memory_prompt_max_chars: usize,
 }
 
 impl Default for MapleBrainConfig {
@@ -54,6 +57,7 @@ impl Default for MapleBrainConfig {
             temperature: Some(0.7),
             max_history_turns: 10,
             max_tool_rounds: DEFAULT_MAX_TOOL_ROUNDS,
+            memory_prompt_max_chars: 1800,
         }
     }
 }
@@ -74,6 +78,8 @@ impl MapleBrainConfig {
     /// - `MAPLE_TEMPERATURE` - Temperature (default: 0.7)
     /// - `MAPLE_MAX_HISTORY_TURNS` - Max history turns (default: 10)
     /// - `MAPLE_MAX_TOOL_ROUNDS` - Max tool call rounds (default: 2)
+    /// - `MAPLE_MEMORY_PROMPT_MAX_CHARS` - Max memory prompt chars (default: 1800)
+    /// - `MAPLE_MEMORY_PROMPT_MAX_TOKENS` - Max memory prompt tokens (approx, optional)
     ///
     /// System prompt priority:
     /// 1. `MAPLE_SYSTEM_PROMPT` env var (if set)
@@ -120,6 +126,17 @@ impl MapleBrainConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or(DEFAULT_MAX_TOOL_ROUNDS);
 
+        let memory_prompt_max_chars = env::var("MAPLE_MEMORY_PROMPT_MAX_CHARS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .or_else(|| {
+                env::var("MAPLE_MEMORY_PROMPT_MAX_TOKENS")
+                    .ok()
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .map(|tokens| tokens.saturating_mul(4))
+            })
+            .unwrap_or(1800);
+
         Ok(Self {
             api_url,
             api_key,
@@ -130,6 +147,7 @@ impl MapleBrainConfig {
             temperature: temperature.or(Some(0.7)),
             max_history_turns,
             max_tool_rounds,
+            memory_prompt_max_chars,
         })
     }
 
@@ -169,6 +187,12 @@ impl MapleBrainConfig {
     /// Set the max history turns.
     pub fn with_max_history_turns(mut self, turns: usize) -> Self {
         self.max_history_turns = turns;
+        self
+    }
+
+    /// Set the maximum memory prompt characters.
+    pub fn with_memory_prompt_max_chars(mut self, chars: usize) -> Self {
+        self.memory_prompt_max_chars = chars;
         self
     }
 
