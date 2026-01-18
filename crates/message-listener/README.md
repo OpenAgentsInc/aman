@@ -20,6 +20,7 @@ Produces:
 Processing:
 
 - `MessageProcessor` calls a `Brain` implementation and sends replies via `signal-daemon`.
+- `MessageProcessor` resolves attachment paths using `DaemonConfig` (defaults to the signal-cli data dir).
 - For queue-based systems, persist `InboundMessage` to your store for `agent_brain` to consume.
 
 ## Signal-cli mode
@@ -48,6 +49,9 @@ cargo run -p message-listener --example maple_bot --features maple
 ```
 
 For daemon setup, see `docs/signal-cli-daemon.md`.
+If signal-cli uses a custom data directory (`--config`), ensure your client
+config uses the matching directory (via `DaemonConfig::with_data_dir`) so
+attachment paths resolve correctly.
 
 ## How to test it
 
@@ -59,6 +63,7 @@ For daemon setup, see `docs/signal-cli-daemon.md`.
 - signal-cli daemon not running or unreachable.
 - Duplicate deliveries without dedupe persistence.
 - Attachments present but files missing or inaccessible.
+- Attachment-only messages are currently skipped (no text content).
 - MapleBrain config/attestation failures when using OpenSecret.
 
 ## Roadmap

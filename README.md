@@ -3,17 +3,17 @@
 ## What is Aman?
 
 Aman is a Signal-native assistant and activist notification system.
-It also includes a separate web UI in `web/` for browser-based chat.
+It also includes a separate web UI in `web/` for browser-based chat and an admin web panel for dashboards/broadcasts.
 It runs a dedicated Signal account on a server using `signal-cli`.
 Inbound messages are decrypted locally and normalized by `message_listener`.
 An `agent_brain` service handles onboarding and routing decisions.
 Signal message handling can use pluggable Brain implementations (see `brain-core`), including MapleBrain (OpenSecret)
-or mock brains for testing.
+with optional image support, or mock brains for testing.
 The web UI uses an OpenAI-compatible Responses API for generation (example docs: [OpenAI Platform][1]).
 Replies are sent back to Signal via `broadcaster`.
 Aman can also deliver opt-in regional alerts to subscribed contacts.
 Alerts are driven by a regional event listener and a subscription state machine.
-The MVP is text-only with minimal retention and minimal logging.
+The MVP is text-first with minimal retention and minimal logging.
 Components are decoupled so receiving never blocks on generation.
 The web UI currently talks directly to the OpenAI-compatible API and is not yet wired into the Signal services.
 
@@ -22,8 +22,9 @@ The web UI currently talks directly to the OpenAI-compatible API and is not yet 
 - Signal-native chat with a dedicated server-side account.
 - Opt-in regional alerts with a simple state machine.
 - Minimal storage for dedupe and short context.
-- Text-only responses; attachments are received but not processed.
+- Text-first responses; MapleBrain can process image attachments when present (attachments-only messages are skipped today).
 - Web UI for browser chat (Next.js app in `web/`).
+- Admin web panel for dashboards and broadcast (crate `admin-web`).
 
 ## Component overview
 
@@ -37,6 +38,7 @@ The web UI currently talks directly to the OpenAI-compatible API and is not yet 
 - `brain-core`: shared Brain trait and message types for AI backends.
 - `maple-brain`: OpenSecret-backed Brain implementation (optional).
 - `ingester`: file chunking + Nostr publishing for knowledge base content.
+- `admin-web`: admin panel for dashboards and broadcast messaging.
 
 ## Message and event flow
 
@@ -69,6 +71,12 @@ Signal AI flow (optional):
 1. Signal -> `message_listener` -> `MessageProcessor`.
 2. `MessageProcessor` calls a `Brain` implementation (mock or MapleBrain).
 3. Responses send back via `signal-daemon`.
+
+Admin web flow:
+
+1. Operator opens `admin-web` UI.
+2. Dashboard reads stats from SQLite.
+3. Broadcast sends a message to topic subscribers via `broadcaster`.
 
 Nostr ingestion flow (local/dev):
 
@@ -234,7 +242,13 @@ To use the full Nostr flow, set `NOSTR_DB_PATH` and ingest documents via the `in
 | `SQLITE_PATH` | `./data/aman.db` | SQLite path for subscriptions/state |
 | `AMAN_DEFAULT_LANGUAGE` | `English` | Default language label for new contacts |
 | `SIGNAL_DAEMON_URL` | - | Override daemon base URL (optional) |
+| `SIGNAL_DAEMON_ACCOUNT` | - | Account selector for multi-account daemon mode |
+| `ADMIN_ADDR` | `127.0.0.1:8788` | Admin web bind address |
 | `MAPLE_API_KEY` | - | OpenSecret API key (MapleBrain) |
+| `MAPLE_API_URL` | `https://enclave.trymaple.ai` | Maple/OpenSecret API URL |
+| `MAPLE_MODEL` | `llama-3.3-70b` | Text model for MapleBrain |
+| `MAPLE_VISION_MODEL` | `qwen3-vl-30b` | Vision model for MapleBrain |
+| `MAPLE_PROMPT_FILE` | `PROMPT.md` | System prompt file for MapleBrain |
 
 ## Docs
 
@@ -244,6 +258,7 @@ To use the full Nostr flow, set `NOSTR_DB_PATH` and ingest documents via the `in
 - signal-cli daemon guide: `docs/signal-cli-daemon.md`
 - OpenSecret API: `docs/OPENSECRET_API.md`
 - Roadmap: `ROADMAP.md`
+- Admin web: `crates/admin-web/README.md`
 
 ## Crates
 
@@ -260,6 +275,7 @@ To use the full Nostr flow, set `NOSTR_DB_PATH` and ingest documents via the `in
 | `api` | OpenAI-compatible chat API (local inference gateway) |
 | `ingester` | Document chunking + Nostr publishing/indexing |
 | `nostr-persistence` | Nostr publisher/indexer for durable doc/chunk metadata |
+| `admin-web` | Admin dashboard + broadcast UI |
 
 See individual READMEs in `crates/*/README.md` for API documentation.
 
@@ -268,6 +284,7 @@ See individual READMEs in `crates/*/README.md` for API documentation.
 - Opt-in alerts only; honor "stop" everywhere.
 - Minimal retention and minimal logging.
 - Use `store: false` (or equivalent) with the OpenAI-compatible Responses API (example docs: [OpenAI Platform][2]).
+- Bind `admin-web` to localhost or put it behind authentication.
 
 ## Future work
 

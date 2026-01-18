@@ -455,6 +455,14 @@ DAEMON OPTIONS:
 
 ---
 
+## Data Directory and Attachments
+
+signal-cli stores account data and attachments under its data directory (default
+`$XDG_DATA_HOME/signal-cli` or `$HOME/.local/share/signal-cli`). Attachments are
+written to the `attachments/` subdirectory. If you run signal-cli with a custom
+`--config` path, update your Aman services to use the same data directory so
+attachment paths resolve correctly.
+
 ## Troubleshooting
 
 ### Check daemon is running

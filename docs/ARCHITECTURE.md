@@ -4,7 +4,7 @@
 
 - Signal-native messaging experience.
 - Opt-in regional alerts for activists and human-rights defenders.
-- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`.
+- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`, `admin-web`.
 - Data persistence crate: `database` (SQLite via SQLx).
 - Brain interface crate: `brain-core` (shared Brain trait and message types).
 - Optional brain crate: `maple-brain` (OpenSecret-based AI backend).
@@ -19,6 +19,9 @@
 - Web UI (Next.js app in `web/`)
   - Browser-based chat surface with `/api/chat`.
   - Uses the OpenAI-compatible API directly; not yet wired to Signal services.
+- Admin web UI (crate: `crates/admin-web`)
+  - Dashboard + broadcast tooling for operators.
+  - Reads from SQLite and sends broadcasts via `broadcaster`.
 - `api` (crate: `crates/api`)
   - OpenAI-compatible inference gateway (`/v1/chat/completions`, `/v1/models`).
   - Uses a local knowledge base (if configured) or stubbed echo responses for local/dev use.
@@ -36,7 +39,7 @@
   - Shared Brain trait and message types for AI backends.
   - Defines attachments metadata (`InboundAttachment`) for inbound processing.
 - `maple-brain` (crate: `crates/maple-brain`)
-  - OpenSecret-based Brain implementation with attestation handshake and per-sender history.
+  - OpenSecret-based Brain implementation with attestation handshake, per-sender history, and vision support.
   - Optional integration via `message-listener` (feature `maple`).
 - `agent_brain` (crate: `crates/agent-brain`)
   - Owns message handling, onboarding state machine, and routing decisions.
@@ -106,6 +109,16 @@ Minimal schema for alerts.
 - `source_refs` (optional)
 - `ts`
 
+### InboundAttachment (Signal)
+
+Metadata for attachments captured from signal-cli.
+
+- `content_type`
+- `filename` (optional)
+- `file_path` (optional, local path to attachment file)
+- `size` (optional)
+- `width` / `height` (optional, for images/videos)
+
 ## State machine (onboarding + subscriptions)
 
 States:
@@ -151,6 +164,8 @@ Region parsing:
 3. `MessageProcessor` calls a `Brain` implementation (mock or MapleBrain).
 4. `MessageProcessor` sends `OutboundMessage` via `signal-daemon`.
 
+Note: the current processor requires a text body; attachment-only messages are skipped.
+
 ### Event flow (notifications)
 
 1. `regional_event_listener` observes an event for a region.
@@ -168,6 +183,12 @@ Region parsing:
 
 1. Web UI or client -> `api` service.
 2. `api` returns OpenAI-style chat completions (stubbed echo).
+
+### Admin web flow
+
+1. Operator opens `admin-web` UI.
+2. Dashboard reads stats from SQLite via `database` queries.
+3. Broadcast sends a message to topic subscribers via `broadcaster`.
 
 ### Nostr ingestion flow (current)
 
@@ -199,9 +220,11 @@ Environment variables (names may be implementation-specific):
 - `MODEL`: model name (example: `gpt-5`).
 - `STORE_OPENAI_RESPONSES`: `true` or `false`.
 - `MAPLE_API_KEY`: OpenSecret API key for `maple-brain`.
-- `MAPLE_API_URL`: optional API URL override (default: `https://api.opensecret.cloud`).
-- `MAPLE_MODEL`: OpenSecret model name.
+- `MAPLE_API_URL`: optional API URL override (default: `https://enclave.trymaple.ai`).
+- `MAPLE_MODEL`: text model name for MapleBrain.
+- `MAPLE_VISION_MODEL`: vision model name for MapleBrain.
 - `MAPLE_SYSTEM_PROMPT`: optional system prompt override.
+- `MAPLE_PROMPT_FILE`: path to prompt file (default: `PROMPT.md`).
 - `MAPLE_MAX_TOKENS`: max tokens for MapleBrain responses.
 - `MAPLE_TEMPERATURE`: temperature for MapleBrain responses.
 - `MAPLE_MAX_HISTORY_TURNS`: per-sender history length.
@@ -211,12 +234,18 @@ Environment variables (names may be implementation-specific):
 - `AMAN_API_TOKEN`: bearer token for API access (optional).
 - `AMAN_API_MODEL`: default model name for the gateway.
 - `AMAN_KB_PATH`: optional path to a local knowledge base directory/file for the gateway.
+- `ADMIN_ADDR`: bind address for the admin web UI (admin-web crate).
 - `NOSTR_RELAYS`: comma-separated relay URLs (Phase 2).
 - `NOSTR_DB_PATH`: SQLite path for Nostr indexer (Phase 2).
 - `NOSTR_SECRETBOX_KEY`: optional symmetric key for payload encryption (Phase 2).
 - `NOSTR_SECRET_KEY`: secret key used by `ingester` when publishing to relays.
 
 For daemon setup details, see `docs/signal-cli-daemon.md`.
+
+Attachment paths are resolved relative to the signal-cli data directory
+(default `$XDG_DATA_HOME/signal-cli` or `$HOME/.local/share/signal-cli`). If you
+run signal-cli with a custom `--config` path, ensure your services configure
+the matching data directory (e.g., via `DaemonConfig::with_data_dir`).
 
 ## Safety posture
 
@@ -225,6 +254,7 @@ For daemon setup details, see `docs/signal-cli-daemon.md`.
 - Minimal retention: store only what is needed for dedupe and context.
 - Do not log message bodies by default.
 - Prefer `store: false` (or equivalent) for the OpenAI-compatible Responses API.
+- Admin web should be bound to localhost or placed behind authentication.
 
 ## Future architecture (RAG and Nostr)
 
@@ -348,6 +378,7 @@ AccessPolicy content:
 - **mock-brain**: test harness crate for message flow and signal-daemon integration.
 - **brain-core**: shared Brain trait and message types for AI backends.
 - **maple-brain**: OpenSecret-backed Brain implementation.
+- **admin-web**: admin dashboard and broadcast UI for operators.
 - **DocManifest**: planned event describing a document and its chunks.
 - **Chunk**: planned unit of text for retrieval and citations.
 - **Embedding artifact**: planned vector or reference for retrieval.

@@ -1,13 +1,16 @@
-# OpenSecret API Guide
+# Maple/OpenSecret API Guide
 
-This guide documents how to query the OpenSecret AI agent API for use with Aman.
+This guide documents how to query the Maple/OpenSecret AI API for use with Aman.
+The Aman server currently integrates via the Rust `opensecret` SDK (MapleBrain),
+but the browser SDK examples below are kept for reference.
 
 ## Overview
 
-OpenSecret provides an OpenAI-compatible API with end-to-end encryption. Requests are encrypted client-side, processed in a secure enclave, and responses are encrypted before returning. This allows privacy-preserving AI integration.
+Maple/OpenSecret provides an OpenAI-compatible API with end-to-end encryption. Requests are encrypted client-side,
+processed in a secure enclave, and responses are encrypted before returning. This allows privacy-preserving AI integration.
 
 **Key features:**
-- OpenAI-compatible chat completions API
+- OpenAI-compatible chat completions API (streaming required)
 - End-to-end encryption for prompts and responses
 - Streaming support
 - Authentication varies by SDK (browser SDK uses user auth; MapleBrain uses an API key)
@@ -34,7 +37,7 @@ import { OpenSecretProvider } from "@opensecret/react";
 function App() {
   return (
     <OpenSecretProvider
-      apiUrl="https://api.opensecret.cloud"
+      apiUrl="https://enclave.trymaple.ai"
       clientId="your-project-uuid"
     >
       <YourApp />
@@ -99,9 +102,11 @@ const client = new OpenAI({
 
 ### Non-Streaming Request
 
+Note: some Maple/OpenSecret deployments require streaming responses. Aman uses streaming in MapleBrain.
+
 ```javascript
 const response = await client.chat.completions.create({
-  model: "hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4",
+  model: "llama-3.3-70b",
   messages: [
     { role: "system", content: "You are a helpful assistant." },
     { role: "user", content: "Hello, how are you?" }
@@ -111,11 +116,11 @@ const response = await client.chat.completions.create({
 const reply = response.choices[0].message.content;
 ```
 
-### Streaming Request
+### Streaming Request (recommended)
 
 ```javascript
 const stream = await client.beta.chat.completions.stream({
-  model: "hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4",
+  model: "llama-3.3-70b",
   messages: [
     { role: "system", content: "You are a helpful assistant." },
     { role: "user", content: "Tell me a story." }
@@ -148,8 +153,12 @@ Standard OpenAI chat completion parameters are supported:
 
 | Model | Description |
 |-------|-------------|
-| `hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4` | Llama 3.1 70B (quantized) |
-| `meta-llama/Llama-2-70b-chat-hf` | Llama 2 70B |
+| `llama-3.3-70b` | Llama 3.3 70B (text) |
+| `gemma-3-27b` | Gemma 3 27B (text) |
+| `deepseek-r1-0528` | DeepSeek R1 (text) |
+| `gpt-oss-120b` | GPT OSS 120B (text) |
+| `qwen3-coder-480b` | Qwen3 Coder 480B (text) |
+| `qwen3-vl-30b` | Qwen3 VL 30B (vision) |
 
 Check with OpenSecret for current model availability.
 
@@ -166,7 +175,7 @@ const response = await os.aiCustomFetch(
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4",
+      model: "llama-3.3-70b",
       messages: [
         { role: "user", content: "Hello" }
       ]
@@ -182,7 +191,7 @@ const data = await response.json();
 ```javascript
 try {
   const response = await client.chat.completions.create({
-    model: "hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4",
+    model: "llama-3.3-70b",
     messages: [{ role: "user", content: "Hello" }]
   });
   return response.choices[0].message.content;
@@ -211,10 +220,16 @@ This provides true end-to-end encryption where prompts and responses are never v
 
 ## Integration with Aman
 
-For server-side usage in Aman (without React), MapleBrain uses the Rust `opensecret` SDK and an API key:
+For server-side usage in Aman, MapleBrain uses the Rust `opensecret` SDK and an API key:
 
-- Set `MAPLE_API_KEY` (required) and optional `MAPLE_API_URL`, `MAPLE_MODEL`.
-- MapleBrain performs an attestation handshake on startup.
+- Set `MAPLE_API_KEY` (required) and optional `MAPLE_API_URL`, `MAPLE_MODEL`, `MAPLE_VISION_MODEL`, `MAPLE_PROMPT_FILE`.
+- MapleBrain performs an attestation handshake on startup and uses streaming responses.
+
+### Vision Support (MapleBrain)
+
+When incoming Signal messages include image attachments, MapleBrain switches to
+`MAPLE_VISION_MODEL` and sends a multimodal request with image data URLs.
+Attachment files are read from the local signal-cli attachments directory.
 
 If you want to build your own non-React integration, you'll need to:
 
@@ -224,7 +239,7 @@ If you want to build your own non-React integration, you'll need to:
 
 The base endpoint pattern is:
 ```
-POST https://api.opensecret.cloud/v1/chat/completions
+POST https://enclave.trymaple.ai/v1/chat/completions
 ```
 
 Request body follows the standard OpenAI chat completions format.

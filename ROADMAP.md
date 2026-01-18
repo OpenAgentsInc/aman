@@ -18,6 +18,7 @@ next phases: RAG and Nostr-based persistence.
 - `api` crate provides an OpenAI-compatible inference gateway (stubbed echo).
 - `api` can read a local knowledge base directory/file (simple keyword match).
 - `ingester` crate exists for chunking files and publishing/indexing Nostr events.
+- `admin-web` crate provides a dashboard + broadcast UI (auth still needed).
 
 ## Phase 0 - Signal MVP hardening
 
@@ -39,6 +40,7 @@ Goal: complete and stabilize the Signal-native assistant with opt-in regional al
   - [ ] minimal logging defaults
   - [ ] retention windows and opt-out handling
   - [ ] structured config and health checks
+  - [ ] admin-web auth / access control
 
 ## Phase 1 - RAG pipeline and ingester crate
 

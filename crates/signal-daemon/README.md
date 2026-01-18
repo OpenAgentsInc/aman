@@ -39,6 +39,11 @@ let client = SignalClient::connect(DaemonConfig::new("http://127.0.0.1:9000")).a
 let client = SignalClient::connect(
     DaemonConfig::with_account("http://localhost:8080", "+1234567890")
 ).await?;
+
+// Custom data directory (for attachment paths)
+let config = DaemonConfig::new("http://localhost:8080")
+    .with_data_dir("/var/lib/signal-cli");
+let client = SignalClient::connect(config).await?;
 ```
 
 ### Send Messages

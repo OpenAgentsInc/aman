@@ -34,7 +34,7 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 - `brain-core` defines the shared `Brain` trait and message types (including attachments metadata).
 - `maple-brain` provides an OpenSecret-based Brain implementation (optional).
 - `mock-brain` provides test Brain implementations for local development.
-- `agent_brain` owns the state machine, routing, and OpenAI-compatible API calls.
+- `agent_brain` owns the state machine, routing, and subscription updates.
 - `broadcaster` owns outbound delivery, retries, and chunking.
 - `regional_event_listener` ingests regional events and emits `RegionEvent` records.
 - `signal-daemon` is the HTTP/SSE client used by `message_listener` and `broadcaster`.
@@ -43,9 +43,11 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 - `api` provides an OpenAI-compatible inference endpoint for the web UI.
 - `api` can optionally read a local knowledge base via `AMAN_KB_PATH`.
 - `ingester` chunks files and publishes/indexes Nostr events for the knowledge base.
+- `admin-web` provides a dashboard and broadcast tool for operators.
 
 Optional: `message_listener` can also run a `MessageProcessor` that calls a `Brain`
-(mock or MapleBrain) directly and sends replies via `signal-daemon`.
+(mock or MapleBrain) directly and sends replies via `signal-daemon`. MapleBrain
+can process image attachments when present in inbound messages.
 `agent-brain` also ships a simple `agent_brain_bot` binary for local Signal MVP use.
 
 For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
@@ -56,6 +58,7 @@ For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 - Minimal retention and minimal logging.
 - Treat the server as a trusted endpoint (Signal E2EE terminates at the server).
 - Prefer `store: false` (or equivalent) with the OpenAI-compatible Responses API.
+- Bind the admin web UI to localhost or place it behind authentication.
 
 ## Future phases (planned)
 

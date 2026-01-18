@@ -42,13 +42,16 @@ export MODEL="gpt-5"           # optional
 export STORE_OPENAI_RESPONSES="false"
 export MAPLE_API_KEY="..."     # required for MapleBrain
 export MAPLE_MODEL="hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4"
-export MAPLE_API_URL="https://api.opensecret.cloud"
+export MAPLE_VISION_MODEL="qwen3-vl-30b"
+export MAPLE_API_URL="https://enclave.trymaple.ai"
 export MAPLE_MAX_HISTORY_TURNS="10"
+export MAPLE_PROMPT_FILE="crates/maple-brain/PROMPT.md"
 export REGION_POLL_INTERVAL_SECONDS="60"
 export LOG_LEVEL="info"
 export AMAN_API_ADDR="127.0.0.1:8787"
 export AMAN_API_TOKEN="aman-local"
 export AMAN_API_MODEL="aman-chat"
+export ADMIN_ADDR="127.0.0.1:8788"
 ```
 
 ## 3) Fetch and build signal-cli
@@ -139,6 +142,12 @@ cargo run -p message-listener --example maple_bot --features maple
 ```
 
 For MapleBrain configuration details, see `docs/OPENSECRET_API.md`.
+You can edit the default prompt at `crates/maple-brain/PROMPT.md` or point `MAPLE_PROMPT_FILE`
+to a custom prompt.
+
+Note: attachment file paths are resolved relative to the signal-cli data directory.
+If you run signal-cli with a custom `--config` path, ensure your service uses the
+matching data directory (or set `XDG_DATA_HOME`) so MapleBrain can load images.
 
 ## 7) Send a test message
 
@@ -181,7 +190,22 @@ npm run dev
 
 Open http://localhost:3000 in your browser.
 
-## 10) Ingest local knowledge (Nostr flow)
+## 10) Run admin web (optional)
+
+The admin web UI provides dashboard stats and a broadcast tool:
+
+```bash
+export ADMIN_ADDR="127.0.0.1:8788"
+export SQLITE_PATH="./data/aman.db"
+export SIGNAL_DAEMON_URL="http://127.0.0.1:8080"
+export AMAN_NUMBER="+15551234567"
+cargo run -p admin-web
+```
+
+Open http://127.0.0.1:8788 in your browser.
+Bind to localhost only or place behind auth for non-dev use.
+
+## 11) Ingest local knowledge (Nostr flow)
 
 Create or update chunked Nostr entries using the local knowledge file:
 
@@ -201,7 +225,7 @@ export AMAN_API_TOKEN="aman-local"
 cargo run -p api
 ```
 
-## 11) Simulate a RegionEvent
+## 12) Simulate a RegionEvent
 
 Create a local event file:
 
@@ -235,7 +259,7 @@ curl -s -X POST http://127.0.0.1:9001/events \
 
 You should see outbound alerts sent to all subscribers of the region.
 
-## 12) Run Nostr indexer locally (Phase 2 foundation)
+## 13) Run Nostr indexer locally (Phase 2 foundation)
 
 Pick relays that retain custom kinds. Relay retention varies by operator (see NIP-11).
 

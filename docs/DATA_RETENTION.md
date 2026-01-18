@@ -29,7 +29,7 @@ This document defines what Aman stores, what it does not store, and the default 
 ## What is not stored
 
 - Full transcripts unless short-context mode is enabled.
-- Attachment contents or media binaries (MVP responses are text-only).
+- Attachment contents or media binaries (unless using MapleBrain vision).
 - Precise location data or unnecessary metadata.
 - Raw OpenAI requests/responses when `store: false` is used.
 
@@ -63,6 +63,11 @@ Adjust these windows based on threat model and legal constraints.
 
 - Prefer `store: false` (or equivalent) to avoid server-side retention of application state.
 - Only send the minimum text required for the response.
+
+## Maple/OpenSecret data flow
+
+- When MapleBrain processes image attachments, attachment bytes are read from disk and sent to the Maple/OpenSecret API.
+- Do not persist or log attachment contents outside of signal-cli storage.
 
 ## Security notes
 
