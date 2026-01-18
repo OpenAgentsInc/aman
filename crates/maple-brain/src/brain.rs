@@ -1,9 +1,13 @@
 //! MapleBrain implementation using OpenSecret SDK.
 
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use brain_core::{async_trait, Brain, BrainError, InboundAttachment, InboundMessage, OutboundMessage};
 use futures::StreamExt;
-use opensecret::{OpenSecretClient, types::{ChatCompletionRequest, ChatMessage}};
+use opensecret::{
+    types::{ChatCompletionRequest, ChatMessage, ToolCall},
+    OpenSecretClient,
+};
+use std::sync::Arc;
 use tokio::fs;
 use tracing::{debug, info, warn};
 
@@ -167,7 +171,11 @@ impl MapleBrain {
     }
 
     /// Build a multimodal message with text and images for vision models.
-    async fn build_vision_message(&self, user_text: &str, attachments: &[InboundAttachment]) -> Result<serde_json::Value, BrainError> {
+    async fn build_vision_message(
+        &self,
+        user_text: &str,
+        attachments: &[InboundAttachment],
+    ) -> Result<serde_json::Value, BrainError> {
         let mut content_parts = Vec::new();
 
         // Add text part
@@ -188,7 +196,10 @@ impl MapleBrain {
             }
 
             if let Some(ref file_path) = attachment.file_path {
-                match self.load_image_as_base64(file_path, &attachment.content_type).await {
+                match self
+                    .load_image_as_base64(file_path, &attachment.content_type)
+                    .await
+                {
                     Ok(data_url) => {
                         content_parts.push(serde_json::json!({
                             "type": "image_url",
@@ -209,14 +220,176 @@ impl MapleBrain {
     }
 
     /// Load an image file and encode it as a data URL.
-    async fn load_image_as_base64(&self, file_path: &str, content_type: &str) -> Result<String, BrainError> {
-        let bytes = fs::read(file_path).await
-            .map_err(|e| BrainError::ProcessingFailed(format!("Failed to read image file: {}", e)))?;
+    async fn load_image_as_base64(
+        &self,
+        file_path: &str,
+        content_type: &str,
+    ) -> Result<String, BrainError> {
+        let bytes = fs::read(file_path).await.map_err(|e| {
+            BrainError::ProcessingFailed(format!("Failed to read image file: {}", e))
+        })?;
 
         let base64_data = BASE64.encode(&bytes);
         let data_url = format!("data:{};base64,{}", content_type, base64_data);
 
         Ok(data_url)
+    }
+
+    /// Get the tools to include in requests (if executor is present).
+    fn get_tools(&self) -> Option<Vec<opensecret::types::Tool>> {
+        self.tool_executor.as_ref().map(|_| {
+            vec![ToolDefinition::realtime_search().to_opensecret_tool()]
+        })
+    }
+
+    /// Execute tool calls and return the results as ChatMessages.
+    /// Note: OpenAI-compatible APIs expect tool_call_id at the top level,
+    /// but OpenSecret's ChatMessage doesn't support this. We work around
+    /// this by including the tool_call_id in the content.
+    async fn execute_tool_calls(&self, tool_calls: &[ToolCall]) -> Vec<ChatMessage> {
+        let executor = match &self.tool_executor {
+            Some(e) => e,
+            None => return vec![],
+        };
+
+        let mut results = Vec::new();
+
+        for call in tool_calls {
+            let request = match ToolRequest::from_call(
+                call.id.clone(),
+                call.function.name.clone(),
+                &call.function.arguments,
+            ) {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("Failed to parse tool arguments: {}", e);
+                    results.push(ChatMessage {
+                        role: "tool".to_string(),
+                        content: serde_json::Value::String(format!(
+                            "Error: Invalid arguments - {}",
+                            e
+                        )),
+                        tool_calls: None,
+                    });
+                    continue;
+                }
+            };
+
+            info!(
+                "Executing tool '{}' with sanitized query",
+                request.name
+            );
+            debug!("Tool request: {:?}", request);
+
+            let result = executor.execute(request).await;
+
+            info!(
+                "Tool '{}' completed (success: {})",
+                call.function.name, result.success
+            );
+
+            // Add tool result as a message
+            // Include tool_call_id in the content since ChatMessage doesn't have it as a field
+            results.push(ChatMessage {
+                role: "tool".to_string(),
+                content: serde_json::json!({
+                    "tool_call_id": result.tool_call_id,
+                    "result": result.content
+                }),
+                tool_calls: None,
+            });
+        }
+
+        results
+    }
+
+    /// Make a streaming chat completion request and collect the response.
+    async fn complete_chat(
+        &self,
+        request: ChatCompletionRequest,
+    ) -> Result<(String, Option<Vec<ToolCall>>), BrainError> {
+        let mut stream = self
+            .client
+            .create_chat_completion_stream(request)
+            .await
+            .map_err(|e| {
+                warn!("OpenSecret API error: {}", e);
+                BrainError::Network(format!("OpenSecret API error: {}", e))
+            })?;
+
+        let mut response_text = String::new();
+        let mut tool_calls: Vec<ToolCall> = Vec::new();
+        let mut finish_reason: Option<String> = None;
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(chunk) => {
+                    if !chunk.choices.is_empty() {
+                        let choice = &chunk.choices[0];
+
+                        // Collect text content
+                        if let Some(serde_json::Value::String(s)) = &choice.delta.content {
+                            response_text.push_str(s);
+                        }
+
+                        // Collect tool calls (they come in chunks)
+                        if let Some(calls) = &choice.delta.tool_calls {
+                            for call in calls {
+                                // Find or create the tool call entry
+                                if let Some(index) = call.index {
+                                    let idx = index as usize;
+                                    while tool_calls.len() <= idx {
+                                        tool_calls.push(ToolCall {
+                                            id: String::new(),
+                                            tool_type: "function".to_string(),
+                                            function: opensecret::types::FunctionCall {
+                                                name: String::new(),
+                                                arguments: String::new(),
+                                            },
+                                            index: Some(tool_calls.len() as i32),
+                                        });
+                                    }
+
+                                    // Update the tool call
+                                    if !call.id.is_empty() {
+                                        tool_calls[idx].id = call.id.clone();
+                                    }
+                                    if !call.function.name.is_empty() {
+                                        tool_calls[idx].function.name = call.function.name.clone();
+                                    }
+                                    tool_calls[idx]
+                                        .function
+                                        .arguments
+                                        .push_str(&call.function.arguments);
+                                }
+                            }
+                        }
+
+                        // Track finish reason
+                        if choice.finish_reason.is_some() {
+                            finish_reason = choice.finish_reason.clone();
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Stream error: {}", e);
+                    // Continue processing - partial response is better than none
+                }
+            }
+        }
+
+        // Return tool calls if that was the finish reason
+        let has_tool_calls =
+            finish_reason.as_deref() == Some("tool_calls") && !tool_calls.is_empty();
+
+        Ok((
+            response_text,
+            if has_tool_calls {
+                Some(tool_calls)
+            } else {
+                None
+            },
+        ))
     }
 }
 
@@ -227,15 +400,22 @@ impl Brain for MapleBrain {
         let user_text = &message.text;
         let has_images = message.has_images();
 
-        debug!("Processing message from {}: {} (images: {})", sender, user_text, has_images);
+        debug!(
+            "Processing message from {}: {} (images: {})",
+            sender, user_text, has_images
+        );
 
         // Choose model and build messages based on whether we have images
-        let (model, messages) = if has_images {
+        let (model, mut messages) = if has_images {
             // Use vision model for messages with images
-            info!("Using vision model for message with {} image(s)",
-                  message.attachments.iter().filter(|a| a.is_image()).count());
+            info!(
+                "Using vision model for message with {} image(s)",
+                message.attachments.iter().filter(|a| a.is_image()).count()
+            );
 
-            let vision_content = self.build_vision_message(user_text, &message.attachments).await?;
+            let vision_content = self
+                .build_vision_message(user_text, &message.attachments)
+                .await?;
 
             // For vision, we don't include history (images make context complex)
             // Just add system prompt if present and the vision message
@@ -255,6 +435,7 @@ impl Brain for MapleBrain {
                 tool_calls: None,
             });
 
+            // No tools for vision requests (too complex with images)
             (self.config.vision_model.clone(), msgs)
         } else {
             // Use text model with conversation history
@@ -262,10 +443,13 @@ impl Brain for MapleBrain {
             (self.config.model.clone(), msgs)
         };
 
-        // Create the chat completion request (streaming is required by the server)
-        let request = ChatCompletionRequest {
-            model,
-            messages,
+        // Get tools if we have an executor (not for vision)
+        let tools = if has_images { None } else { self.get_tools() };
+
+        // Initial request
+        let mut request = ChatCompletionRequest {
+            model: model.clone(),
+            messages: messages.clone(),
             temperature: self.config.temperature,
             max_tokens: self.config.max_tokens.map(|t| t as i32),
             stream: Some(true),
@@ -274,27 +458,52 @@ impl Brain for MapleBrain {
             tool_choice: None,
         };
 
-        // Call the OpenSecret API with streaming
-        let mut stream = self.client.create_chat_completion_stream(request).await
-            .map_err(|e| {
-                warn!("OpenSecret API error: {}", e);
-                BrainError::Network(format!("OpenSecret API error: {}", e))
-            })?;
-
-        // Collect the streamed response
         let mut response_text = String::new();
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(chunk) => {
-                    if !chunk.choices.is_empty() {
-                        if let Some(serde_json::Value::String(s)) = &chunk.choices[0].delta.content {
-                            response_text.push_str(s);
-                        }
-                    }
+        let mut rounds = 0;
+
+        // Tool call loop
+        loop {
+            rounds += 1;
+            if rounds > MAX_TOOL_ROUNDS {
+                warn!("Exceeded maximum tool call rounds ({})", MAX_TOOL_ROUNDS);
+                break;
+            }
+
+            let (text, tool_calls) = self.complete_chat(request.clone()).await?;
+
+            match tool_calls {
+                Some(calls) if !calls.is_empty() => {
+                    info!("Model requested {} tool call(s)", calls.len());
+
+                    // Add assistant message with tool calls to conversation
+                    messages.push(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: serde_json::Value::Null,
+                        tool_calls: Some(calls.clone()),
+                    });
+
+                    // Execute tools and add results
+                    let results = self.execute_tool_calls(&calls).await;
+                    messages.extend(results);
+
+                    // Update request for next round
+                    request = ChatCompletionRequest {
+                        model: model.clone(),
+                        messages: messages.clone(),
+                        temperature: self.config.temperature,
+                        max_tokens: self.config.max_tokens.map(|t| t as i32),
+                        stream: Some(true),
+                        stream_options: None,
+                        tools: tools.clone(),
+                        tool_choice: None,
+                    };
+
+                    // Continue loop to get model's response with tool results
                 }
-                Err(e) => {
-                    warn!("Stream error: {}", e);
-                    // Continue processing - partial response is better than none
+                _ => {
+                    // No tool calls - this is the final response
+                    response_text = text;
+                    break;
                 }
             }
         }
@@ -304,11 +513,18 @@ impl Brain for MapleBrain {
             response_text = "I'm sorry, I couldn't generate a response.".to_string();
         }
 
-            let (text, tool_calls) = self.complete_chat(request.clone()).await?;
+        info!(
+            "Generated response for {}: {} chars (tool rounds: {})",
+            sender,
+            response_text.len(),
+            rounds
+        );
 
         // Add to conversation history (for text messages only)
         if !has_images {
-            self.history.add_exchange(sender, user_text, &response_text).await;
+            self.history
+                .add_exchange(sender, user_text, &response_text)
+                .await;
         }
 
         // Return the outbound message
