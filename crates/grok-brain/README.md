@@ -1,0 +1,157 @@
+# grok-brain
+
+xAI Grok-based brain implementation for the Aman Signal bot.
+
+## Overview
+
+This crate provides a `Brain` implementation that uses the [xAI Grok API](https://docs.x.ai) for AI-powered message processing. It features:
+
+- **Grok 4.1 Fast** model for quick, intelligent responses
+- Per-sender conversation history
+- Optional **X Search** for real-time Twitter/X data
+- Optional **Web Search** for current web information
+- Fully configurable via environment variables
+
+## Installation
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+grok-brain = { path = "../grok-brain" }
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GROK_API_KEY` | ✅ | - | xAI API key for authentication |
+| `GROK_API_URL` | | `https://api.x.ai` | xAI API base URL |
+| `GROK_MODEL` | | `grok-4-1-fast` | Model to use |
+| `GROK_SYSTEM_PROMPT` | | - | System prompt for the AI |
+| `GROK_MAX_TOKENS` | | `1024` | Maximum response tokens |
+| `GROK_TEMPERATURE` | | `0.7` | Generation temperature (0.0-2.0) |
+| `GROK_MAX_HISTORY_TURNS` | | `10` | Max conversation turns to keep |
+| `GROK_ENABLE_X_SEARCH` | | `false` | Enable X Search tool |
+| `GROK_ENABLE_WEB_SEARCH` | | `false` | Enable Web Search tool |
+
+### Example `.env`
+
+```bash
+GROK_API_KEY=xai-your-api-key-here
+GROK_SYSTEM_PROMPT="You are a helpful assistant that provides concise, accurate responses."
+GROK_ENABLE_X_SEARCH=true
+GROK_ENABLE_WEB_SEARCH=true
+```
+
+## Usage
+
+### Basic Usage
+
+```rust
+use grok_brain::{GrokBrain, Brain, InboundMessage};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create brain from environment variables
+    let brain = GrokBrain::from_env().await?;
+    
+    // Process a message
+    let message = InboundMessage {
+        sender: "+1234567890".to_string(),
+        text: "What's happening on Twitter right now?".to_string(),
+        timestamp: chrono::Utc::now(),
+        attachments: vec![],
+    };
+    
+    let response = brain.process(message).await?;
+    println!("Response: {}", response.text);
+    
+    Ok(())
+}
+```
+
+### With Builder Pattern
+
+```rust
+use grok_brain::{GrokBrain, GrokBrainConfig};
+
+let config = GrokBrainConfig::builder()
+    .api_key("xai-your-api-key")
+    .model("grok-4-1-fast")
+    .system_prompt("You are a news analyst specializing in breaking events.")
+    .enable_x_search(true)
+    .enable_web_search(true)
+    .max_history_turns(5)
+    .build();
+
+let brain = GrokBrain::new(config)?;
+```
+
+## Real-Time Search Tools
+
+### X Search ($5/invocation)
+
+When enabled, the model can search Twitter/X for real-time information:
+
+- Breaking news and events
+- Trending topics
+- User posts and discussions
+- Real-time sentiment
+
+### Web Search ($5/invocation)
+
+When enabled, the model can search the web for current information:
+
+- Latest news articles
+- Current events
+- Up-to-date facts and figures
+
+> **Note**: Search tools incur additional costs. Use them judiciously.
+
+## Supported Models
+
+| Model | Description | Best For |
+|-------|-------------|----------|
+| `grok-4-1-fast` | Fast, efficient responses | **Recommended for tools** |
+| `grok-4-fast` | Balanced speed/quality | General use |
+| `grok-4` | Highest quality | Complex tasks |
+
+## API Reference
+
+### GrokBrain
+
+```rust
+impl GrokBrain {
+    /// Create from environment variables
+    pub async fn from_env() -> Result<Self, BrainError>;
+    
+    /// Create with explicit config
+    pub fn new(config: GrokBrainConfig) -> Result<Self, BrainError>;
+    
+    /// Clear history for a sender
+    pub async fn clear_history(&self, sender: &str);
+    
+    /// Clear all conversation histories
+    pub async fn clear_all_history(&self);
+}
+```
+
+### Brain Trait
+
+```rust
+#[async_trait]
+impl Brain for GrokBrain {
+    /// Process an inbound message and return a response
+    async fn process(&self, message: InboundMessage) -> Result<OutboundMessage, BrainError>;
+    
+    /// Get the brain's name
+    fn name(&self) -> &str;
+}
+```
+
+## License
+
+MIT

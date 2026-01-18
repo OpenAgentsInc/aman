@@ -6,6 +6,7 @@ members = [
     "crates/brain-core",
     "crates/broadcaster",
     "crates/database",
+    "crates/grok-brain",
     "crates/maple-brain",
     "crates/ingester",
     "crates/message-listener",
