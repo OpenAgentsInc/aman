@@ -99,6 +99,7 @@ fn envelope_to_inbound(envelope: &Envelope, attachments_dir: Option<&Path>) -> O
         timestamp: envelope.timestamp,
         group_id,
         attachments,
+        routing: None,
     })
 }
 

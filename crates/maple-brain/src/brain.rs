@@ -2,8 +2,8 @@
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use brain_core::{
-    async_trait, Brain, BrainError, ConversationHistory, InboundAttachment, InboundMessage,
-    OutboundMessage, ToolExecutor, ToolRequest,
+    async_trait, hash_prompt, Brain, BrainError, ConversationHistory, InboundAttachment,
+    InboundMessage, OutboundMessage, ToolExecutor, ToolRequest,
 };
 use futures::StreamExt;
 use opensecret::{
@@ -62,6 +62,7 @@ pub struct MapleBrain {
     config: MapleBrainConfig,
     history: ConversationHistory,
     tool_executor: Option<Arc<dyn ToolExecutor>>,
+    system_prompt_hash: Option<String>,
 }
 
 impl MapleBrain {
@@ -123,12 +124,21 @@ impl MapleBrain {
         }
 
         let history = ConversationHistory::new(config.max_history_turns);
+        let system_prompt_hash = config
+            .system_prompt
+            .as_ref()
+            .map(|prompt| hash_prompt(prompt));
+
+        if let Some(ref hash) = system_prompt_hash {
+            info!("MapleBrain system prompt fingerprint: {}", hash);
+        }
 
         Ok(Self {
             client,
             config,
             history,
             tool_executor,
+            system_prompt_hash,
         })
     }
 
@@ -148,6 +158,11 @@ impl MapleBrain {
     /// Get the configuration.
     pub fn config(&self) -> &MapleBrainConfig {
         &self.config
+    }
+
+    /// Get the system prompt fingerprint, if configured.
+    pub fn system_prompt_hash(&self) -> Option<&str> {
+        self.system_prompt_hash.as_deref()
     }
 
     /// Clear conversation history for a specific sender.
@@ -457,6 +472,10 @@ impl MapleBrain {
         let sender = &message.sender;
         let user_text = &message.text;
         let has_images = message.has_images();
+        let model_override = message
+            .routing
+            .as_ref()
+            .and_then(|routing| routing.model_override.as_deref());
 
         // Use group_id for group conversations, sender for direct messages
         let history_key = message
@@ -470,8 +489,12 @@ impl MapleBrain {
             sender, user_text, has_images, history_key
         );
 
+        if let Some(override_model) = model_override {
+            info!("Using model override: {}", override_model);
+        }
+
         // Choose model and build messages based on whether we have images
-        let (model, mut messages) = if has_images {
+        let (_, mut messages) = if has_images {
             // Use vision model for messages with images
             info!(
                 "Using vision model for message with {} image(s)",
@@ -507,6 +530,7 @@ impl MapleBrain {
             let msgs = self.build_messages(&history_key, user_text).await;
             (self.config.model.clone(), msgs)
         };
+        let model = select_model_for_message(&self.config, &message);
 
         // Get tools if we have an executor (not for vision)
         let tools = if has_images { None } else { self.get_tools() };
@@ -684,6 +708,22 @@ impl MapleBrain {
     }
 }
 
+fn select_model_for_message(config: &MapleBrainConfig, message: &InboundMessage) -> String {
+    if let Some(override_model) = message
+        .routing
+        .as_ref()
+        .and_then(|routing| routing.model_override.as_deref())
+    {
+        return override_model.to_string();
+    }
+
+    if message.has_images() {
+        config.vision_model.clone()
+    } else {
+        config.model.clone()
+    }
+}
+
 #[async_trait]
 impl Brain for MapleBrain {
     async fn process(&self, message: InboundMessage) -> Result<OutboundMessage, BrainError> {
@@ -703,5 +743,46 @@ impl Brain for MapleBrain {
         // Clear all history on shutdown
         self.history.clear_all().await;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use brain_core::{InboundAttachment, RoutingInfo};
+
+    #[test]
+    fn test_select_model_for_message_default_text() {
+        let config = MapleBrainConfig::default();
+        let message = InboundMessage::direct("+123", "hello", 0);
+
+        let selected = select_model_for_message(&config, &message);
+        assert_eq!(selected, config.model);
+    }
+
+    #[test]
+    fn test_select_model_for_message_vision() {
+        let config = MapleBrainConfig::default();
+        let mut message = InboundMessage::direct("+123", "hello", 0);
+        message.attachments.push(InboundAttachment {
+            content_type: "image/png".to_string(),
+            ..Default::default()
+        });
+
+        let selected = select_model_for_message(&config, &message);
+        assert_eq!(selected, config.vision_model);
+    }
+
+    #[test]
+    fn test_select_model_for_message_override() {
+        let config = MapleBrainConfig::default();
+        let mut message = InboundMessage::direct("+123", "hello", 0);
+        message.routing = Some(RoutingInfo {
+            model_override: Some("custom-model".to_string()),
+            ..Default::default()
+        });
+
+        let selected = select_model_for_message(&config, &message);
+        assert_eq!(selected, "custom-model");
     }
 }

@@ -10,7 +10,8 @@ use serde_json::{json, Value};
 use agent_tools::ToolRegistry;
 use tracing::{debug, info, warn};
 
-use crate::actions::{OrchestratorAction, RoutingPlan, Sensitivity, TaskHint, UserPreference};
+use brain_core::{Sensitivity, TaskHint};
+use crate::actions::{OrchestratorAction, RoutingPlan, UserPreference};
 use crate::context::Context;
 use crate::error::OrchestratorError;
 use crate::model_selection::ModelSelector;
@@ -208,6 +209,37 @@ impl<S: MessageSender> Orchestrator<S> {
             .as_ref()
             .map(|g| format!("group:{}", g))
             .unwrap_or_else(|| message.sender.clone())
+    }
+
+    fn resolve_task_hint(message: &InboundMessage, task_hint: TaskHint) -> TaskHint {
+        if message.has_images() {
+            TaskHint::Vision
+        } else {
+            task_hint
+        }
+    }
+
+    fn attach_routing_info(
+        &self,
+        message: &mut InboundMessage,
+        sensitivity: Option<Sensitivity>,
+        task_hint: TaskHint,
+        model_override: Option<String>,
+        use_grok: bool,
+    ) {
+        let mut routing = message.routing.clone().unwrap_or_default();
+        routing.sensitivity = sensitivity;
+        routing.task_hint = Some(task_hint);
+        routing.model_override = model_override;
+        routing.router_prompt_hash = Some(self.router.prompt_hash().to_string());
+
+        let system_prompt_hash = if use_grok {
+            self.grok_brain.system_prompt_hash()
+        } else {
+            self.maple_brain.system_prompt_hash()
+        };
+        routing.system_prompt_hash = system_prompt_hash.map(|hash| hash.to_string());
+        message.routing = Some(routing);
     }
 
     /// Process an incoming message end-to-end.
@@ -499,11 +531,7 @@ impl<S: MessageSender> Orchestrator<S> {
         history_key: &str,
     ) -> Result<OutboundMessage, OrchestratorError> {
         // Vision tasks MUST use Maple - Grok has no vision support
-        let effective_task_hint = if message.has_images() {
-            TaskHint::Vision
-        } else {
-            task_hint
-        };
+        let effective_task_hint = Self::resolve_task_hint(message, task_hint);
         let force_maple = effective_task_hint == TaskHint::Vision;
 
         // Determine which agent to use based on sensitivity and user preference
@@ -535,7 +563,14 @@ impl<S: MessageSender> Orchestrator<S> {
         );
 
         // Augment message with search context if any
-        let augmented = context.augment_message(message);
+        let mut augmented = context.augment_message(message);
+        self.attach_routing_info(
+            &mut augmented,
+            Some(sensitivity),
+            effective_task_hint,
+            Some(selected_model.to_string()),
+            use_grok,
+        );
 
         debug!("Context summary: {}", context.format_summary());
 
@@ -591,7 +626,14 @@ impl<S: MessageSender> Orchestrator<S> {
         modified.text = query.to_string();
 
         // Augment with context if any
-        let augmented = context.augment_message(&modified);
+        let mut augmented = context.augment_message(&modified);
+        self.attach_routing_info(
+            &mut augmented,
+            None,
+            task_hint,
+            Some(selected_model.to_string()),
+            true,
+        );
 
         // Process through Grok
         // Note: Currently using the default model configured in the brain.
@@ -617,11 +659,7 @@ impl<S: MessageSender> Orchestrator<S> {
         task_hint: TaskHint,
         _history_key: &str,
     ) -> Result<OutboundMessage, OrchestratorError> {
-        let effective_task_hint = if message.has_images() {
-            TaskHint::Vision
-        } else {
-            task_hint
-        };
+        let effective_task_hint = Self::resolve_task_hint(message, task_hint);
 
         // Select the best model based on task hint
         let selected_model = self.model_selector.select_maple(effective_task_hint);
@@ -636,7 +674,14 @@ impl<S: MessageSender> Orchestrator<S> {
         modified.text = query.to_string();
 
         // Augment with context if any
-        let augmented = context.augment_message(&modified);
+        let mut augmented = context.augment_message(&modified);
+        self.attach_routing_info(
+            &mut augmented,
+            None,
+            effective_task_hint,
+            Some(selected_model.to_string()),
+            false,
+        );
 
         // Process through Maple
         // Note: Currently using the default model configured in the brain.
@@ -723,6 +768,7 @@ impl<S: MessageSender> Orchestrator<S> {
 mod tests {
     use super::*;
     use crate::sender::NoOpSender;
+    use brain_core::InboundAttachment;
 
     #[test]
     fn test_history_key_direct() {
@@ -749,5 +795,24 @@ mod tests {
         assert!(HELP_TEXT.contains("Speed Mode"));
         assert!(HELP_TEXT.contains("use grok"));
         assert!(HELP_TEXT.contains("use maple"));
+    }
+
+    #[test]
+    fn test_resolve_task_hint_no_images() {
+        let message = InboundMessage::direct("+1234567890", "hello", 123);
+        let hint = Orchestrator::<NoOpSender>::resolve_task_hint(&message, TaskHint::Math);
+        assert_eq!(hint, TaskHint::Math);
+    }
+
+    #[test]
+    fn test_resolve_task_hint_with_images() {
+        let mut message = InboundMessage::direct("+1234567890", "hello", 123);
+        message.attachments.push(InboundAttachment {
+            content_type: "image/png".to_string(),
+            ..Default::default()
+        });
+
+        let hint = Orchestrator::<NoOpSender>::resolve_task_hint(&message, TaskHint::General);
+        assert_eq!(hint, TaskHint::Vision);
     }
 }

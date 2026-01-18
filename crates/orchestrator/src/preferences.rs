@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
-use crate::actions::{Sensitivity, UserPreference};
+use brain_core::Sensitivity;
+use crate::actions::UserPreference;
 
 /// In-memory storage for user preferences.
 ///

@@ -87,6 +87,7 @@ fn envelope_to_inbound(envelope: &Envelope) -> Option<InboundMessage> {
         timestamp: envelope.timestamp,
         group_id,
         attachments: Vec::new(), // TODO: Handle attachments
+        routing: None,
     })
 }
 

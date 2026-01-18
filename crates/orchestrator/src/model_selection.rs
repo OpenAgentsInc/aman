@@ -3,7 +3,7 @@
 //! This module provides the logic for selecting the best model based on
 //! the task type, sensitivity, and user preferences.
 
-use crate::actions::TaskHint;
+use brain_core::TaskHint;
 
 /// Model configuration for Maple (OpenSecret TEE).
 #[derive(Debug, Clone)]

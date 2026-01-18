@@ -1,7 +1,8 @@
 //! GrokBrain implementation using xAI API.
 
 use brain_core::{
-    async_trait, Brain, BrainError, ConversationHistory, InboundMessage, OutboundMessage,
+    async_trait, hash_prompt, Brain, BrainError, ConversationHistory, InboundMessage,
+    OutboundMessage,
 };
 use reqwest::Client;
 use tracing::{debug, info, warn};
@@ -20,6 +21,7 @@ pub struct GrokBrain {
     client: Client,
     config: GrokBrainConfig,
     history: ConversationHistory,
+    system_prompt_hash: Option<String>,
 }
 
 impl GrokBrain {
@@ -30,6 +32,14 @@ impl GrokBrain {
             .map_err(|e| BrainError::Configuration(format!("Failed to create HTTP client: {}", e)))?;
 
         let history = ConversationHistory::new(config.max_history_turns);
+        let system_prompt_hash = config
+            .system_prompt
+            .as_ref()
+            .map(|prompt| hash_prompt(prompt));
+
+        if let Some(ref hash) = system_prompt_hash {
+            info!("GrokBrain system prompt fingerprint: {}", hash);
+        }
 
         info!(
             "GrokBrain initialized with model: {}, x_search: {}, web_search: {}",
@@ -40,6 +50,7 @@ impl GrokBrain {
             client,
             config,
             history,
+            system_prompt_hash,
         })
     }
 
@@ -54,6 +65,11 @@ impl GrokBrain {
     /// Get the configuration.
     pub fn config(&self) -> &GrokBrainConfig {
         &self.config
+    }
+
+    /// Get the system prompt fingerprint, if configured.
+    pub fn system_prompt_hash(&self) -> Option<&str> {
+        self.system_prompt_hash.as_deref()
     }
 
     /// Clear conversation history for a specific sender.
@@ -109,11 +125,13 @@ impl GrokBrain {
     async fn chat_completion(
         &self,
         messages: Vec<ChatMessage>,
+        model_override: Option<&str>,
     ) -> Result<ChatCompletionResponse, BrainError> {
         let url = format!("{}/v1/chat/completions", self.config.api_url);
+        let model = model_override.unwrap_or(&self.config.model);
 
         let request = ChatCompletionRequest {
-            model: self.config.model.clone(),
+            model: model.to_string(),
             messages,
             max_tokens: self.config.max_tokens,
             temperature: self.config.temperature,
@@ -169,14 +187,24 @@ impl Brain for GrokBrain {
     async fn process(&self, message: InboundMessage) -> Result<OutboundMessage, BrainError> {
         let sender = &message.sender;
         let user_text = &message.text;
+        let model_override = message
+            .routing
+            .as_ref()
+            .and_then(|routing| routing.model_override.as_deref());
+        let selected_model = select_model_for_message(&self.config, &message);
 
         debug!("Processing message from {}: {}", sender, user_text);
+        if let Some(override_model) = model_override {
+            info!("Using model override: {}", override_model);
+        }
 
         // Build messages with history
         let messages = self.build_messages(sender, user_text).await;
 
         // Make API request
-        let completion = self.chat_completion(messages).await?;
+        let completion = self
+            .chat_completion(messages, Some(selected_model.as_str()))
+            .await?;
 
         // Extract response text
         let response_text = completion
@@ -208,6 +236,18 @@ impl Brain for GrokBrain {
     fn name(&self) -> &str {
         "GrokBrain"
     }
+}
+
+fn select_model_for_message(config: &GrokBrainConfig, message: &InboundMessage) -> String {
+    if let Some(override_model) = message
+        .routing
+        .as_ref()
+        .and_then(|routing| routing.model_override.as_deref())
+    {
+        return override_model.to_string();
+    }
+
+    config.model.clone()
 }
 
 #[cfg(test)]
@@ -261,5 +301,33 @@ mod tests {
 
         let brain = GrokBrain::new(config).unwrap();
         assert_eq!(brain.name(), "GrokBrain");
+    }
+
+    #[test]
+    fn test_select_model_for_message_default() {
+        let config = GrokBrainConfig::builder()
+            .api_key("test-key")
+            .model("grok-default")
+            .build();
+        let message = InboundMessage::direct("+123", "hello", 0);
+
+        let selected = select_model_for_message(&config, &message);
+        assert_eq!(selected, "grok-default");
+    }
+
+    #[test]
+    fn test_select_model_for_message_override() {
+        let config = GrokBrainConfig::builder()
+            .api_key("test-key")
+            .model("grok-default")
+            .build();
+        let mut message = InboundMessage::direct("+123", "hello", 0);
+        message.routing = Some(brain_core::RoutingInfo {
+            model_override: Some("grok-override".to_string()),
+            ..Default::default()
+        });
+
+        let selected = select_model_for_message(&config, &message);
+        assert_eq!(selected, "grok-override");
     }
 }

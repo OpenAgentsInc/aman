@@ -6,7 +6,8 @@ use std::env;
 use std::path::Path;
 use tracing::{debug, info, warn};
 
-use crate::actions::{RoutingPlan, Sensitivity, TaskHint};
+use brain_core::{hash_prompt, Sensitivity, TaskHint};
+use crate::actions::RoutingPlan;
 use crate::error::OrchestratorError;
 
 /// Default path for the router prompt file.
@@ -123,6 +124,7 @@ fn load_prompt_file(path: impl AsRef<Path>) -> Option<String> {
 /// and only makes a single call to determine the routing plan.
 pub struct Router {
     brain: MapleBrain,
+    prompt_hash: String,
 }
 
 impl Router {
@@ -132,7 +134,9 @@ impl Router {
     /// Prompt is loaded from file or env var (see `load_router_prompt`).
     pub async fn new(mut config: MapleBrainConfig) -> Result<Self, OrchestratorError> {
         // Override config for routing
-        config.system_prompt = Some(load_router_prompt());
+        let prompt = load_router_prompt();
+        let prompt_hash = hash_prompt(&prompt);
+        config.system_prompt = Some(prompt);
         config.max_history_turns = 0; // Stateless
         config.temperature = Some(0.0); // Deterministic
         config.max_tokens = Some(256); // Routing plans are small
@@ -141,7 +145,14 @@ impl Router {
             .await
             .map_err(|e| OrchestratorError::RoutingFailed(format!("Failed to initialize router brain: {}", e)))?;
 
-        Ok(Self { brain })
+        info!("Router prompt fingerprint: {}", prompt_hash);
+
+        Ok(Self { brain, prompt_hash })
+    }
+
+    /// Get the router prompt fingerprint.
+    pub fn prompt_hash(&self) -> &str {
+        &self.prompt_hash
     }
 
     /// Create a router from environment variables.

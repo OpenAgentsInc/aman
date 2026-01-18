@@ -31,12 +31,16 @@
 mod error;
 mod history;
 mod message;
+mod prompt;
 mod tools;
 mod trait_def;
 
 pub use error::BrainError;
 pub use history::{ConversationHistory, HistoryMessage};
-pub use message::{InboundAttachment, InboundMessage, OutboundMessage};
+pub use message::{
+    InboundAttachment, InboundMessage, OutboundMessage, RoutingInfo, Sensitivity, TaskHint,
+};
+pub use prompt::hash_prompt;
 pub use tools::{ToolExecutor, ToolRequest, ToolResult};
 pub use trait_def::Brain;
 

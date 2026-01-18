@@ -126,6 +126,7 @@ impl Context {
             timestamp: original.timestamp,
             group_id: original.group_id.clone(),
             attachments: original.attachments.clone(),
+            routing: original.routing.clone(),
         }
     }
 
