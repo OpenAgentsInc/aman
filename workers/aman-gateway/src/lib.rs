@@ -1,10 +1,11 @@
 use js_sys::{Date, Math};
+use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wasm_bindgen::JsValue;
 use worker::{
-    console_error, console_log, event, Context, Env, Fetch, Headers, Method, Request, RequestInit,
-    Response,
+    console_error, console_log, event, ByteStream, Context, Env, Fetch, Headers, Method, Request,
+    RequestInit, Response,
 };
 
 const MAX_BODY_BYTES: usize = 64 * 1024;
@@ -149,6 +150,8 @@ struct OpenRouterRequest {
     model: String,
     messages: Vec<ChatMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
@@ -275,10 +278,6 @@ async fn handle_chat_completions(req: &mut Request, env: &Env) -> ApiResult<Resp
     let request: ChatCompletionRequest = serde_json::from_slice(&body)
         .map_err(|err| ApiError::bad_request(format!("Invalid JSON: {err}")))?;
 
-    if request.stream.unwrap_or(false) {
-        return Err(ApiError::bad_request("stream=true is not supported"));
-    }
-
     if request.messages.is_empty() {
         return Err(ApiError::bad_request("messages array is required"));
     }
@@ -318,9 +317,35 @@ async fn handle_chat_completions(req: &mut Request, env: &Env) -> ApiResult<Resp
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| settings.default_model.clone());
 
+    let user_text = last_user_text(&request.messages);
+
+    if request.stream.unwrap_or(false) {
+        let payload = OpenRouterRequest {
+            model,
+            messages,
+            stream: Some(true),
+            temperature: request.temperature,
+            max_tokens: request.max_tokens,
+            top_p: request.top_p,
+            user: Some(history_key.clone()),
+        };
+
+        return stream_chat_completion(
+            &settings,
+            payload,
+            kv,
+            snapshot_key,
+            snapshot,
+            history_key,
+            user_text,
+        )
+        .await;
+    }
+
     let payload = OpenRouterRequest {
         model,
         messages,
+        stream: None,
         temperature: request.temperature,
         max_tokens: request.max_tokens,
         top_p: request.top_p,
@@ -329,33 +354,16 @@ async fn handle_chat_completions(req: &mut Request, env: &Env) -> ApiResult<Resp
 
     let response_json = call_openrouter(&settings, &payload).await?;
 
-    let user_text = last_user_text(&request.messages);
     let assistant_text = extract_assistant_text(&response_json);
-
-    let now = now_unix();
     update_snapshot(
         &mut snapshot,
         user_text.as_deref(),
         assistant_text.as_deref(),
-        now,
+        now_unix(),
     );
 
-    if should_summarize(&snapshot, settings.memory_summarize_every_turns) {
-        if let Some(summary) = summarize_memory(&settings, &snapshot).await? {
-            snapshot.summary = Some(summary);
-            if let Err(err) = publish_summary_event(&settings, &history_key, &snapshot).await {
-                console_error!("Nostr publish failed: {}", err.message);
-            }
-        }
-    }
-
-    kv.put(&snapshot_key, serde_json::to_string(&snapshot).map_err(|err| {
-        ApiError::internal(format!("Failed to serialize memory snapshot: {err}"))
-    })?)
-    .map_err(|err| ApiError::internal(format!("KV write failed: {err}")))?
-    .execute()
-    .await
-    .map_err(|err| ApiError::internal(format!("KV write failed: {err}")))?;
+    finalize_snapshot(&settings, &history_key, &mut snapshot).await?;
+    save_snapshot(&kv, &snapshot_key, &snapshot).await?;
 
     let resp = json_response(200, &response_json)
         .map_err(|err| ApiError::internal(format!("Response build failed: {err}")))?;
@@ -435,6 +443,51 @@ async fn call_openrouter(
         .map_err(|err| ApiError::bad_gateway(format!("Invalid OpenRouter JSON: {err}")))
 }
 
+async fn call_openrouter_stream(
+    settings: &Settings,
+    payload: &OpenRouterRequest,
+) -> ApiResult<Response> {
+    let body = serde_json::to_string(payload)
+        .map_err(|err| ApiError::internal(format!("Failed to encode payload: {err}")))?;
+
+    let headers = Headers::new();
+    headers
+        .set("Authorization", &format!("Bearer {}", settings.openrouter_api_key))
+        .map_err(|err| ApiError::internal(format!("Header error: {err}")))?;
+    headers
+        .set("Content-Type", "application/json")
+        .map_err(|err| ApiError::internal(format!("Header error: {err}")))?;
+    if let Some(referrer) = settings.openrouter_http_referer.as_deref() {
+        headers
+            .set("HTTP-Referer", referrer)
+            .map_err(|err| ApiError::internal(format!("Header error: {err}")))?;
+    }
+    if let Some(title) = settings.openrouter_x_title.as_deref() {
+        headers
+            .set("X-Title", title)
+            .map_err(|err| ApiError::internal(format!("Header error: {err}")))?;
+    }
+    headers
+        .set("Accept", "text/event-stream")
+        .map_err(|err| ApiError::internal(format!("Header error: {err}")))?;
+
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post);
+    init.with_headers(headers);
+    init.with_body(Some(JsValue::from_str(&body)));
+
+    let req = Request::new_with_init(
+        &format!("{}/chat/completions", settings.openrouter_api_url.trim_end_matches('/')),
+        &init,
+    )
+    .map_err(|err| ApiError::internal(format!("Failed to build OpenRouter request: {err}")))?;
+
+    Fetch::Request(req)
+        .send()
+        .await
+        .map_err(|err| ApiError::bad_gateway(format!("OpenRouter request failed: {err}")))
+}
+
 async fn summarize_memory(
     settings: &Settings,
     snapshot: &MemorySnapshot,
@@ -474,6 +527,7 @@ async fn summarize_memory(
     let payload = OpenRouterRequest {
         model: settings.summary_model.clone(),
         messages,
+        stream: None,
         temperature: Some(0.2),
         max_tokens: Some(200),
         top_p: Some(0.9),
@@ -583,6 +637,138 @@ fn build_memory_prompt(snapshot: &MemorySnapshot, max_chars: usize) -> Option<St
     }
 }
 
+async fn stream_chat_completion(
+    settings: &Settings,
+    payload: OpenRouterRequest,
+    kv: worker::KvStore,
+    snapshot_key: String,
+    snapshot: MemorySnapshot,
+    history_key: String,
+    user_text: Option<String>,
+) -> ApiResult<Response> {
+    let mut upstream = call_openrouter_stream(settings, &payload).await?;
+    let status = upstream.status_code();
+    if status >= 400 {
+        let text = upstream
+            .text()
+            .await
+            .map_err(|err| ApiError::bad_gateway(format!("OpenRouter response failed: {err}")))?;
+        return Err(ApiError::bad_gateway(format!(
+            "OpenRouter error ({status}): {}",
+            truncate_text(&text, 500)
+        )));
+    }
+
+    let upstream_stream = upstream
+        .stream()
+        .map_err(|err| ApiError::bad_gateway(format!("OpenRouter stream failed: {err}")))?;
+
+    let state = StreamState {
+        upstream: upstream_stream,
+        buffer: String::new(),
+        assistant_text: String::new(),
+        snapshot,
+        snapshot_key,
+        history_key,
+        user_text,
+        settings: settings.clone(),
+        kv,
+    };
+
+    let stream = stream::unfold(state, |mut state| async move {
+        let next = state.upstream.next().await;
+        match next {
+            Some(Ok(chunk)) => {
+                absorb_sse_chunk(&mut state, &chunk);
+                Some((Ok(chunk), state))
+            }
+            Some(Err(err)) => Some((Err(err), state)),
+            None => {
+                finalize_stream_state(&mut state).await;
+                None
+            }
+        }
+    });
+
+    let mut resp = Response::from_stream(stream)
+        .map_err(|err| ApiError::bad_gateway(format!("Streaming response failed: {err}")))?;
+    let headers = resp.headers_mut();
+    headers
+        .set("Content-Type", "text/event-stream")
+        .map_err(|err| ApiError::internal(format!("Header error: {err}")))?;
+    headers
+        .set("Cache-Control", "no-cache")
+        .map_err(|err| ApiError::internal(format!("Header error: {err}")))?;
+    Ok(resp)
+}
+
+struct StreamState {
+    upstream: ByteStream,
+    buffer: String,
+    assistant_text: String,
+    snapshot: MemorySnapshot,
+    snapshot_key: String,
+    history_key: String,
+    user_text: Option<String>,
+    settings: Settings,
+    kv: worker::KvStore,
+}
+
+fn absorb_sse_chunk(state: &mut StreamState, chunk: &[u8]) {
+    let text = String::from_utf8_lossy(chunk);
+    state.buffer.push_str(&text);
+
+    while let Some(idx) = state.buffer.find('\n') {
+        let line = state.buffer[..idx].trim_end_matches('\r').to_string();
+        state.buffer = state.buffer[idx + 1..].to_string();
+        process_sse_line(state, &line);
+    }
+}
+
+fn process_sse_line(state: &mut StreamState, line: &str) {
+    let line = line.trim();
+    if !line.starts_with("data:") {
+        return;
+    }
+    let data = line.trim_start_matches("data:").trim();
+    if data.is_empty() || data == "[DONE]" {
+        return;
+    }
+    let Ok(value) = serde_json::from_str::<Value>(data) else {
+        return;
+    };
+    if let Some(content) = value
+        .pointer("/choices/0/delta/content")
+        .and_then(|val| val.as_str())
+    {
+        state.assistant_text.push_str(content);
+    } else if let Some(content) = value
+        .pointer("/choices/0/message/content")
+        .and_then(|val| val.as_str())
+    {
+        state.assistant_text.push_str(content);
+    }
+}
+
+async fn finalize_stream_state(state: &mut StreamState) {
+    update_snapshot(
+        &mut state.snapshot,
+        state.user_text.as_deref(),
+        Some(state.assistant_text.as_str()),
+        now_unix(),
+    );
+
+    if let Err(err) =
+        finalize_snapshot(&state.settings, &state.history_key, &mut state.snapshot).await
+    {
+        console_error!("Stream finalize failed: {}", err.message);
+    }
+
+    if let Err(err) = save_snapshot(&state.kv, &state.snapshot_key, &state.snapshot).await {
+        console_error!("KV write failed: {}", err.message);
+    }
+}
+
 fn inject_system_prompt(mut messages: Vec<ChatMessage>, prompt: &str) -> Vec<ChatMessage> {
     let trimmed = prompt.trim();
     if trimmed.is_empty() {
@@ -643,6 +829,39 @@ fn update_snapshot(
     }
 
     snapshot.updated_at = now;
+}
+
+async fn finalize_snapshot(
+    settings: &Settings,
+    history_key: &str,
+    snapshot: &mut MemorySnapshot,
+) -> ApiResult<()> {
+    if should_summarize(snapshot, settings.memory_summarize_every_turns) {
+        if let Some(summary) = summarize_memory(settings, snapshot).await? {
+            snapshot.summary = Some(summary);
+            if let Err(err) = publish_summary_event(settings, history_key, snapshot).await {
+                console_error!("Nostr publish failed: {}", err.message);
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn save_snapshot(
+    kv: &worker::KvStore,
+    snapshot_key: &str,
+    snapshot: &MemorySnapshot,
+) -> ApiResult<()> {
+    kv.put(
+        snapshot_key,
+        serde_json::to_string(snapshot)
+            .map_err(|err| ApiError::internal(format!("Failed to serialize memory snapshot: {err}")))?,
+    )
+    .map_err(|err| ApiError::internal(format!("KV write failed: {err}")))?
+    .execute()
+    .await
+    .map_err(|err| ApiError::internal(format!("KV write failed: {err}")))?;
+    Ok(())
 }
 
 fn push_recent(snapshot: &mut MemorySnapshot, role: &str, content: &str) {

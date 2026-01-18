@@ -8,7 +8,7 @@ summary events to Nostr (stubbed for now).
 
 - `GET /health`
 - `GET /v1/models`
-- `POST /v1/chat/completions` (non-streaming)
+- `POST /v1/chat/completions` (streaming supported via `stream: true`)
 
 ## Quickstart
 
@@ -66,6 +66,6 @@ Optional:
 
 ## Notes
 
-- Streaming responses are not supported yet.
+- Streaming responses are supported (SSE passthrough).
 - The worker ignores tool calls and function calling in Phase 1.
 - Nostr publishing is logged but not yet implemented in the worker runtime.
