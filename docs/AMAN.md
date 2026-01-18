@@ -75,7 +75,7 @@ For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 ## Future phases (planned)
 
 - RAG pipeline for documents and YouTube transcripts.
-- Nostr relay persistence and local vector DB rehydration.
+- Local vector DB rehydration from Nostr events (memory durability is already supported).
 
 ## Security notes
 

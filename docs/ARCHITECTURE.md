@@ -303,8 +303,9 @@ If PII is detected, the router can request an explicit privacy choice before res
 
 1. `ingester` chunks files and writes chunk blobs to disk.
 2. `ingester` publishes DocManifest + ChunkRef events (or indexes directly into SQLite).
-3. `nostr-indexer` stores Nostr events in `NOSTR_DB_PATH`.
-4. `api` reads from `NOSTR_DB_PATH` for knowledge base answers.
+3. `nostr-indexer` stores Nostr events (docs + memory) in `NOSTR_DB_PATH`.
+4. `nostr-rehydrate-memory` projects memory events into the runtime SQLite DB.
+5. `api` reads from `NOSTR_DB_PATH` for knowledge base answers.
 
 ## Reliability
 
@@ -390,10 +391,10 @@ Environment variables (names may be implementation-specific):
 - `OPENROUTER_MODEL`: default OpenRouter model if the request omits `model`.
 - `OPENROUTER_HTTP_REFERER`: optional app URL header for OpenRouter.
 - `OPENROUTER_X_TITLE`: optional app title header for OpenRouter.
-- `NOSTR_RELAYS`: comma-separated relay URLs (Phase 2).
-- `NOSTR_DB_PATH`: SQLite path for Nostr indexer (Phase 2).
-- `NOSTR_SECRETBOX_KEY`: optional symmetric key for payload encryption (Phase 2).
-- `NOSTR_SECRET_KEY`: secret key used by `ingester` when publishing to relays.
+- `NOSTR_RELAYS`: comma-separated relay URLs (memory publishing + indexer).
+- `NOSTR_DB_PATH`: SQLite path for Nostr indexer and memory rehydration.
+- `NOSTR_SECRETBOX_KEY`: optional symmetric key for payload encryption.
+- `NOSTR_SECRET_KEY`: secret key used by publishers (`ingester`, memory events).
 
 For daemon setup details, see `docs/signal-cli-daemon.md`.
 

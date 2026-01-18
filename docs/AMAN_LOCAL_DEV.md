@@ -375,6 +375,33 @@ Verify SQLite tables:
 sqlite3 ./data/nostr.db "select doc_id, title from docs;"
 ```
 
+## 14) Nostr memory mode (preferences + summaries)
+
+Set Nostr relays and keys (publishing + rehydration use these):
+
+```bash
+export NOSTR_RELAYS="wss://relay.damus.io"
+export NOSTR_SECRET_KEY="hex:your-secret-key"
+export NOSTR_SECRETBOX_KEY="hex:your-secretbox-key"
+export NOSTR_DB_PATH="./data/nostr.db"
+export SQLITE_PATH="./data/aman.db"
+```
+
+Backfill memory events and project them into the runtime DB:
+
+```bash
+cargo run -p nostr-persistence --bin nostr-rehydrate-memory -- \
+  --relay wss://relay.damus.io \
+  --nostr-db ./data/nostr.db \
+  --aman-db ./data/aman.db
+```
+
+Run the orchestrator with Nostr publishing enabled:
+
+```bash
+cargo run -p orchestrator --example orchestrated_bot --features nostr
+```
+
 ## Troubleshooting
 
 - Not receiving messages:
