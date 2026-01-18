@@ -87,6 +87,71 @@ brew install protobuf
 
 Download from https://github.com/protocolbuffers/protobuf/releases
 
+## Testing
+
+### Environment Variables
+
+```bash
+# Required
+SPARK_MNEMONIC="word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
+SPARK_API_KEY=your-breez-api-key
+
+# Optional
+SPARK_STORAGE_DIR=./spark_test_data
+SPARK_NETWORK=mainnet
+SPARK_TEST_PAYMENT_HASH=963ac3aeec6ee455051f3cb4e006a3e34dbb7adf7a90a47bb6da00c543c24872
+```
+
+### Running Tests
+
+```bash
+# Run all integration tests
+set -a && source .env && set +a && cargo test -p donation-wallet --test spark_integration -- --nocapture
+
+# Test wallet balance
+cargo test -p donation-wallet --test spark_integration test_get_wallet_balance -- --nocapture
+
+# Test creating an invoice
+cargo test -p donation-wallet --test spark_integration test_create_invoice -- --nocapture
+
+# Test zero-amount invoice (payer chooses amount)
+cargo test -p donation-wallet --test spark_integration test_create_zero_amount_invoice -- --nocapture
+
+# Test invoice event monitoring (check if paid)
+SPARK_TEST_PAYMENT_HASH="your-payment-hash" cargo test -p donation-wallet --test spark_integration test_on_invoice_events -- --nocapture
+```
+
+### Monitoring Invoice Payments
+
+The `on_invoice_events` API allows monitoring an invoice for payment:
+
+```rust
+use lni::types::{OnInvoiceEventCallback, OnInvoiceEventParams};
+
+struct MyCallback;
+
+impl OnInvoiceEventCallback for MyCallback {
+    fn success(&self, transaction: Option<Transaction>) {
+        println!("Invoice paid! {:?}", transaction);
+    }
+    fn pending(&self, transaction: Option<Transaction>) {
+        println!("Waiting for payment...");
+    }
+    fn failure(&self, transaction: Option<Transaction>) {
+        println!("Invoice not found or expired");
+    }
+}
+
+let params = OnInvoiceEventParams {
+    payment_hash: Some("963ac3ae...".to_string()),
+    search: None,
+    polling_delay_sec: 2,   // Check every 2 seconds
+    max_polling_sec: 60,    // Timeout after 60 seconds
+};
+
+node.on_invoice_events(params, Arc::new(MyCallback)).await;
+```
+
 ## AI Agent Guidelines
 
 If you are an AI assistant modifying this crate:

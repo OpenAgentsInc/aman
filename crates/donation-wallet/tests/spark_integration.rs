@@ -9,8 +9,10 @@
 //! Optional:
 //! - SPARK_STORAGE_DIR: Storage directory (default: ./spark_test_data)
 //! - SPARK_NETWORK: mainnet or regtest (default: mainnet)
+//! - SPARK_TEST_PAYMENT_HASH: Payment hash for testing invoice event monitoring
 
 use std::env;
+use std::sync::{Arc, Mutex};
 
 fn should_skip() -> bool {
     env::var("SPARK_MNEMONIC").is_err() || env::var("SPARK_API_KEY").is_err()
@@ -226,5 +228,123 @@ mod spark_tests {
                 panic!("Failed to create zero-amount invoice: {}", e);
             }
         }
+    }
+
+    /// Test invoice event monitoring to check if an invoice was paid.
+    ///
+    /// This test demonstrates how to use `on_invoice_events` to monitor an invoice
+    /// for payment status changes. The callback receives events:
+    /// - `success`: Invoice has been paid and settled
+    /// - `pending`: Invoice exists but payment not yet confirmed  
+    /// - `failure`: Invoice not found or monitoring timed out
+    ///
+    /// Requires `SPARK_TEST_PAYMENT_HASH` env var set to a valid payment hash.
+    /// Use a payment hash from a previously paid invoice to see SUCCESS,
+    /// or an unpaid invoice's hash to see PENDING events until timeout.
+    #[tokio::test]
+    async fn test_on_invoice_events() {
+        if should_skip() {
+            println!("Skipping test: SPARK_MNEMONIC or SPARK_API_KEY not set");
+            return;
+        }
+
+        let test_payment_hash = match env::var("SPARK_TEST_PAYMENT_HASH") {
+            Ok(hash) => hash,
+            Err(_) => {
+                println!("Skipping test: SPARK_TEST_PAYMENT_HASH not set");
+                return;
+            }
+        };
+
+        println!("=== Testing Invoice Event Monitoring ===");
+        println!("Monitoring payment hash: {}", test_payment_hash);
+
+        let node = get_spark_node().await.expect("Failed to connect to Spark");
+
+        // Track events received
+        #[derive(Debug, Clone)]
+        enum InvoiceEvent {
+            Success(Option<lni::Transaction>),
+            Pending(Option<lni::Transaction>),
+            Failure(Option<lni::Transaction>),
+        }
+
+        struct TestCallback {
+            events: Arc<Mutex<Vec<InvoiceEvent>>>,
+        }
+
+        impl lni::types::OnInvoiceEventCallback for TestCallback {
+            fn success(&self, transaction: Option<lni::Transaction>) {
+                println!("✓ SUCCESS event received!");
+                if let Some(ref tx) = transaction {
+                    println!("  Payment Hash: {}", tx.payment_hash);
+                    println!("  Amount: {} msats ({} sats)", tx.amount_msats, tx.amount_msats / 1000);
+                    println!("  Description: {}", tx.description);
+                    println!("  Settled At: {}", tx.settled_at);
+                }
+                let mut events = self.events.lock().unwrap();
+                events.push(InvoiceEvent::Success(transaction));
+            }
+
+            fn pending(&self, transaction: Option<lni::Transaction>) {
+                println!("⏳ PENDING event received");
+                if let Some(ref tx) = transaction {
+                    println!("  Payment Hash: {}", tx.payment_hash);
+                    println!("  Amount: {} msats", tx.amount_msats);
+                }
+                let mut events = self.events.lock().unwrap();
+                events.push(InvoiceEvent::Pending(transaction));
+            }
+
+            fn failure(&self, transaction: Option<lni::Transaction>) {
+                println!("✗ FAILURE event received");
+                if let Some(ref tx) = transaction {
+                    println!("  Payment Hash: {}", tx.payment_hash);
+                }
+                let mut events = self.events.lock().unwrap();
+                events.push(InvoiceEvent::Failure(transaction));
+            }
+        }
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let callback = TestCallback {
+            events: events.clone(),
+        };
+
+        // Set up polling parameters
+        let params = lni::types::OnInvoiceEventParams {
+            payment_hash: Some(test_payment_hash.clone()),
+            search: None,
+            polling_delay_sec: 2,  // Check every 2 seconds
+            max_polling_sec: 10,   // Poll for up to 10 seconds
+        };
+
+        println!("Starting invoice event monitoring...");
+        println!("Polling every {} seconds for up to {} seconds", 
+            params.polling_delay_sec, params.max_polling_sec);
+
+        // Start monitoring - this will block until timeout or payment received
+        node.on_invoice_events(params, Arc::new(callback)).await;
+
+        // Check results
+        let captured_events = events.lock().unwrap();
+        println!("\n=== Event Summary ===");
+        println!("Total events captured: {}", captured_events.len());
+
+        for (i, event) in captured_events.iter().enumerate() {
+            match event {
+                InvoiceEvent::Success(_) => println!("  Event {}: SUCCESS (paid!)", i + 1),
+                InvoiceEvent::Pending(_) => println!("  Event {}: PENDING", i + 1),
+                InvoiceEvent::Failure(_) => println!("  Event {}: FAILURE/NOT_FOUND", i + 1),
+            }
+        }
+
+        // We should have received at least one event
+        assert!(
+            !captured_events.is_empty(),
+            "Should capture at least one invoice event"
+        );
+
+        println!("✓ Invoice event monitoring test complete!");
     }
 }
