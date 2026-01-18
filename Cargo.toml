@@ -6,6 +6,7 @@ members = [
     "crates/agent-brain",
     "crates/brain-core",
     "crates/database",
+    "crates/donation-wallet",
     "crates/grok-brain",
     "crates/maple-brain",
     "crates/ingester",

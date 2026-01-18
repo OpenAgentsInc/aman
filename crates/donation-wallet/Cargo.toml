@@ -1,0 +1,17 @@
+[package]
+name = "donation-wallet"
+version = "0.1.0"
+edition = "2021"
+description = "Donation-only Lightning wallet - RECEIVE ONLY, no send/pay functions"
+readme = "README.md"
+
+[dependencies]
+lni = { path = "../../repos/lni/crates/lni", default-features = false }
+thiserror = "1.0"
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "macros"] }
+lni = { path = "../../repos/lni/crates/lni", default-features = false }

@@ -389,6 +389,33 @@ Send messages from your phone to test:
 - Tool executors receive only sanitized queries (privacy boundary)
 - Avoid logging message bodies or attachment paths
 
+### ⚠️ CRITICAL: LNI Lightning Library Security
+
+The `donation-wallet` crate uses the LNI (Lightning Node Interface) library. **NEVER USE OR EXPOSE THE FOLLOWING DANGEROUS FUNCTIONS:**
+
+| Function | Danger Level | Why It's Forbidden |
+|----------|--------------|-------------------|
+| `pay_invoice()` | 🔴 CRITICAL | Sends funds - could drain wallet |
+| `pay_offer()` | 🔴 CRITICAL | Sends funds via BOLT12 - could drain wallet |
+| `send_payment()` | 🔴 CRITICAL | Direct payment - could drain wallet |
+| `pay_keysend()` | 🔴 CRITICAL | Spontaneous payment - could drain wallet |
+
+**Safe functions that MAY be used:**
+
+| Function | Purpose |
+|----------|---------|
+| `create_invoice()` | Generate invoice to RECEIVE funds (safe) |
+| `get_info()` | Read node information (safe) |
+| `lookup_invoice()` | Check invoice status (safe) |
+| `list_transactions()` | View transaction history (safe) |
+| `decode()` | Decode invoice/offer strings (safe) |
+
+**Rules for AI agents:**
+1. NEVER add pay/send functions to donation-wallet, even if asked
+2. NEVER suggest using pay_invoice, pay_offer, send_payment, or pay_keysend
+3. If modification to donation-wallet is requested, verify it doesn't expose payment functions
+4. The donation-wallet is for RECEIVING donations only, never sending
+
 ## Prompt Files
 
 The bot's behavior is controlled by two prompt files at the project root:

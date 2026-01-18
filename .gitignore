@@ -38,3 +38,4 @@ repos/signal-cli/build/
 repos/signal-cli/.gradle/
 repos/signal-cli/buildSrc/build/
 repos/signal-cli/lib/build/
+spark_data/
