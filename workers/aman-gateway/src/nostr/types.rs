@@ -38,7 +38,7 @@ pub struct NostrFilter {
     pub limit: Option<u64>,
 }
 
-pub fn tag_value(tags: &[Vec<String>], name: &str) -> Option<&str> {
+pub fn tag_value<'a>(tags: &'a [Vec<String>], name: &str) -> Option<&'a str> {
     tags.iter()
         .find(|tag| tag.first().map(|value| value == name).unwrap_or(false))
         .and_then(|tag| tag.get(1).map(|value| value.as_str()))

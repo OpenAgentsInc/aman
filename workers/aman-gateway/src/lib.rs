@@ -1333,7 +1333,7 @@ async fn search_kb_fts(
         .await
         .map_err(|err| ApiError::internal(format!("D1 query failed: {err}")))?;
 
-    let rows: Vec<NameRow> = result
+    let rows: Vec<DbChunkRow> = result
         .results()
         .map_err(|err| ApiError::internal(format!("D1 parse failed: {err}")))?;
 
@@ -1475,7 +1475,7 @@ async fn fts_available(db: &D1Database) -> ApiResult<bool> {
         .all()
         .await
         .map_err(|err| ApiError::internal(format!("D1 query failed: {err}")))?;
-    let rows: Vec<DbChunkRow> = result
+    let rows: Vec<NameRow> = result
         .results()
         .map_err(|err| ApiError::internal(format!("D1 parse failed: {err}")))?;
     Ok(!rows.is_empty())

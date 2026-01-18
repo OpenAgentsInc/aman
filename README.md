@@ -35,6 +35,7 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - OpenAI-compatible API gateway (echo, orchestrator, or OpenRouter proxy modes) with local/Nostr KB injection
 - Receive-only Lightning donation wallet crate (LNI-backed; no send/pay functions exposed)
 - Cloudflare Worker OpenAI-compatible gateway (OpenRouter + KV memory + D1 KB synced from Nostr, no Signal dependency)
+- Nostr knowledge ingestion pipeline (DocManifest/ChunkRef events with optional inline chunk text)
 
 ## What it is not yet
 
@@ -45,6 +46,19 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - End-to-end durable memory in the brain crates (Maple/Grok history is still in-memory)
 - End-to-end PII sanitization flow (tool exists, orchestration wiring pending)
 - Donation flows wired into Signal responses (donation-wallet is currently standalone)
+
+## Knowledge Base Flow (Nostr -> Worker D1)
+
+1) Ingest markdown with `crates/ingester` and publish DocManifest + ChunkRef events to Nostr
+   (`--inline-text` embeds a short snippet directly in the events for worker sync).
+2) The Cloudflare Worker cron sync pulls Nostr events, upserts docs/chunks into D1, and keeps a
+   sync cursor in KV.
+3) `/v1/chat/completions` runs keyword/FTS search in D1 and injects a small, capped snippet bundle
+   into the system prompt before calling OpenRouter.
+4) `/kb/status` and `/kb/search` are available for debugging the KB state and search results.
+
+Key knobs: `NOSTR_RELAYS`, `NOSTR_KB_AUTHOR`, `NOSTR_SECRETBOX_KEY`, `KB_*` limits, and the
+worker KV/D1 bindings. See `workers/aman-gateway/README.md` for the full setup.
 
 ## Quickstart (local dev)
 

@@ -77,7 +77,7 @@ pub async fn fetch_relay_events(
         }
     }
 
-    let _ = ws.close(None, None);
+    let _ = ws.close::<String>(None, None);
     Ok(out)
 }
 
