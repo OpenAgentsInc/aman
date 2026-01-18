@@ -11,7 +11,7 @@ use brain_core::{
 use database::Database;
 use grok_brain::{GrokBrain, GrokBrainConfig, GrokToolExecutor};
 use maple_brain::{MapleBrain, MapleBrainConfig};
-use proton_proxy::{ProtonClient, ProtonConfig};
+use proton_proxy::ProtonClient;
 use serde_json::{json, Value};
 use agent_tools::ToolRegistry;
 use tracing::{debug, info, warn};
@@ -989,6 +989,7 @@ impl<S: MessageSender> Orchestrator<S> {
             effective_task_hint,
             Some(selected_model.clone()),
             false,
+            None,
         );
 
         // Process through Maple
@@ -1264,6 +1265,20 @@ impl<S: MessageSender> Orchestrator<S> {
         }
     }
 
+    async fn record_privacy_choice(
+        &self,
+        history_key: &str,
+        choice: PrivacyChoice,
+        message: &InboundMessage,
+    ) {
+        // Log the privacy choice for auditing purposes
+        // TODO: Add persistent storage if needed for compliance/auditing
+        debug!(
+            "Privacy choice recorded: {:?} for {} (sender: {})",
+            choice, history_key, message.sender
+        );
+    }
+
     async fn record_tool_history(
         &self,
         history_key: &str,
@@ -1307,9 +1322,31 @@ impl<S: MessageSender> Orchestrator<S> {
 
         let preferences = PreferenceStore::with_database(database.clone());
         let settings = MemorySettings::from_env();
-        let memory = Some(MemoryStore::new(database, settings));
+        let memory = Some(MemoryStore::new(database.clone(), settings));
+        let profile = ProfileStore::with_database(database);
 
-        Ok((preferences, memory))
+        Ok((preferences, memory, profile))
+    }
+
+    /// Try to create an email client from environment variables.
+    /// Returns None if not configured (missing PROTON_USERNAME/PROTON_PASSWORD).
+    fn load_email_client_from_env() -> Option<ProtonClient> {
+        match proton_proxy::ProtonConfig::from_env() {
+            Ok(config) => match ProtonClient::new(config) {
+                Ok(client) => {
+                    info!("Email client initialized");
+                    Some(client)
+                }
+                Err(e) => {
+                    warn!("Failed to create email client: {}", e);
+                    None
+                }
+            }
+            Err(_) => {
+                debug!("Email client not configured (missing PROTON_USERNAME/PROTON_PASSWORD)");
+                None
+            }
+        }
     }
 
     /// Get the sender.

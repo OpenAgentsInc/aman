@@ -74,6 +74,8 @@ pub struct ConversationHistory {
     /// Map from sender ID to their message history.
     /// Uses IndexMap to maintain insertion order for LRU eviction.
     histories: RwLock<IndexMap<String, Vec<HistoryMessage>>>,
+    /// Map from sender ID to their system message (memory prompt).
+    system_messages: RwLock<IndexMap<String, String>>,
     /// Maximum number of turns (user + assistant pairs) to keep per sender.
     max_turns: usize,
     /// Maximum number of senders to track before LRU eviction.
@@ -103,6 +105,7 @@ impl ConversationHistory {
     pub fn with_limits(max_turns: usize, max_senders: usize) -> Self {
         Self {
             histories: RwLock::new(IndexMap::new()),
+            system_messages: RwLock::new(IndexMap::new()),
             max_turns,
             max_senders,
         }
@@ -157,6 +160,8 @@ impl ConversationHistory {
     pub async fn clear(&self, sender: &str) {
         let mut histories = self.histories.write().await;
         histories.shift_remove(sender);
+        let mut system_messages = self.system_messages.write().await;
+        system_messages.shift_remove(sender);
     }
 
     /// Clear all conversation histories.
@@ -166,19 +171,25 @@ impl ConversationHistory {
         let mut system_messages = self.system_messages.write().await;
         system_messages.clear();
     }
-}
-
-fn trim_history(history: &mut Vec<HistoryMessage>, max_turns: usize) {
-    let max_messages = max_turns * 2;
-    if history.len() > max_messages {
-        let to_remove = history.len() - max_messages;
-        history.drain(0..to_remove);
-    }
 
     /// Get the current number of tracked senders.
     pub async fn sender_count(&self) -> usize {
         let histories = self.histories.read().await;
         histories.len()
+    }
+
+    /// Set a system message (memory prompt) for a sender.
+    ///
+    /// This message will be prepended to the conversation when building messages.
+    pub async fn set_system_message(&self, sender: &str, message: impl Into<String>) {
+        let mut system_messages = self.system_messages.write().await;
+        system_messages.insert(sender.to_string(), message.into());
+    }
+
+    /// Get the system message for a sender, if any.
+    pub async fn get_system_message(&self, sender: &str) -> Option<String> {
+        let system_messages = self.system_messages.read().await;
+        system_messages.get(sender).cloned()
     }
 }
 
