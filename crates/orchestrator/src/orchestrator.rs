@@ -995,6 +995,7 @@ impl<S: MessageSender> Orchestrator<S> {
             effective_task_hint,
             Some(selected_model.clone()),
             false,
+            None, // No memory context for one-time model selection
         );
 
         // Process through Maple
@@ -1360,6 +1361,20 @@ impl<S: MessageSender> Orchestrator<S> {
                 warn!("Failed to record tool history: {}", err);
             }
         }
+    }
+
+    async fn record_privacy_choice(
+        &self,
+        history_key: &str,
+        choice: PrivacyChoice,
+        message: &InboundMessage,
+    ) {
+        // Log the privacy choice for auditing purposes
+        // TODO: Add persistent storage if needed for compliance/auditing
+        debug!(
+            "Privacy choice recorded: {:?} for {} (sender: {})",
+            choice, history_key, message.sender
+        );
     }
 
     async fn load_persistence_from_env(
