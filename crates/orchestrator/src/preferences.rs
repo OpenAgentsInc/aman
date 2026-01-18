@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 use brain_core::Sensitivity;
+use crate::nostr::MemoryPublisher;
 use database::Database;
 use database::preference as preference_store;
 use tracing::warn;
@@ -16,6 +17,7 @@ use crate::actions::UserPreference;
 pub struct PreferenceStore {
     preferences: RwLock<HashMap<String, UserPreference>>,
     database: Option<Database>,
+    publisher: Option<MemoryPublisher>,
 }
 
 impl Default for PreferenceStore {
@@ -30,14 +32,16 @@ impl PreferenceStore {
         Self {
             preferences: RwLock::new(HashMap::new()),
             database: None,
+            publisher: None,
         }
     }
 
     /// Create a preference store backed by a persistent database.
-    pub fn with_database(database: Database) -> Self {
+    pub fn with_database(database: Database, publisher: Option<MemoryPublisher>) -> Self {
         Self {
             preferences: RwLock::new(HashMap::new()),
             database: Some(database),
+            publisher,
         }
     }
 
@@ -83,6 +87,16 @@ impl PreferenceStore {
             .await
             {
                 warn!("Failed to persist preference for {}: {}", sender, err);
+            }
+        }
+
+        #[cfg(feature = "nostr")]
+        if let Some(publisher) = &self.publisher {
+            if let Err(err) = publisher
+                .publish_preference(sender, preference.as_str())
+                .await
+            {
+                warn!("Failed to publish preference to Nostr: {}", err);
             }
         }
     }

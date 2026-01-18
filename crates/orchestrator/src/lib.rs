@@ -77,6 +77,7 @@ mod error;
 mod formatting;
 mod model_selection;
 mod memory;
+mod nostr;
 mod orchestrator;
 mod preferences;
 mod profile;

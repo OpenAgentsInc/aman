@@ -9,12 +9,16 @@ use brain_core::{
     MemoryClearEvent, MemoryError, MemoryPiiPolicy, MemoryPromptPolicy, MemorySnapshot,
     MemoryToolEntry,
 };
+use crate::nostr::MemoryPublisher;
 use database::{
     clear_context_event, conversation_summary, tool_history, ConversationSummary, Database,
 };
 use serde::Deserialize;
 use tokio::time;
 use tracing::warn;
+
+#[cfg(feature = "nostr")]
+use nostr_persistence::AmanToolHistoryEvent;
 
 /// Summary formatting policy.
 #[derive(Debug, Clone)]
@@ -226,15 +230,24 @@ impl MemorySettings {
 }
 
 /// Durable memory store backed by SQLite.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MemoryStore {
     database: Database,
     settings: MemorySettings,
+    publisher: Option<MemoryPublisher>,
 }
 
 impl MemoryStore {
-    pub fn new(database: Database, settings: MemorySettings) -> Self {
-        Self { database, settings }
+    pub fn new(
+        database: Database,
+        settings: MemorySettings,
+        publisher: Option<MemoryPublisher>,
+    ) -> Self {
+        Self {
+            database,
+            settings,
+            publisher,
+        }
     }
 
     pub fn settings(&self) -> &MemorySettings {
@@ -362,6 +375,16 @@ impl MemoryStore {
         )
         .await?;
 
+        #[cfg(feature = "nostr")]
+        if let Some(publisher) = &self.publisher {
+            if let Err(err) = publisher
+                .publish_summary(history_key, &summary, message_count)
+                .await
+            {
+                warn!("Failed to publish summary to Nostr: {}", err);
+            }
+        }
+
         self.prune(history_key).await?;
         Ok(())
     }
@@ -373,6 +396,16 @@ impl MemoryStore {
     ) -> database::Result<()> {
         conversation_summary::clear_summary(self.database.pool(), history_key).await?;
         clear_context_event::insert_event(self.database.pool(), history_key, sender_id).await?;
+
+        #[cfg(feature = "nostr")]
+        if let Some(publisher) = &self.publisher {
+            if let Some(sender_id) = sender_id {
+                if let Err(err) = publisher.publish_clear_context(history_key, sender_id).await {
+                    warn!("Failed to publish clear context to Nostr: {}", err);
+                }
+            }
+        }
+
         self.prune(history_key).await?;
         Ok(())
     }
@@ -397,6 +430,22 @@ impl MemoryStore {
             group_id,
         )
         .await?;
+
+        #[cfg(feature = "nostr")]
+        if let Some(publisher) = &self.publisher {
+            let entry = AmanToolHistoryEvent {
+                history_key: history_key.to_string(),
+                tool_name: tool_name.to_string(),
+                success,
+                content: content.clone(),
+                sender_id: sender_id.map(|value| value.to_string()),
+                group_id: group_id.map(|value| value.to_string()),
+                created_at: unix_timestamp(),
+            };
+            if let Err(err) = publisher.publish_tool_history(entry).await {
+                warn!("Failed to publish tool history to Nostr: {}", err);
+            }
+        }
 
         self.prune(history_key).await?;
         Ok(())
@@ -523,6 +572,16 @@ fn env_bool(key: &str) -> Option<bool> {
         "false" | "0" | "no" | "n" => Some(false),
         _ => None,
     }
+}
+
+#[cfg(feature = "nostr")]
+fn unix_timestamp() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn env_u64(key: &str) -> Option<u64> {

@@ -12,12 +12,16 @@ grok-brain = { path = "../grok-brain" }
 agent-tools = { path = "../agent-tools" }
 database = { path = "../database" }
 proton-proxy = { path = "../proton-proxy" }
+nostr-persistence = { path = "../nostr-persistence", optional = true }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["sync"] }
 tracing = "0.1"
+
+[features]
+nostr = ["nostr-persistence"]
 
 [dev-dependencies]
 futures = "0.3"
