@@ -6,6 +6,7 @@ local/
 .env
 .env.*
 !.env.example
+*.db
 
 # Build output
 build/*
