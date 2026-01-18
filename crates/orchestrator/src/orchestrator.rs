@@ -7,9 +7,10 @@ use grok_brain::{GrokBrain, GrokBrainConfig, GrokToolExecutor};
 use maple_brain::{MapleBrain, MapleBrainConfig};
 use tracing::{debug, info, warn};
 
-use crate::actions::{OrchestratorAction, RoutingPlan, Sensitivity, UserPreference};
+use crate::actions::{OrchestratorAction, RoutingPlan, Sensitivity, TaskHint, UserPreference};
 use crate::context::Context;
 use crate::error::OrchestratorError;
+use crate::model_selection::ModelSelector;
 use crate::preferences::{AgentIndicator, PreferenceStore};
 use crate::router::Router;
 use crate::sender::MessageSender;
@@ -55,6 +56,8 @@ pub struct Orchestrator<S: MessageSender> {
     sender: S,
     /// User preference storage.
     preferences: PreferenceStore,
+    /// Model selector for task-based model selection.
+    model_selector: ModelSelector,
 }
 
 impl<S: MessageSender> Orchestrator<S> {
@@ -73,6 +76,7 @@ impl<S: MessageSender> Orchestrator<S> {
             search: Arc::new(search),
             sender,
             preferences: PreferenceStore::new(),
+            model_selector: ModelSelector::default(),
         }
     }
 
@@ -106,6 +110,9 @@ impl<S: MessageSender> Orchestrator<S> {
         let grok_brain = GrokBrain::new(grok_config)
             .map_err(|e| OrchestratorError::ToolFailed(format!("Grok brain init error: {}", e)))?;
 
+        // Create model selector from environment
+        let model_selector = ModelSelector::from_env();
+
         Ok(Self {
             router,
             maple_brain,
@@ -113,6 +120,7 @@ impl<S: MessageSender> Orchestrator<S> {
             search,
             sender,
             preferences: PreferenceStore::new(),
+            model_selector,
         })
     }
 
@@ -138,6 +146,7 @@ impl<S: MessageSender> Orchestrator<S> {
             search,
             sender,
             preferences: PreferenceStore::new(),
+            model_selector: ModelSelector::from_env(),
         })
     }
 
@@ -236,19 +245,24 @@ impl<S: MessageSender> Orchestrator<S> {
                     return Ok(OutboundMessage::reply_to(message, HELP_TEXT));
                 }
 
-                OrchestratorAction::Respond { sensitivity } => {
+                OrchestratorAction::Respond {
+                    sensitivity,
+                    task_hint,
+                } => {
                     return self
-                        .execute_respond(message, &context, *sensitivity, history_key)
+                        .execute_respond(message, &context, *sensitivity, *task_hint, history_key)
                         .await;
                 }
 
-                OrchestratorAction::Grok { query } => {
-                    return self.execute_direct_grok(message, query, &context).await;
+                OrchestratorAction::Grok { query, task_hint } => {
+                    return self
+                        .execute_direct_grok(message, query, &context, *task_hint)
+                        .await;
                 }
 
-                OrchestratorAction::Maple { query } => {
+                OrchestratorAction::Maple { query, task_hint } => {
                     return self
-                        .execute_direct_maple(message, query, &context, history_key)
+                        .execute_direct_maple(message, query, &context, *task_hint, history_key)
                         .await;
                 }
 
@@ -270,10 +284,16 @@ impl<S: MessageSender> Orchestrator<S> {
             }
         }
 
-        // If no Respond action in plan, generate one with default sensitivity
+        // If no Respond action in plan, generate one with default sensitivity and task hint
         info!("No response action in plan, generating response anyway");
-        self.execute_respond(message, &context, Sensitivity::default(), history_key)
-            .await
+        self.execute_respond(
+            message,
+            &context,
+            Sensitivity::default(),
+            TaskHint::default(),
+            history_key,
+        )
+        .await
     }
 
     /// Execute a search action.
@@ -343,6 +363,7 @@ impl<S: MessageSender> Orchestrator<S> {
         message: &InboundMessage,
         context: &Context,
         sensitivity: Sensitivity,
+        task_hint: TaskHint,
         history_key: &str,
     ) -> Result<OutboundMessage, OrchestratorError> {
         // Determine which agent to use based on sensitivity and user preference
@@ -357,9 +378,16 @@ impl<S: MessageSender> Orchestrator<S> {
             AgentIndicator::Privacy
         };
 
+        // Select the best model based on task hint
+        let selected_model = if use_grok {
+            self.model_selector.select_grok(task_hint)
+        } else {
+            self.model_selector.select_maple(task_hint)
+        };
+
         info!(
-            "Generating response with {:?} (sensitivity: {:?}, use_grok: {})",
-            indicator, sensitivity, use_grok
+            "Generating response with {:?} (sensitivity: {:?}, task_hint: {:?}, model: {}, use_grok: {})",
+            indicator, sensitivity, task_hint, selected_model, use_grok
         );
 
         // Augment message with search context if any
@@ -368,6 +396,8 @@ impl<S: MessageSender> Orchestrator<S> {
         debug!("Context summary: {}", context.format_summary());
 
         // Process through the appropriate brain
+        // Note: Currently using the default model configured in the brain.
+        // TODO: Add per-request model override support to brains for dynamic model selection.
         let mut response = if use_grok {
             self.grok_brain.process(augmented).await?
         } else {
@@ -389,8 +419,15 @@ impl<S: MessageSender> Orchestrator<S> {
         message: &InboundMessage,
         query: &str,
         context: &Context,
+        task_hint: TaskHint,
     ) -> Result<OutboundMessage, OrchestratorError> {
-        info!("Direct Grok query: {}", query);
+        // Select the best model based on task hint
+        let selected_model = self.model_selector.select_grok(task_hint);
+
+        info!(
+            "Direct Grok query (task_hint: {:?}, model: {}): {}",
+            task_hint, selected_model, query
+        );
 
         // Create a modified message with the extracted query
         let mut modified = message.clone();
@@ -400,6 +437,8 @@ impl<S: MessageSender> Orchestrator<S> {
         let augmented = context.augment_message(&modified);
 
         // Process through Grok
+        // Note: Currently using the default model configured in the brain.
+        // TODO: Add per-request model override support for dynamic model selection.
         let mut response = self.grok_brain.process(augmented).await?;
 
         // Add speed indicator
@@ -418,9 +457,16 @@ impl<S: MessageSender> Orchestrator<S> {
         message: &InboundMessage,
         query: &str,
         context: &Context,
+        task_hint: TaskHint,
         _history_key: &str,
     ) -> Result<OutboundMessage, OrchestratorError> {
-        info!("Direct Maple query: {}", query);
+        // Select the best model based on task hint
+        let selected_model = self.model_selector.select_maple(task_hint);
+
+        info!(
+            "Direct Maple query (task_hint: {:?}, model: {}): {}",
+            task_hint, selected_model, query
+        );
 
         // Create a modified message with the extracted query
         let mut modified = message.clone();
@@ -430,6 +476,8 @@ impl<S: MessageSender> Orchestrator<S> {
         let augmented = context.augment_message(&modified);
 
         // Process through Maple
+        // Note: Currently using the default model configured in the brain.
+        // TODO: Add per-request model override support for dynamic model selection.
         let response = self.maple_brain.process(augmented).await?;
 
         info!("Direct Maple response: {} chars", response.text.len());
@@ -490,6 +538,11 @@ impl<S: MessageSender> Orchestrator<S> {
     /// Get the preference store.
     pub fn preferences(&self) -> &PreferenceStore {
         &self.preferences
+    }
+
+    /// Get the model selector.
+    pub fn model_selector(&self) -> &ModelSelector {
+        &self.model_selector
     }
 }
 

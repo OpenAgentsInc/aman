@@ -45,8 +45,11 @@ Signal Message
 - `RoutingPlan` - List of actions to execute
 - `OrchestratorAction` - Individual action (Search, ClearContext, Respond, Grok, Maple, etc.)
 - `Sensitivity` - Message sensitivity level (Sensitive, Insensitive, Uncertain)
+- `TaskHint` - Task type for model selection (General, Coding, Math, Creative, Multilingual, Quick)
 - `UserPreference` - User's preferred agent (Default, PreferPrivacy, PreferSpeed)
 - `PreferenceStore` - Thread-safe storage for user preferences
+- `ModelSelector` - Selects optimal model based on task hint
+- `MapleModels` / `GrokModels` - Model configurations per provider
 - `AgentIndicator` - Response prefix indicator (Privacy, Speed)
 - `Context` - Accumulated search results for augmenting responses
 - `MessageSender` trait - Abstraction for sending messages
@@ -155,6 +158,40 @@ Direct commands bypass normal routing:
 - `maple: <query>` - Send directly to Maple
 
 Speed mode responses are prefixed with `[*]` as a subtle indicator.
+
+## Task-Based Model Selection
+
+The router classifies each message's task type to select the optimal model:
+
+| Task Hint | Description | Maple Model | Grok Model |
+|-----------|-------------|-------------|------------|
+| `General` | Standard conversations | llama-3.3-70b | grok-4-1-fast |
+| `Coding` | Programming tasks | deepseek-r1-0528 | grok-3 |
+| `Math` | Mathematical reasoning | deepseek-r1-0528 | grok-4 |
+| `Creative` | Creative writing | gpt-oss-120b | grok-4 |
+| `Multilingual` | Non-English/translation | qwen2-5-72b | grok-4-1-fast |
+| `Quick` | Simple, fast queries | mistral-small-3-1-24b | grok-3-mini |
+
+### Model Configuration
+
+Override default models via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MAPLE_MODEL` | llama-3.3-70b | Default Maple model |
+| `MAPLE_MODEL_CODING` | deepseek-r1-0528 | Maple coding model |
+| `MAPLE_MODEL_MATH` | deepseek-r1-0528 | Maple math model |
+| `MAPLE_MODEL_CREATIVE` | gpt-oss-120b | Maple creative model |
+| `MAPLE_MODEL_MULTILINGUAL` | qwen2-5-72b | Maple multilingual model |
+| `MAPLE_MODEL_QUICK` | mistral-small-3-1-24b | Maple quick model |
+| `GROK_MODEL` | grok-4-1-fast | Default Grok model |
+| `GROK_MODEL_CODING` | grok-3 | Grok coding model |
+| `GROK_MODEL_MATH` | grok-4 | Grok math model |
+| `GROK_MODEL_CREATIVE` | grok-4 | Grok creative model |
+| `GROK_MODEL_MULTILINGUAL` | grok-4-1-fast | Grok multilingual model |
+| `GROK_MODEL_QUICK` | grok-3-mini | Grok quick model |
+
+**Note:** Currently the model selector logs the recommended model. Dynamic per-request model switching requires additional support in the brain crates.
 
 ## Example
 

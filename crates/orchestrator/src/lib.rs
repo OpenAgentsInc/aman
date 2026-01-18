@@ -74,15 +74,17 @@
 mod actions;
 mod context;
 mod error;
+mod model_selection;
 mod orchestrator;
 mod preferences;
 mod router;
 mod sender;
 
 // Public exports
-pub use actions::{OrchestratorAction, RoutingPlan, Sensitivity, UserPreference};
+pub use actions::{OrchestratorAction, RoutingPlan, Sensitivity, TaskHint, UserPreference};
 pub use context::Context;
 pub use error::OrchestratorError;
+pub use model_selection::{GrokModels, MapleModels, ModelSelector};
 pub use orchestrator::{Orchestrator, HELP_TEXT};
 pub use preferences::{AgentIndicator, PreferenceStore};
 pub use router::{load_router_prompt, Router, DEFAULT_ROUTER_PROMPT_FILE, DEFAULT_ROUTER_SYSTEM_PROMPT};

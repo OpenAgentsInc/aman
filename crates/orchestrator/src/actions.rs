@@ -46,6 +46,37 @@ pub enum UserPreference {
     PreferSpeed,
 }
 
+/// Task hint for model selection.
+///
+/// The router classifies the type of task to help select the best model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskHint {
+    /// General conversation and questions (default).
+    #[default]
+    General,
+
+    /// Programming and technical development tasks.
+    /// Best models: qwen3-coder-480b, deepseek-r1, grok-3
+    Coding,
+
+    /// Mathematical and analytical reasoning.
+    /// Best models: deepseek-r1-0528
+    Math,
+
+    /// Creative writing and content generation.
+    /// Best models: gpt-oss-120b
+    Creative,
+
+    /// Non-English or translation tasks.
+    /// Best models: qwen2-5-72b
+    Multilingual,
+
+    /// Simple queries needing fast responses.
+    /// Best models: grok-3-mini, mistral-small-3-1-24b
+    Quick,
+}
+
 impl UserPreference {
     /// Parse a preference from a string (e.g., from router action).
     pub fn from_str(s: &str) -> Self {
@@ -84,6 +115,7 @@ impl RoutingPlan {
         Self {
             actions: vec![OrchestratorAction::Respond {
                 sensitivity: Sensitivity::default(),
+                task_hint: TaskHint::default(),
             }],
         }
     }
@@ -91,7 +123,20 @@ impl RoutingPlan {
     /// Create a simple plan with just a respond action with specific sensitivity.
     pub fn respond_with_sensitivity(sensitivity: Sensitivity) -> Self {
         Self {
-            actions: vec![OrchestratorAction::Respond { sensitivity }],
+            actions: vec![OrchestratorAction::Respond {
+                sensitivity,
+                task_hint: TaskHint::default(),
+            }],
+        }
+    }
+
+    /// Create a simple plan with respond action with sensitivity and task hint.
+    pub fn respond_with_hint(sensitivity: Sensitivity, task_hint: TaskHint) -> Self {
+        Self {
+            actions: vec![OrchestratorAction::Respond {
+                sensitivity,
+                task_hint,
+            }],
         }
     }
 
@@ -169,18 +214,27 @@ pub enum OrchestratorAction {
         /// Sensitivity level for this response.
         #[serde(default)]
         sensitivity: Sensitivity,
+        /// Task hint for model selection.
+        #[serde(default)]
+        task_hint: TaskHint,
     },
 
     /// Route directly to Grok (user explicitly requested).
     Grok {
         /// The user's query to send to Grok.
         query: String,
+        /// Task hint for model selection.
+        #[serde(default)]
+        task_hint: TaskHint,
     },
 
     /// Route directly to Maple (user explicitly requested).
     Maple {
         /// The user's query to send to Maple.
         query: String,
+        /// Task hint for model selection.
+        #[serde(default)]
+        task_hint: TaskHint,
     },
 
     /// Set user preference for which agent to use.
@@ -231,13 +285,33 @@ impl OrchestratorAction {
 
     /// Create a respond action with sensitivity.
     pub fn respond(sensitivity: Sensitivity) -> Self {
-        Self::Respond { sensitivity }
+        Self::Respond {
+            sensitivity,
+            task_hint: TaskHint::default(),
+        }
+    }
+
+    /// Create a respond action with sensitivity and task hint.
+    pub fn respond_with_hint(sensitivity: Sensitivity, task_hint: TaskHint) -> Self {
+        Self::Respond {
+            sensitivity,
+            task_hint,
+        }
     }
 
     /// Create a direct Grok action.
     pub fn grok(query: impl Into<String>) -> Self {
         Self::Grok {
             query: query.into(),
+            task_hint: TaskHint::default(),
+        }
+    }
+
+    /// Create a direct Grok action with task hint.
+    pub fn grok_with_hint(query: impl Into<String>, task_hint: TaskHint) -> Self {
+        Self::Grok {
+            query: query.into(),
+            task_hint,
         }
     }
 
@@ -245,6 +319,15 @@ impl OrchestratorAction {
     pub fn maple(query: impl Into<String>) -> Self {
         Self::Maple {
             query: query.into(),
+            task_hint: TaskHint::default(),
+        }
+    }
+
+    /// Create a direct Maple action with task hint.
+    pub fn maple_with_hint(query: impl Into<String>, task_hint: TaskHint) -> Self {
+        Self::Maple {
+            query: query.into(),
+            task_hint,
         }
     }
 
@@ -268,12 +351,29 @@ impl OrchestratorAction {
             Self::Search { query, .. } => format!("Search: {}", query),
             Self::ClearContext { .. } => "Clear conversation history".to_string(),
             Self::Help => "Show help information".to_string(),
-            Self::Respond { sensitivity } => format!("Generate response ({:?})", sensitivity),
-            Self::Grok { query } => format!("Direct Grok: {}", query),
-            Self::Maple { query } => format!("Direct Maple: {}", query),
+            Self::Respond {
+                sensitivity,
+                task_hint,
+            } => format!("Generate response ({:?}, {:?})", sensitivity, task_hint),
+            Self::Grok { query, task_hint } => {
+                format!("Direct Grok ({:?}): {}", task_hint, query)
+            }
+            Self::Maple { query, task_hint } => {
+                format!("Direct Maple ({:?}): {}", task_hint, query)
+            }
             Self::SetPreference { preference } => format!("Set preference: {}", preference),
             Self::Skip { reason } => format!("Skip: {}", reason),
             Self::Ignore => "Ignore (accidental message)".to_string(),
+        }
+    }
+
+    /// Get the task hint from this action, if it has one.
+    pub fn task_hint(&self) -> Option<TaskHint> {
+        match self {
+            Self::Respond { task_hint, .. } => Some(*task_hint),
+            Self::Grok { task_hint, .. } => Some(*task_hint),
+            Self::Maple { task_hint, .. } => Some(*task_hint),
+            _ => None,
         }
     }
 }
@@ -307,7 +407,7 @@ mod tests {
         let json = r#"{"actions": [{"type": "respond", "sensitivity": "sensitive"}]}"#;
         let plan: RoutingPlan = serde_json::from_str(json).unwrap();
 
-        if let OrchestratorAction::Respond { sensitivity } = &plan.actions[0] {
+        if let OrchestratorAction::Respond { sensitivity, .. } = &plan.actions[0] {
             assert_eq!(*sensitivity, Sensitivity::Sensitive);
         } else {
             panic!("Expected Respond action");
@@ -319,7 +419,7 @@ mod tests {
         let json = r#"{"actions": [{"type": "respond"}]}"#;
         let plan: RoutingPlan = serde_json::from_str(json).unwrap();
 
-        if let OrchestratorAction::Respond { sensitivity } = &plan.actions[0] {
+        if let OrchestratorAction::Respond { sensitivity, .. } = &plan.actions[0] {
             assert_eq!(*sensitivity, Sensitivity::Insensitive); // default
         } else {
             panic!("Expected Respond action");
@@ -332,7 +432,7 @@ mod tests {
         let plan: RoutingPlan = serde_json::from_str(json).unwrap();
         assert!(plan.has_direct_grok());
 
-        if let OrchestratorAction::Grok { query } = &plan.actions[0] {
+        if let OrchestratorAction::Grok { query, .. } = &plan.actions[0] {
             assert_eq!(query, "what's trending?");
         } else {
             panic!("Expected Grok action");
@@ -345,7 +445,7 @@ mod tests {
         let plan: RoutingPlan = serde_json::from_str(json).unwrap();
         assert!(plan.has_direct_maple());
 
-        if let OrchestratorAction::Maple { query } = &plan.actions[0] {
+        if let OrchestratorAction::Maple { query, .. } = &plan.actions[0] {
             assert_eq!(query, "private question");
         } else {
             panic!("Expected Maple action");
@@ -478,5 +578,127 @@ mod tests {
             UserPreference::from_str("maple"),
             UserPreference::PreferPrivacy
         );
+    }
+
+    #[test]
+    fn test_task_hint_default() {
+        assert_eq!(TaskHint::default(), TaskHint::General);
+    }
+
+    #[test]
+    fn test_parse_respond_with_task_hint() {
+        let json = r#"{"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "coding"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+
+        if let OrchestratorAction::Respond {
+            sensitivity,
+            task_hint,
+        } = &plan.actions[0]
+        {
+            assert_eq!(*sensitivity, Sensitivity::Insensitive);
+            assert_eq!(*task_hint, TaskHint::Coding);
+        } else {
+            panic!("Expected Respond action");
+        }
+    }
+
+    #[test]
+    fn test_parse_respond_default_task_hint() {
+        let json = r#"{"actions": [{"type": "respond", "sensitivity": "insensitive"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+
+        if let OrchestratorAction::Respond { task_hint, .. } = &plan.actions[0] {
+            assert_eq!(*task_hint, TaskHint::General); // default
+        } else {
+            panic!("Expected Respond action");
+        }
+    }
+
+    #[test]
+    fn test_parse_grok_with_task_hint() {
+        let json = r#"{"actions": [{"type": "grok", "query": "help me code", "task_hint": "coding"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+
+        if let OrchestratorAction::Grok { query, task_hint } = &plan.actions[0] {
+            assert_eq!(query, "help me code");
+            assert_eq!(*task_hint, TaskHint::Coding);
+        } else {
+            panic!("Expected Grok action");
+        }
+    }
+
+    #[test]
+    fn test_parse_maple_with_task_hint() {
+        let json = r#"{"actions": [{"type": "maple", "query": "translate this", "task_hint": "multilingual"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+
+        if let OrchestratorAction::Maple { query, task_hint } = &plan.actions[0] {
+            assert_eq!(query, "translate this");
+            assert_eq!(*task_hint, TaskHint::Multilingual);
+        } else {
+            panic!("Expected Maple action");
+        }
+    }
+
+    #[test]
+    fn test_all_task_hints_parse() {
+        let hints = ["general", "coding", "math", "creative", "multilingual", "quick"];
+        let expected = [
+            TaskHint::General,
+            TaskHint::Coding,
+            TaskHint::Math,
+            TaskHint::Creative,
+            TaskHint::Multilingual,
+            TaskHint::Quick,
+        ];
+
+        for (hint_str, expected_hint) in hints.iter().zip(expected.iter()) {
+            let json = format!(
+                r#"{{"actions": [{{"type": "respond", "sensitivity": "insensitive", "task_hint": "{}"}}]}}"#,
+                hint_str
+            );
+            let plan: RoutingPlan = serde_json::from_str(&json).unwrap();
+
+            if let OrchestratorAction::Respond { task_hint, .. } = &plan.actions[0] {
+                assert_eq!(task_hint, expected_hint, "Failed for hint: {}", hint_str);
+            } else {
+                panic!("Expected Respond action");
+            }
+        }
+    }
+
+    #[test]
+    fn test_action_task_hint_method() {
+        let respond = OrchestratorAction::respond_with_hint(Sensitivity::Insensitive, TaskHint::Coding);
+        assert_eq!(respond.task_hint(), Some(TaskHint::Coding));
+
+        let grok = OrchestratorAction::grok_with_hint("test", TaskHint::Math);
+        assert_eq!(grok.task_hint(), Some(TaskHint::Math));
+
+        let maple = OrchestratorAction::maple_with_hint("test", TaskHint::Creative);
+        assert_eq!(maple.task_hint(), Some(TaskHint::Creative));
+
+        let search = OrchestratorAction::search("test");
+        assert_eq!(search.task_hint(), None);
+
+        let help = OrchestratorAction::Help;
+        assert_eq!(help.task_hint(), None);
+    }
+
+    #[test]
+    fn test_respond_with_hint_plan() {
+        let plan = RoutingPlan::respond_with_hint(Sensitivity::Sensitive, TaskHint::Math);
+        assert_eq!(plan.actions.len(), 1);
+
+        if let OrchestratorAction::Respond {
+            sensitivity,
+            task_hint,
+        } = &plan.actions[0]
+        {
+            assert_eq!(*sensitivity, Sensitivity::Sensitive);
+            assert_eq!(*task_hint, TaskHint::Math);
+        } else {
+            panic!("Expected Respond action");
+        }
     }
 }
