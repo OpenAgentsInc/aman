@@ -31,12 +31,19 @@
 
 pub mod error;
 pub mod models;
+pub mod preference;
+pub mod conversation_summary;
+pub mod tool_history;
+pub mod clear_context_event;
 pub mod notification;
 pub mod topic;
 pub mod user;
 
 pub use error::{DatabaseError, Result};
-pub use models::{Notification, Topic, User};
+pub use models::{
+    ClearContextEvent, ConversationSummary, Notification, Preference, ToolHistoryEntry, Topic,
+    User,
+};
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;

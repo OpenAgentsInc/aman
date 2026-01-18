@@ -7,6 +7,7 @@ SQLite persistence layer for Aman using async SQLx.
 - Async SQLite with connection pooling
 - Built-in migrations
 - CRUD operations for Users, Topics, and Notification subscriptions
+- Durable memory tables for preferences, summaries, tool history, and clear-context events
 
 ## Schema
 
@@ -29,6 +30,15 @@ SQLite persistence layer for Aman using async SQLx.
 │ topic_slug (FK)         │
 │ created_at              │
 └─────────────────────────┘
+```
+
+### Memory tables
+
+```
+preferences (history_key, preference, updated_at)
+conversation_summaries (history_key, summary, message_count, updated_at)
+tool_history (history_key, tool_name, success, content, sender_id, group_id, created_at)
+clear_context_events (history_key, sender_id, created_at)
 ```
 
 ## Usage
@@ -102,6 +112,37 @@ async fn main() -> database::Result<()> {
 | `notification::is_subscribed(pool, user_id, topic_slug)` | Check if user is subscribed |
 | `notification::get_user_subscriptions(pool, user_id)` | Get all topics for a user |
 | `notification::get_topic_subscribers(pool, topic_slug)` | Get all users for a topic |
+
+### Preferences
+
+| Function | Description |
+|----------|-------------|
+| `preference::upsert_preference(pool, history_key, preference)` | Create or update preference |
+| `preference::get_preference(pool, history_key)` | Get preference by history key |
+| `preference::clear_preference(pool, history_key)` | Delete preference |
+| `preference::clear_all(pool)` | Delete all preferences |
+
+### Conversation summaries
+
+| Function | Description |
+|----------|-------------|
+| `conversation_summary::upsert_summary(pool, history_key, summary, message_count)` | Create or update summary |
+| `conversation_summary::get_summary(pool, history_key)` | Get summary by history key |
+| `conversation_summary::clear_summary(pool, history_key)` | Delete summary |
+
+### Tool history
+
+| Function | Description |
+|----------|-------------|
+| `tool_history::insert_tool_history(pool, history_key, tool_name, success, content, sender_id, group_id)` | Record tool usage |
+| `tool_history::list_tool_history(pool, history_key, limit)` | List recent tool usage |
+
+### Clear-context events
+
+| Function | Description |
+|----------|-------------|
+| `clear_context_event::insert_event(pool, history_key, sender_id)` | Record clear context event |
+| `clear_context_event::list_events(pool, history_key, limit)` | List recent clear context events |
 
 ## Default Topics
 

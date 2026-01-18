@@ -31,6 +31,15 @@ impl UserPreference {
         }
     }
 
+    /// Get the storage string for this preference.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::PreferPrivacy => "prefer_privacy",
+            Self::PreferSpeed => "prefer_speed",
+        }
+    }
+
     /// Get a human-readable description.
     pub fn description(&self) -> &'static str {
         match self {

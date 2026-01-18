@@ -189,6 +189,16 @@ impl InboundMessage {
     pub fn has_images(&self) -> bool {
         self.attachments.iter().any(|a| a.is_image())
     }
+
+    /// Build a stable history key for this message.
+    ///
+    /// Group messages are prefixed to avoid collisions with direct senders.
+    pub fn history_key(&self) -> String {
+        self.group_id
+            .as_ref()
+            .map(|g| format!("group:{}", g))
+            .unwrap_or_else(|| self.sender.clone())
+    }
 }
 
 impl OutboundMessage {

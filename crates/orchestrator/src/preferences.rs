@@ -4,14 +4,18 @@ use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 use brain_core::Sensitivity;
+use database::Database;
+use database::preference as preference_store;
+use tracing::warn;
 use crate::actions::UserPreference;
 
-/// In-memory storage for user preferences.
+/// Preference storage for user routing.
 ///
 /// Thread-safe storage that maps sender IDs to their agent preferences.
-/// Preferences are stored in memory and lost on restart (MVP behavior).
+/// Optionally backed by SQLite for durability across restarts.
 pub struct PreferenceStore {
     preferences: RwLock<HashMap<String, UserPreference>>,
+    database: Option<Database>,
 }
 
 impl Default for PreferenceStore {
@@ -25,17 +29,42 @@ impl PreferenceStore {
     pub fn new() -> Self {
         Self {
             preferences: RwLock::new(HashMap::new()),
+            database: None,
+        }
+    }
+
+    /// Create a preference store backed by a persistent database.
+    pub fn with_database(database: Database) -> Self {
+        Self {
+            preferences: RwLock::new(HashMap::new()),
+            database: Some(database),
         }
     }
 
     /// Get the preference for a sender, or default if not set.
     pub async fn get(&self, sender: &str) -> UserPreference {
-        self.preferences
-            .read()
-            .await
-            .get(sender)
-            .copied()
-            .unwrap_or_default()
+        if let Some(pref) = self.preferences.read().await.get(sender).copied() {
+            return pref;
+        }
+
+        if let Some(database) = &self.database {
+            match preference_store::get_preference(database.pool(), sender).await {
+                Ok(Some(record)) => {
+                    let pref = UserPreference::from_str(&record.preference);
+                    self.preferences
+                        .write()
+                        .await
+                        .insert(sender.to_string(), pref);
+                    return pref;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    warn!("Failed to load preference for {}: {}", sender, err);
+                }
+            }
+        }
+
+        UserPreference::Default
     }
 
     /// Set the preference for a sender.
@@ -44,16 +73,40 @@ impl PreferenceStore {
             .write()
             .await
             .insert(sender.to_string(), preference);
+
+        if let Some(database) = &self.database {
+            if let Err(err) = preference_store::upsert_preference(
+                database.pool(),
+                sender,
+                preference.as_str(),
+            )
+            .await
+            {
+                warn!("Failed to persist preference for {}: {}", sender, err);
+            }
+        }
     }
 
     /// Clear the preference for a sender (reset to default).
     pub async fn clear(&self, sender: &str) {
         self.preferences.write().await.remove(sender);
+
+        if let Some(database) = &self.database {
+            if let Err(err) = preference_store::clear_preference(database.pool(), sender).await {
+                warn!("Failed to clear preference for {}: {}", sender, err);
+            }
+        }
     }
 
     /// Clear all preferences.
     pub async fn clear_all(&self) {
         self.preferences.write().await.clear();
+
+        if let Some(database) = &self.database {
+            if let Err(err) = preference_store::clear_all(database.pool()).await {
+                warn!("Failed to clear preferences: {}", err);
+            }
+        }
     }
 
     /// Determine which agent to use based on sensitivity and user preference.

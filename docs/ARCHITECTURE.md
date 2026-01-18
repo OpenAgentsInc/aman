@@ -45,6 +45,7 @@
   - Shared Brain trait, ToolExecutor trait, and message types for AI backends.
   - Defines attachments metadata (`InboundAttachment`) for inbound processing.
   - Provides `ConversationHistory` for per-sender message history with auto-trimming.
+  - Exposes routing metadata and prompt hashing helpers for reproducibility.
 - `maple-brain` (crate: `crates/maple-brain`)
   - OpenSecret-based Brain implementation with attestation handshake, per-sender history, and vision support.
   - Optional tool calling via `ToolExecutor` (e.g., Grok real-time search).
@@ -60,9 +61,11 @@
   - Attaches task hints for model selection and enforces vision-only routing to Maple.
   - Coordinates maple-brain (for routing and responses) and grok-brain (for search).
   - Maintains typing indicators and sends interim status messages.
+  - Persists preferences, rolling summaries, and tool history in SQLite (when configured).
 - `agent-tools` (crate: `crates/agent-tools`)
   - Tool registry and implementations for orchestrator-level capabilities.
   - Built-in tools: calculator, weather, web fetch + summarize, dictionary, world time, crypto, currency.
+  - Registry adapter for `brain-core::ToolExecutor` with policy controls.
 - `agent_brain` (crate: `crates/agent-brain`)
   - Owns message handling, onboarding state machine, and routing decisions.
   - Implements the `Brain` trait for use with `message_listener`.
@@ -72,7 +75,7 @@
   - Owns outbound delivery via `signal-daemon` (HTTP to signal-cli daemon).
   - Handles chunking, retries, and throttling.
 - `database` (crate: `crates/database`)
-  - SQLite persistence for users, topics, and notification subscriptions.
+  - SQLite persistence for users, topics, notifications, and durable memory tables.
   - Runs migrations and exposes async CRUD helpers.
 - `mock-brain` (crate: `crates/mock-brain`)
   - Mock brain implementations for testing message processing without an AI backend.
@@ -84,7 +87,7 @@
 - Local storage
   - Signal account keys/credentials (managed by `signal-cli`).
   - Bot state: contacts, messages, subscriptions, dedupe.
-  - Database tables: users, topics, notifications (via `database` crate).
+  - Database tables: users, topics, notifications, preferences, summaries, tool history.
 
 ## Data model (MVP intent)
 
@@ -117,6 +120,15 @@ The `database` crate models subscriptions as topics:
 - `Topic` (slug, e.g., `iran`, `vpn+iran`)
 - `Notification` (topic_slug + user_id, created_at)
 
+### Conversation memory (SQLite)
+
+Durable memory tables used by the orchestrator:
+
+- `Preference` (history_key, preference, updated_at)
+- `ConversationSummary` (history_key, summary, message_count, updated_at)
+- `ToolHistoryEntry` (history_key, tool_name, success, content, sender_id, group_id, created_at)
+- `ClearContextEvent` (history_key, sender_id, created_at)
+
 ### RegionEvent
 
 Minimal schema for alerts.
@@ -145,6 +157,7 @@ When tool calling is enabled, brains can request external actions via a
 `ToolExecutor` implementation.
 
 - `ToolRequest`: `id`, `name`, `arguments` (JSON object)
+- `ToolRequestMeta`: optional sender/group metadata for policy and logging
 - `ToolResult`: `tool_call_id`, `content`, `success`
 
 ## State machine (onboarding + subscriptions)

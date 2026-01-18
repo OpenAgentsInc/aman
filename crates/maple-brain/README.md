@@ -10,6 +10,7 @@ A Brain implementation for the Aman Signal bot that uses the [Maple/OpenSecret](
 - Streaming response support
 - **Vision support** - Automatically processes image attachments using vision-language models
 - **Tool calling support** - Optional real-time search via ToolExecutor (e.g., Grok)
+- Routing metadata support (per-request model overrides + prompt hashing)
 - Configurable via environment variables
 
 ## Installation
@@ -68,6 +69,11 @@ Guidelines:
 - `qwen3-vl-30b` - Qwen3 VL 30B (vision-language)
 - `kimi-k2-thinking` - Kimi K2 Thinking
 - `nomic-embed-text` - Nomic Embed (for embeddings only)
+
+### Routing metadata
+
+MapleBrain respects `InboundMessage.routing.model_override` when present, allowing
+per-request model selection from the orchestrator or other callers.
 
 ## Usage
 

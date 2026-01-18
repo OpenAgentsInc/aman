@@ -3,7 +3,7 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use brain_core::{
     async_trait, hash_prompt, Brain, BrainError, ConversationHistory, InboundAttachment,
-    InboundMessage, OutboundMessage, ToolExecutor, ToolRequest,
+    InboundMessage, OutboundMessage, ToolExecutor, ToolRequest, ToolRequestMeta,
 };
 use futures::StreamExt;
 use opensecret::{
@@ -478,11 +478,7 @@ impl MapleBrain {
             .and_then(|routing| routing.model_override.as_deref());
 
         // Use group_id for group conversations, sender for direct messages
-        let history_key = message
-            .group_id
-            .as_ref()
-            .map(|g| format!("group:{}", g))
-            .unwrap_or_else(|| sender.clone());
+        let history_key = message.history_key();
 
         debug!(
             "Processing message from {}: {} (images: {}, history_key: {})",
@@ -576,7 +572,7 @@ impl MapleBrain {
 
                     // Execute tools with status callback
                     let results = self
-                        .execute_tool_calls_with_status(&calls, status_callback.as_ref())
+                        .execute_tool_calls_with_status(&message, &calls, status_callback.as_ref())
                         .await;
                     messages.extend(results);
 
@@ -628,6 +624,7 @@ impl MapleBrain {
     /// Execute tool calls with optional status callback.
     async fn execute_tool_calls_with_status(
         &self,
+        message: &InboundMessage,
         tool_calls: &[ToolCall],
         status_callback: Option<&StatusCallback>,
     ) -> Vec<ChatMessage> {
@@ -637,12 +634,18 @@ impl MapleBrain {
         };
 
         let mut results = Vec::new();
+        let metadata = ToolRequestMeta {
+            sender: Some(message.sender.clone()),
+            group_id: message.group_id.clone(),
+            is_group: Some(message.group_id.is_some()),
+        };
 
         for call in tool_calls {
-            let request = match ToolRequest::from_call(
+            let request = match ToolRequest::from_call_with_metadata(
                 call.id.clone(),
                 call.function.name.clone(),
                 &call.function.arguments,
+                metadata.clone(),
             ) {
                 Ok(r) => r,
                 Err(e) => {

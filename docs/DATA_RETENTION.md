@@ -23,7 +23,10 @@ This document defines what Aman stores, what it does not store, and the default 
 - `messages`: message id, sender id, timestamp, direction, status.
 - `subscriptions`: identity -> region/topics, created_at, updated_at.
 - `users`, `topics`, `notifications`: subscription store (via `database` crate).
-- Optional: short context buffer or rolling summary (if enabled).
+- `preferences`: sender/group routing preferences.
+- `conversation_summaries`: rolling summaries for routing context.
+- `tool_history`: tool execution records (sanitized inputs/outputs).
+- `clear_context_events`: history resets for audit and retention.
 - Optional: attachment metadata (filename, content type, local file path) if persisted for processing.
 
 ## What is not stored
@@ -47,7 +50,9 @@ These items are planned for the RAG and Nostr phases and are not part of the MVP
 
 - Dedupe metadata: 7 days.
 - Message bodies: only if short-context is enabled; keep last N turns per user (N <= 6).
-- Conversation summaries: keep until unsubscribed or manually cleared.
+- Conversation summaries: 30 days (rolling summary, capped by row count).
+- Tool history: 14 days (capped by row count).
+- Clear-context events: 30 days (capped by row count).
 - Subscriptions: keep until user opts out.
 
 Adjust these windows based on threat model and legal constraints.
@@ -72,7 +77,7 @@ Adjust these windows based on threat model and legal constraints.
 ## Tool executor data (xAI)
 
 - GrokToolExecutor receives only sanitized search queries (no raw user text).
-- Search results are returned to the brain for synthesis; avoid logging tool inputs/results.
+- Search results are returned to the brain for synthesis; tool outputs are stored in `tool_history` when durable memory is enabled.
 
 ## Security notes
 

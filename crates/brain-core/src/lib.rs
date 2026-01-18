@@ -41,7 +41,7 @@ pub use message::{
     InboundAttachment, InboundMessage, OutboundMessage, RoutingInfo, Sensitivity, TaskHint,
 };
 pub use prompt::hash_prompt;
-pub use tools::{ToolExecutor, ToolRequest, ToolResult};
+pub use tools::{ToolExecutor, ToolRequest, ToolRequestMeta, ToolResult};
 pub use trait_def::Brain;
 
 // Re-export async_trait for convenience

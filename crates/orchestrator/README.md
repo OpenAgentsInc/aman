@@ -12,6 +12,7 @@ The orchestrator coordinates message processing between signal-daemon, maple-bra
 4. Executes multi-step action plans (search, use_tool, clear context, respond, help, direct routing)
 5. Sends interim status messages to users
 6. Maintains typing indicators throughout processing
+7. Persists preferences, summaries, and tool history in SQLite (when configured)
 
 ## Architecture
 
@@ -49,6 +50,9 @@ Signal Message
 - `TaskHint` - Task type for model selection (General, Coding, Math, Creative, Multilingual, Quick, Vision)
 - `UserPreference` - User's preferred agent (Default, PreferPrivacy, PreferSpeed)
 - `PreferenceStore` - Thread-safe storage for user preferences
+- `MemoryStore` - SQLite-backed rolling summaries and tool history
+- `MemorySettings` - Summary + retention tuning for durable memory
+- `RetentionPolicy` / `SummaryPolicy` - Memory retention and formatting controls
 - `ModelSelector` - Selects optimal model based on task hint
 - `MapleModels` / `GrokModels` - Model configurations per provider
 - `AgentIndicator` - Response prefix indicator (Privacy, Speed)
@@ -100,6 +104,7 @@ Environment variables (via `.env`):
 | `GROK_API_KEY` | Yes | xAI API key for real-time search |
 | `MAPLE_API_URL` | No | OpenSecret API URL (default: `https://enclave.trymaple.ai`) |
 | `GROK_API_URL` | No | xAI API URL (default: `https://api.x.ai`) |
+| `SQLITE_PATH` | No | SQLite path or URL for durable preferences + memory |
 
 ### Router Prompt Configuration
 
@@ -118,6 +123,24 @@ The router uses a system prompt to classify messages. Configure it via:
 Edit `ROUTER_PROMPT.md` at the project root to customize routing behavior without recompiling.
 
 See the main `CLAUDE.md` for full configuration reference.
+
+### Memory and retention (optional)
+
+Durable memory is enabled when `SQLITE_PATH` is set. Tune summary and retention via:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AMAN_MEMORY_SUMMARY_MAX_ENTRIES` | `8` | Max exchanges to keep in rolling summary |
+| `AMAN_MEMORY_SUMMARY_MAX_ENTRY_CHARS` | `160` | Max chars per summary line |
+| `AMAN_MEMORY_SUMMARY_MAX_CHARS` | `1200` | Max total summary length |
+| `AMAN_MEMORY_TOOL_OUTPUT_MAX_CHARS` | `2000` | Max chars stored per tool output |
+| `AMAN_MEMORY_SUMMARY_TTL_DAYS` | `30` | Summary TTL in days (0 disables) |
+| `AMAN_MEMORY_TOOL_TTL_DAYS` | `14` | Tool history TTL in days (0 disables) |
+| `AMAN_MEMORY_CLEAR_TTL_DAYS` | `30` | Clear-context TTL in days (0 disables) |
+| `AMAN_MEMORY_MAX_SUMMARIES` | `5000` | Max summary rows (0 disables) |
+| `AMAN_MEMORY_MAX_TOOL_HISTORY` | `10000` | Max tool history rows (0 disables) |
+| `AMAN_MEMORY_MAX_TOOL_HISTORY_PER_KEY` | `200` | Max tool rows per sender/group (0 disables) |
+| `AMAN_MEMORY_MAX_CLEAR_EVENTS` | `5000` | Max clear-context rows (0 disables) |
 
 ## Actions
 
@@ -174,6 +197,8 @@ Direct commands bypass normal routing:
 - `maple: <query>` - Send directly to Maple
 
 Speed mode responses are prefixed with `[*]` as a subtle indicator.
+
+Preferences are stored in memory by default; set `SQLITE_PATH` to persist across restarts.
 
 ## Task-Based Model Selection
 

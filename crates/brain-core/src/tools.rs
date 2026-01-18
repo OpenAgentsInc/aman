@@ -6,8 +6,20 @@
 //! only sending sanitized queries crafted by the model.
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+
+/// Optional metadata about the tool call.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ToolRequestMeta {
+    /// Sender identifier (phone or user ID), if available.
+    pub sender: Option<String>,
+    /// Group identifier for group chats, if available.
+    pub group_id: Option<String>,
+    /// Whether the message was in a group context.
+    pub is_group: Option<bool>,
+}
 
 /// Result of a tool execution.
 #[derive(Debug, Clone)]
@@ -49,6 +61,8 @@ pub struct ToolRequest {
     pub name: String,
     /// Arguments as a JSON object.
     pub arguments: HashMap<String, Value>,
+    /// Optional metadata about the tool call.
+    pub metadata: Option<ToolRequestMeta>,
 }
 
 impl ToolRequest {
@@ -63,7 +77,26 @@ impl ToolRequest {
             id,
             name,
             arguments,
+            metadata: None,
         })
+    }
+
+    /// Parse arguments from a JSON string and include metadata.
+    pub fn from_call_with_metadata(
+        id: String,
+        name: String,
+        arguments_json: &str,
+        metadata: ToolRequestMeta,
+    ) -> Result<Self, serde_json::Error> {
+        let mut request = Self::from_call(id, name, arguments_json)?;
+        request.metadata = Some(metadata);
+        Ok(request)
+    }
+
+    /// Attach metadata to an existing tool request.
+    pub fn with_metadata(mut self, metadata: ToolRequestMeta) -> Self {
+        self.metadata = Some(metadata);
+        self
     }
 
     /// Get a string argument by name.
@@ -159,6 +192,7 @@ mod tests {
         assert_eq!(request.name, "realtime_search");
         assert_eq!(request.get_string("query"), Some("latest news"));
         assert_eq!(request.get_string("search_type"), Some("web"));
+        assert!(request.metadata.is_none());
     }
 
     #[test]

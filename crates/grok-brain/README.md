@@ -13,6 +13,7 @@ This crate provides a `Brain` implementation and a `ToolExecutor` that use the
 - Optional **Web Search** for current web information
 - Fully configurable via environment variables
 - `GrokToolExecutor` for privacy-preserving tool calls from MapleBrain
+- Routing metadata support (per-request model overrides + prompt hashing)
 
 ## Installation
 
@@ -106,6 +107,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+### Routing metadata
+
+GrokBrain respects `InboundMessage.routing.model_override` when present, allowing
+per-request model selection from the orchestrator or other callers.
 
 ## Real-Time Search Tools
 

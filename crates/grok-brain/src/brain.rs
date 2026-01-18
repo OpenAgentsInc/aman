@@ -83,7 +83,7 @@ impl GrokBrain {
     }
 
     /// Build the messages array for a chat completion request.
-    async fn build_messages(&self, sender: &str, user_text: &str) -> Vec<ChatMessage> {
+    async fn build_messages(&self, history_key: &str, user_text: &str) -> Vec<ChatMessage> {
         let mut messages = Vec::new();
 
         // Add system prompt if configured
@@ -92,7 +92,7 @@ impl GrokBrain {
         }
 
         // Add conversation history
-        let history = self.history.get(sender).await;
+        let history = self.history.get(history_key).await;
         for msg in history {
             messages.push(ChatMessage {
                 role: msg.role,
@@ -186,6 +186,7 @@ impl GrokBrain {
 impl Brain for GrokBrain {
     async fn process(&self, message: InboundMessage) -> Result<OutboundMessage, BrainError> {
         let sender = &message.sender;
+        let history_key = message.history_key();
         let user_text = &message.text;
         let model_override = message
             .routing
@@ -193,13 +194,16 @@ impl Brain for GrokBrain {
             .and_then(|routing| routing.model_override.as_deref());
         let selected_model = select_model_for_message(&self.config, &message);
 
-        debug!("Processing message from {}: {}", sender, user_text);
+        debug!(
+            "Processing message from {} (history_key: {}): {}",
+            sender, history_key, user_text
+        );
         if let Some(override_model) = model_override {
             info!("Using model override: {}", override_model);
         }
 
         // Build messages with history
-        let messages = self.build_messages(sender, user_text).await;
+        let messages = self.build_messages(&history_key, user_text).await;
 
         // Make API request
         let completion = self
@@ -219,7 +223,7 @@ impl Brain for GrokBrain {
 
         // Add to conversation history
         self.history
-            .add_exchange(sender, user_text, &response_text)
+            .add_exchange(&history_key, user_text, &response_text)
             .await;
 
         // Log usage if available

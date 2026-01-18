@@ -14,8 +14,8 @@ with configuration and usage details.
 | `maple-brain` | OpenSecret-backed Brain implementation |
 | `grok-brain` | xAI Grok Brain and tool executor |
 | `orchestrator` | Message routing, action planning, and tool orchestration |
-| `agent-tools` | Tool registry and built-in tools for orchestrator actions |
-| `database` | SQLite persistence (users/topics/notifications) via SQLx |
+| `agent-tools` | Tool registry, built-in tools, and ToolExecutor adapter with policy controls |
+| `database` | SQLite persistence (users/topics/notifications + preferences/summaries/tool history) |
 | `api` | OpenAI-compatible chat API (local inference gateway) |
 | `ingester` | Document chunking and Nostr publishing/indexing |
 | `nostr-persistence` | Nostr publisher/indexer for durable doc/chunk metadata |

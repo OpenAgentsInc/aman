@@ -10,13 +10,16 @@ without leaving Signal. The focus is on minimal retention and operational safety
 
 - Signal-based chat via a dedicated account
 - Orchestrated routing with Maple (privacy) + Grok (speed) and action plans
-- Sensitivity + task-hint classification with model selection hooks
+- Sensitivity + task-hint classification with per-request model overrides
+- Router/system prompt hashing for reproducible routing decisions
 - User preference commands (privacy/speed) and direct Grok/Maple overrides
 - Built-in tools: calculator, weather, web fetch, dictionary, world time, crypto, currency
+- ToolExecutor adapter for agent-tools with allowlists, rate limits, and caching
 - Attachment-aware routing (vision tasks stay on Maple)
 - Opt-in regional alerts (outages, throttling, advisories)
 - Basic onboarding and subscription management
-- Minimal state storage (short context and dedupe)
+- Durable preferences + rolling conversation summaries (SQLite, if configured)
+- Tool history + clear-context events for auditability (SQLite, if configured)
 - Operator broadcasts and dashboards
 - Optional web UI for browser chat
 
@@ -26,7 +29,7 @@ without leaving Signal. The focus is on minimal retention and operational safety
 - Nostr-backed persistence (foundation only)
 - Long-term message transcript storage
 - Automated event ingestion from live feeds
-- Dynamic per-request model overrides inside the brain crates
+- End-to-end durable memory in the brain crates (Maple/Grok history is still in-memory)
 
 ## Quickstart (local dev)
 

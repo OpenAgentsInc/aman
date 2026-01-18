@@ -1,9 +1,11 @@
 //! Main orchestrator that coordinates message processing.
 
 use std::collections::HashMap;
+use std::env;
 use std::sync::Arc;
 
 use brain_core::{Brain, InboundMessage, OutboundMessage, ToolExecutor, ToolRequest};
+use database::Database;
 use grok_brain::{GrokBrain, GrokBrainConfig, GrokToolExecutor};
 use maple_brain::{MapleBrain, MapleBrainConfig};
 use serde_json::{json, Value};
@@ -14,6 +16,7 @@ use brain_core::{Sensitivity, TaskHint};
 use crate::actions::{OrchestratorAction, RoutingPlan, UserPreference};
 use crate::context::Context;
 use crate::error::OrchestratorError;
+use crate::memory::{MemorySettings, MemoryStore};
 use crate::model_selection::ModelSelector;
 use crate::preferences::{AgentIndicator, PreferenceStore};
 use crate::router::Router;
@@ -60,6 +63,8 @@ pub struct Orchestrator<S: MessageSender> {
     sender: S,
     /// User preference storage.
     preferences: PreferenceStore,
+    /// Optional durable memory store.
+    memory: Option<MemoryStore>,
     /// Model selector for task-based model selection.
     model_selector: ModelSelector,
     /// Tool registry for executing tools.
@@ -87,6 +92,7 @@ impl<S: MessageSender> Orchestrator<S> {
             search: Arc::new(search),
             sender,
             preferences: PreferenceStore::new(),
+            memory: None,
             model_selector: ModelSelector::default(),
             tool_registry,
         }
@@ -113,6 +119,7 @@ impl<S: MessageSender> Orchestrator<S> {
             search: Arc::new(search),
             sender,
             preferences: PreferenceStore::new(),
+            memory: None,
             model_selector: ModelSelector::default(),
             tool_registry,
         }
@@ -151,6 +158,8 @@ impl<S: MessageSender> Orchestrator<S> {
         // Create model selector from environment
         let model_selector = ModelSelector::from_env();
 
+        let (preferences, memory) = Self::load_persistence_from_env().await?;
+
         let maple_brain = Arc::new(maple_brain);
         let mut tool_registry = agent_tools::default_registry();
         let brain: Arc<dyn Brain> = maple_brain.clone();
@@ -162,7 +171,8 @@ impl<S: MessageSender> Orchestrator<S> {
             grok_brain,
             search,
             sender,
-            preferences: PreferenceStore::new(),
+            preferences,
+            memory,
             model_selector,
             tool_registry,
         })
@@ -188,13 +198,16 @@ impl<S: MessageSender> Orchestrator<S> {
         let brain: Arc<dyn Brain> = maple_brain.clone();
         tool_registry.set_brain(brain);
 
+        let (preferences, memory) = Self::load_persistence_from_env().await?;
+
         Ok(Self {
             router,
             maple_brain,
             grok_brain,
             search,
             sender,
-            preferences: PreferenceStore::new(),
+            preferences,
+            memory,
             model_selector: ModelSelector::from_env(),
             tool_registry,
         })
@@ -204,11 +217,7 @@ impl<S: MessageSender> Orchestrator<S> {
     ///
     /// Uses group ID for group messages, sender for direct messages.
     fn history_key(message: &InboundMessage) -> String {
-        message
-            .group_id
-            .as_ref()
-            .map(|g| format!("group:{}", g))
-            .unwrap_or_else(|| message.sender.clone())
+        message.history_key()
     }
 
     fn resolve_task_hint(message: &InboundMessage, task_hint: TaskHint) -> TaskHint {
@@ -269,7 +278,13 @@ impl<S: MessageSender> Orchestrator<S> {
         }
 
         // 2. Get conversation context (local operation, fast)
-        let context = self.maple_brain.get_context_summary(&history_key).await;
+        let mut context = None;
+        if let Some(memory) = &self.memory {
+            context = memory.get_summary(&history_key).await;
+        }
+        if context.is_none() {
+            context = self.maple_brain.get_context_summary(&history_key).await;
+        }
         if let Some(ref ctx) = context {
             debug!("Conversation context: {}", ctx);
         }
@@ -316,6 +331,8 @@ impl<S: MessageSender> Orchestrator<S> {
                     message: status_msg,
                 } => {
                     self.execute_search(
+                        message,
+                        history_key,
                         query,
                         status_msg.as_deref(),
                         &mut context,
@@ -326,7 +343,7 @@ impl<S: MessageSender> Orchestrator<S> {
                 }
 
                 OrchestratorAction::ClearContext { .. } => {
-                    self.execute_clear_context(history_key).await?;
+                    self.execute_clear_context(history_key, &message.sender).await?;
                 }
 
                 OrchestratorAction::Help => {
@@ -376,6 +393,8 @@ impl<S: MessageSender> Orchestrator<S> {
                     message: status_msg,
                 } => {
                     self.execute_use_tool(
+                        message,
+                        history_key,
                         name,
                         args,
                         status_msg.as_deref(),
@@ -414,6 +433,8 @@ impl<S: MessageSender> Orchestrator<S> {
     /// Execute a search action.
     async fn execute_search(
         &self,
+        message: &InboundMessage,
+        history_key: &str,
         query: &str,
         status_message: Option<&str>,
         context: &mut Context,
@@ -462,20 +483,41 @@ impl<S: MessageSender> Orchestrator<S> {
             context.add_search_result(query, &format!("Search failed: {}", result.content));
         }
 
+        self.record_tool_history(
+            history_key,
+            "realtime_search",
+            result.success,
+            &result.content,
+            message,
+        )
+        .await;
+
         Ok(())
     }
 
     /// Execute a clear context action (silent - no user notification).
-    async fn execute_clear_context(&self, history_key: &str) -> Result<(), OrchestratorError> {
+    async fn execute_clear_context(
+        &self,
+        history_key: &str,
+        sender_id: &str,
+    ) -> Result<(), OrchestratorError> {
         info!("Clearing conversation history for {}", history_key);
         self.maple_brain.clear_history(history_key).await;
         self.grok_brain.clear_history(history_key).await;
+
+        if let Some(memory) = &self.memory {
+            if let Err(err) = memory.clear_context(history_key, Some(sender_id)).await {
+                warn!("Failed to record clear context: {}", err);
+            }
+        }
         Ok(())
     }
 
     /// Execute a use_tool action.
     async fn execute_use_tool(
         &self,
+        message: &InboundMessage,
+        history_key: &str,
         name: &str,
         args: &HashMap<String, Value>,
         status_message: Option<&str>,
@@ -498,25 +540,32 @@ impl<S: MessageSender> Orchestrator<S> {
         }
 
         // Execute the tool
-        match self.tool_registry.execute(name, args.clone()).await {
+        let (tool_success, tool_content) = match self.tool_registry.execute(name, args.clone()).await {
             Ok(result) => {
+                let content = result.content;
                 if result.success {
                     info!(
                         "Tool '{}' completed successfully ({} chars)",
                         name,
-                        result.content.len()
+                        content.len()
                     );
-                    context.add_tool_result(name, &result.content);
+                    context.add_tool_result(name, &content);
                 } else {
-                    warn!("Tool '{}' returned failure: {}", name, result.content);
-                    context.add_tool_result(name, &format!("Tool failed: {}", result.content));
+                    warn!("Tool '{}' returned failure: {}", name, content);
+                    context.add_tool_result(name, &format!("Tool failed: {}", content));
                 }
+                (result.success, content)
             }
             Err(e) => {
                 warn!("Tool '{}' execution error: {}", name, e);
-                context.add_tool_result(name, &format!("Tool error: {}", e));
+                let content = format!("Tool error: {}", e);
+                context.add_tool_result(name, &content);
+                (false, content)
             }
-        }
+        };
+
+        self.record_tool_history(history_key, name, tool_success, &tool_content, message)
+            .await;
 
         Ok(())
     }
@@ -582,11 +631,15 @@ impl<S: MessageSender> Orchestrator<S> {
         } else {
             self.maple_brain.process(augmented).await?
         };
+        let summary_text = response.text.clone();
 
         // Add indicator prefix if using speed mode
         if indicator == AgentIndicator::Speed && !indicator.prefix().is_empty() {
             response.text = format!("{}{}", indicator.prefix(), response.text);
         }
+
+        self.record_exchange(history_key, &message.text, &summary_text)
+            .await;
 
         info!("Generated response: {} chars", response.text.len());
         Ok(response)
@@ -639,12 +692,16 @@ impl<S: MessageSender> Orchestrator<S> {
         // Note: Currently using the default model configured in the brain.
         // TODO: Add per-request model override support for dynamic model selection.
         let mut response = self.grok_brain.process(augmented).await?;
+        let summary_text = response.text.clone();
 
         // Add speed indicator
         let indicator = AgentIndicator::Speed;
         if !indicator.prefix().is_empty() {
             response.text = format!("{}{}", indicator.prefix(), response.text);
         }
+
+        let history_key = Self::history_key(message);
+        self.record_exchange(&history_key, query, &summary_text).await;
 
         info!("Direct Grok response: {} chars", response.text.len());
         Ok(response)
@@ -657,7 +714,7 @@ impl<S: MessageSender> Orchestrator<S> {
         query: &str,
         context: &Context,
         task_hint: TaskHint,
-        _history_key: &str,
+        history_key: &str,
     ) -> Result<OutboundMessage, OrchestratorError> {
         let effective_task_hint = Self::resolve_task_hint(message, task_hint);
 
@@ -687,6 +744,8 @@ impl<S: MessageSender> Orchestrator<S> {
         // Note: Currently using the default model configured in the brain.
         // TODO: Add per-request model override support for dynamic model selection.
         let response = self.maple_brain.process(augmented).await?;
+
+        self.record_exchange(history_key, query, &response.text).await;
 
         info!("Direct Maple response: {} chars", response.text.len());
         Ok(response)
@@ -728,6 +787,70 @@ impl<S: MessageSender> Orchestrator<S> {
         Ok(OutboundMessage::reply_to(message, response_text))
     }
 
+    async fn record_exchange(
+        &self,
+        history_key: &str,
+        user_text: &str,
+        assistant_text: &str,
+    ) {
+        if let Some(memory) = &self.memory {
+            if let Err(err) = memory
+                .record_exchange(history_key, user_text, assistant_text)
+                .await
+            {
+                warn!("Failed to update memory summary: {}", err);
+            }
+        }
+    }
+
+    async fn record_tool_history(
+        &self,
+        history_key: &str,
+        tool_name: &str,
+        success: bool,
+        content: &str,
+        message: &InboundMessage,
+    ) {
+        if let Some(memory) = &self.memory {
+            if let Err(err) = memory
+                .record_tool(
+                    history_key,
+                    tool_name,
+                    success,
+                    content,
+                    Some(&message.sender),
+                    message.group_id.as_deref(),
+                )
+                .await
+            {
+                warn!("Failed to record tool history: {}", err);
+            }
+        }
+    }
+
+    async fn load_persistence_from_env(
+    ) -> Result<(PreferenceStore, Option<MemoryStore>), OrchestratorError> {
+        let sqlite_path = match env::var("SQLITE_PATH") {
+            Ok(path) => path,
+            Err(_) => return Ok((PreferenceStore::new(), None)),
+        };
+
+        let sqlite_url = sqlite_url_from_path(&sqlite_path);
+        let database = Database::connect(&sqlite_url)
+            .await
+            .map_err(|e| OrchestratorError::ToolFailed(format!("Database error: {}", e)))?;
+        database
+            .migrate()
+            .await
+            .map_err(|e| OrchestratorError::ToolFailed(format!("Database migration error: {}", e)))?;
+
+        let preferences = PreferenceStore::with_database(database.clone());
+        let settings = MemorySettings::from_env();
+        let memory = Some(MemoryStore::new(database, settings));
+
+        Ok((preferences, memory))
+    }
+
     /// Get the sender.
     pub fn sender(&self) -> &S {
         &self.sender
@@ -748,6 +871,11 @@ impl<S: MessageSender> Orchestrator<S> {
         &self.preferences
     }
 
+    /// Get the memory store, if configured.
+    pub fn memory(&self) -> Option<&MemoryStore> {
+        self.memory.as_ref()
+    }
+
     /// Get the model selector.
     pub fn model_selector(&self) -> &ModelSelector {
         &self.model_selector
@@ -761,6 +889,14 @@ impl<S: MessageSender> Orchestrator<S> {
     /// Get a mutable reference to the tool registry.
     pub fn tool_registry_mut(&mut self) -> &mut ToolRegistry {
         &mut self.tool_registry
+    }
+}
+
+fn sqlite_url_from_path(path: &str) -> String {
+    if path.starts_with("sqlite:") {
+        path.to_string()
+    } else {
+        format!("sqlite:{}?mode=rwc", path)
     }
 }
 

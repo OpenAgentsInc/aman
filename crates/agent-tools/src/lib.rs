@@ -9,6 +9,8 @@
 //! Unlike brain-core's `ToolExecutor` trait which handles LLM tool calls
 //! (when a model like Maple calls tools), the `Tool` trait here is for
 //! orchestrator-level actions dispatched based on routing decisions.
+//! The [`RegistryToolExecutor`] adapter lets you expose the same registry
+//! as a `ToolExecutor` for LLM tool calls, with optional policy controls.
 //!
 //! # Built-in Tools
 //!
@@ -46,11 +48,13 @@
 //! ```
 
 mod error;
+mod executor;
 mod registry;
 mod tool;
 pub mod tools;
 
 pub use error::ToolError;
+pub use executor::{RateLimit, RegistryToolExecutor, ToolPolicy};
 pub use registry::ToolRegistry;
 pub use tool::{Tool, ToolArgs, ToolOutput};
 pub use tools::{
