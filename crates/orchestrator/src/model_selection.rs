@@ -48,6 +48,7 @@ impl MapleModels {
             TaskHint::Creative => &self.creative,
             TaskHint::Multilingual => &self.multilingual,
             TaskHint::Quick => &self.quick,
+            TaskHint::Vision => &self.vision,
         }
     }
 
@@ -108,6 +109,10 @@ impl Default for GrokModels {
 
 impl GrokModels {
     /// Select the best model for a given task hint.
+    ///
+    /// Note: Vision tasks are not supported by Grok. If passed Vision,
+    /// this falls back to the general model. Callers should route Vision
+    /// tasks to Maple instead.
     pub fn select(&self, task_hint: TaskHint) -> &str {
         match task_hint {
             TaskHint::General => &self.general,
@@ -116,6 +121,8 @@ impl GrokModels {
             TaskHint::Creative => &self.creative,
             TaskHint::Multilingual => &self.multilingual,
             TaskHint::Quick => &self.quick,
+            // Grok doesn't support vision - fall back to general
+            TaskHint::Vision => &self.general,
         }
     }
 
@@ -226,6 +233,7 @@ mod tests {
         assert_eq!(models.select(TaskHint::Creative), "gpt-oss-120b");
         assert_eq!(models.select(TaskHint::Multilingual), "qwen2-5-72b");
         assert_eq!(models.select(TaskHint::Quick), "mistral-small-3-1-24b");
+        assert_eq!(models.select(TaskHint::Vision), "qwen3-vl-30b");
     }
 
     #[test]
@@ -237,6 +245,8 @@ mod tests {
         assert_eq!(models.select(TaskHint::Creative), "grok-4");
         assert_eq!(models.select(TaskHint::Multilingual), "grok-4-1-fast");
         assert_eq!(models.select(TaskHint::Quick), "grok-3-mini");
+        // Vision falls back to general since Grok doesn't support it
+        assert_eq!(models.select(TaskHint::Vision), "grok-4-1-fast");
     }
 
     #[test]

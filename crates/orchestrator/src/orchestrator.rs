@@ -1,10 +1,13 @@
 //! Main orchestrator that coordinates message processing.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use brain_core::{Brain, InboundMessage, OutboundMessage, ToolExecutor, ToolRequest};
 use grok_brain::{GrokBrain, GrokBrainConfig, GrokToolExecutor};
 use maple_brain::{MapleBrain, MapleBrainConfig};
+use serde_json::Value;
+use agent_tools::ToolRegistry;
 use tracing::{debug, info, warn};
 
 use crate::actions::{OrchestratorAction, RoutingPlan, Sensitivity, TaskHint, UserPreference};
@@ -58,6 +61,8 @@ pub struct Orchestrator<S: MessageSender> {
     preferences: PreferenceStore,
     /// Model selector for task-based model selection.
     model_selector: ModelSelector,
+    /// Tool registry for executing tools.
+    tool_registry: ToolRegistry,
 }
 
 impl<S: MessageSender> Orchestrator<S> {
@@ -77,6 +82,28 @@ impl<S: MessageSender> Orchestrator<S> {
             sender,
             preferences: PreferenceStore::new(),
             model_selector: ModelSelector::default(),
+            tool_registry: agent_tools::default_registry(),
+        }
+    }
+
+    /// Create a new orchestrator with a custom tool registry.
+    pub fn with_tools(
+        router: Router,
+        maple_brain: MapleBrain,
+        grok_brain: GrokBrain,
+        search: GrokToolExecutor,
+        sender: S,
+        tool_registry: ToolRegistry,
+    ) -> Self {
+        Self {
+            router,
+            maple_brain,
+            grok_brain,
+            search: Arc::new(search),
+            sender,
+            preferences: PreferenceStore::new(),
+            model_selector: ModelSelector::default(),
+            tool_registry,
         }
     }
 
@@ -121,6 +148,7 @@ impl<S: MessageSender> Orchestrator<S> {
             sender,
             preferences: PreferenceStore::new(),
             model_selector,
+            tool_registry: agent_tools::default_registry(),
         })
     }
 
@@ -147,6 +175,7 @@ impl<S: MessageSender> Orchestrator<S> {
             sender,
             preferences: PreferenceStore::new(),
             model_selector: ModelSelector::from_env(),
+            tool_registry: agent_tools::default_registry(),
         })
     }
 
@@ -193,9 +222,16 @@ impl<S: MessageSender> Orchestrator<S> {
             debug!("Conversation context: {}", ctx);
         }
 
-        // 3. Route the message with context
-        let plan = self.router.route(&message.text, context.as_deref()).await;
-        info!("Routing plan: {} actions", plan.actions.len());
+        // 3. Route the message with context and attachments
+        let plan = self
+            .router
+            .route_with_attachments(&message.text, context.as_deref(), &message.attachments)
+            .await;
+        info!(
+            "Routing plan: {} actions (attachments: {})",
+            plan.actions.len(),
+            message.attachments.len()
+        );
 
         // 4. Execute actions, building context
         let result = self
@@ -281,6 +317,22 @@ impl<S: MessageSender> Orchestrator<S> {
                     info!("Ignoring accidental message");
                     return Err(OrchestratorError::Skipped("accidental message".to_string()));
                 }
+
+                OrchestratorAction::UseTool {
+                    name,
+                    args,
+                    message: status_msg,
+                } => {
+                    self.execute_use_tool(
+                        name,
+                        args,
+                        status_msg.as_deref(),
+                        &mut context,
+                        recipient,
+                        is_group,
+                    )
+                    .await?;
+                }
             }
         }
 
@@ -357,6 +409,54 @@ impl<S: MessageSender> Orchestrator<S> {
         Ok(())
     }
 
+    /// Execute a use_tool action.
+    async fn execute_use_tool(
+        &self,
+        name: &str,
+        args: &HashMap<String, Value>,
+        status_message: Option<&str>,
+        context: &mut Context,
+        recipient: &str,
+        is_group: bool,
+    ) -> Result<(), OrchestratorError> {
+        info!("Executing tool '{}' with {} args", name, args.len());
+
+        // Send status message if provided
+        if let Some(msg) = status_message {
+            if let Err(e) = self.sender.send_message(recipient, msg, is_group).await {
+                warn!("Failed to send tool status notification: {}", e);
+            }
+
+            // Restart typing indicator after sending message
+            if let Err(e) = self.sender.set_typing(recipient, is_group, true).await {
+                warn!("Failed to restart typing indicator: {}", e);
+            }
+        }
+
+        // Execute the tool
+        match self.tool_registry.execute(name, args.clone()).await {
+            Ok(result) => {
+                if result.success {
+                    info!(
+                        "Tool '{}' completed successfully ({} chars)",
+                        name,
+                        result.content.len()
+                    );
+                    context.add_tool_result(name, &result.content);
+                } else {
+                    warn!("Tool '{}' returned failure: {}", name, result.content);
+                    context.add_tool_result(name, &format!("Tool failed: {}", result.content));
+                }
+            }
+            Err(e) => {
+                warn!("Tool '{}' execution error: {}", name, e);
+                context.add_tool_result(name, &format!("Tool error: {}", e));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Execute a respond action - generate the final response using sensitivity-based routing.
     async fn execute_respond(
         &self,
@@ -366,11 +466,18 @@ impl<S: MessageSender> Orchestrator<S> {
         task_hint: TaskHint,
         history_key: &str,
     ) -> Result<OutboundMessage, OrchestratorError> {
+        // Vision tasks MUST use Maple - Grok has no vision support
+        let force_maple = task_hint == TaskHint::Vision;
+
         // Determine which agent to use based on sensitivity and user preference
-        let use_grok = self
-            .preferences
-            .should_use_grok(history_key, sensitivity)
-            .await;
+        // (unless vision task forces Maple)
+        let use_grok = if force_maple {
+            false
+        } else {
+            self.preferences
+                .should_use_grok(history_key, sensitivity)
+                .await
+        };
 
         let indicator = if use_grok {
             AgentIndicator::Speed
@@ -386,8 +493,8 @@ impl<S: MessageSender> Orchestrator<S> {
         };
 
         info!(
-            "Generating response with {:?} (sensitivity: {:?}, task_hint: {:?}, model: {}, use_grok: {})",
-            indicator, sensitivity, task_hint, selected_model, use_grok
+            "Generating response with {:?} (sensitivity: {:?}, task_hint: {:?}, model: {}, use_grok: {}, force_maple: {})",
+            indicator, sensitivity, task_hint, selected_model, use_grok, force_maple
         );
 
         // Augment message with search context if any
@@ -414,6 +521,9 @@ impl<S: MessageSender> Orchestrator<S> {
     }
 
     /// Execute a direct Grok query (user explicitly requested).
+    ///
+    /// Note: If the message has images and task_hint is Vision, this falls back to Maple
+    /// since Grok doesn't support vision.
     async fn execute_direct_grok(
         &self,
         message: &InboundMessage,
@@ -421,6 +531,16 @@ impl<S: MessageSender> Orchestrator<S> {
         context: &Context,
         task_hint: TaskHint,
     ) -> Result<OutboundMessage, OrchestratorError> {
+        // If this is a vision task, fall back to Maple (Grok doesn't support vision)
+        if task_hint == TaskHint::Vision || message.has_images() {
+            warn!(
+                "Grok requested but message has images - falling back to Maple (Grok has no vision support)"
+            );
+            return self
+                .execute_direct_maple(message, query, context, task_hint, &Self::history_key(message))
+                .await;
+        }
+
         // Select the best model based on task hint
         let selected_model = self.model_selector.select_grok(task_hint);
 
@@ -543,6 +663,16 @@ impl<S: MessageSender> Orchestrator<S> {
     /// Get the model selector.
     pub fn model_selector(&self) -> &ModelSelector {
         &self.model_selector
+    }
+
+    /// Get the tool registry.
+    pub fn tool_registry(&self) -> &ToolRegistry {
+        &self.tool_registry
+    }
+
+    /// Get a mutable reference to the tool registry.
+    pub fn tool_registry_mut(&mut self) -> &mut ToolRegistry {
+        &mut self.tool_registry
     }
 }
 

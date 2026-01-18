@@ -4,12 +4,14 @@ use brain_core::InboundMessage;
 
 /// Context accumulated during action execution.
 ///
-/// This is used to augment the user's message with search results
-/// and other gathered information before passing to the brain.
+/// This is used to augment the user's message with search results,
+/// tool outputs, and other gathered information before passing to the brain.
 #[derive(Debug, Clone, Default)]
 pub struct Context {
     /// Search results collected during execution.
     search_results: Vec<SearchResult>,
+    /// Tool results collected during execution.
+    tool_results: Vec<ToolResult>,
 }
 
 /// A single search result.
@@ -18,6 +20,15 @@ pub struct SearchResult {
     /// The original query.
     pub query: String,
     /// The search result content.
+    pub content: String,
+}
+
+/// A single tool execution result.
+#[derive(Debug, Clone)]
+pub struct ToolResult {
+    /// The tool name.
+    pub tool: String,
+    /// The tool output content.
     pub content: String,
 }
 
@@ -35,9 +46,27 @@ impl Context {
         });
     }
 
+    /// Add a tool result to the context.
+    pub fn add_tool_result(&mut self, tool: &str, content: &str) {
+        self.tool_results.push(ToolResult {
+            tool: tool.to_string(),
+            content: content.to_string(),
+        });
+    }
+
     /// Check if the context has any search results.
     pub fn has_search_results(&self) -> bool {
         !self.search_results.is_empty()
+    }
+
+    /// Check if the context has any tool results.
+    pub fn has_tool_results(&self) -> bool {
+        !self.tool_results.is_empty()
+    }
+
+    /// Check if the context has any results (search or tool).
+    pub fn has_results(&self) -> bool {
+        self.has_search_results() || self.has_tool_results()
     }
 
     /// Get the number of search results.
@@ -45,25 +74,46 @@ impl Context {
         self.search_results.len()
     }
 
+    /// Get the number of tool results.
+    pub fn tool_result_count(&self) -> usize {
+        self.tool_results.len()
+    }
+
     /// Create an augmented message with the context prepended.
     ///
-    /// If there are search results, they are formatted and prepended
+    /// If there are search or tool results, they are formatted and prepended
     /// to the original message text as a system context.
     pub fn augment_message(&self, original: &InboundMessage) -> InboundMessage {
-        if !self.has_search_results() {
+        if !self.has_results() {
             return original.clone();
         }
 
-        // Build the context prefix
-        let mut context_text = String::from("[SEARCH CONTEXT]\n");
+        let mut context_text = String::new();
 
-        for (i, result) in self.search_results.iter().enumerate() {
-            context_text.push_str(&format!(
-                "--- Search {}: {} ---\n{}\n\n",
-                i + 1,
-                result.query,
-                result.content
-            ));
+        // Add search results if any
+        if self.has_search_results() {
+            context_text.push_str("[SEARCH CONTEXT]\n");
+            for (i, result) in self.search_results.iter().enumerate() {
+                context_text.push_str(&format!(
+                    "--- Search {}: {} ---\n{}\n\n",
+                    i + 1,
+                    result.query,
+                    result.content
+                ));
+            }
+        }
+
+        // Add tool results if any
+        if self.has_tool_results() {
+            context_text.push_str("[TOOL RESULTS]\n");
+            for (i, result) in self.tool_results.iter().enumerate() {
+                context_text.push_str(&format!(
+                    "--- Tool {}: {} ---\n{}\n\n",
+                    i + 1,
+                    result.tool,
+                    result.content
+                ));
+            }
         }
 
         context_text.push_str("[USER MESSAGE]\n");
@@ -81,14 +131,26 @@ impl Context {
 
     /// Format the context as a string for logging/debugging.
     pub fn format_summary(&self) -> String {
-        if self.search_results.is_empty() {
+        if !self.has_results() {
             return "No context gathered".to_string();
         }
 
-        let mut summary = format!("{} search result(s):\n", self.search_results.len());
-        for result in &self.search_results {
-            summary.push_str(&format!("  - Query: {}\n", result.query));
+        let mut summary = String::new();
+
+        if !self.search_results.is_empty() {
+            summary.push_str(&format!("{} search result(s):\n", self.search_results.len()));
+            for result in &self.search_results {
+                summary.push_str(&format!("  - Query: {}\n", result.query));
+            }
         }
+
+        if !self.tool_results.is_empty() {
+            summary.push_str(&format!("{} tool result(s):\n", self.tool_results.len()));
+            for result in &self.tool_results {
+                summary.push_str(&format!("  - Tool: {}\n", result.tool));
+            }
+        }
+
         summary
     }
 }

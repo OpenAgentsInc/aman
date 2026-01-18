@@ -1,7 +1,7 @@
 //! Message types for brain input and output.
 
 /// An attachment included with a message.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct InboundAttachment {
     /// Content type (MIME type), e.g., "image/jpeg", "application/pdf".
     pub content_type: String,

@@ -27,7 +27,13 @@ Aman is a Signal-native chatbot that runs on a server using `signal-cli`. It rec
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         ORCHESTRATOR                                 │
 │  Router (classify) → RoutingPlan [actions] → Orchestrator (execute) │
-│  Actions: search, clear_context, respond, show_help                 │
+│  Actions: search, use_tool, clear_context, respond, show_help       │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        AGENT-TOOLS                                   │
+│  ToolRegistry → Calculator, Weather, WebFetch                        │
 └─────────────────────────────────────────────────────────────────────┘
                               │
               ┌───────────────┴───────────────┐
@@ -66,11 +72,10 @@ Located in `crates/`:
 | **maple-brain** | OpenSecret TEE-based AI with vision and tool support | Production-ready |
 | **grok-brain** | xAI Grok for real-time search tools | Production-ready |
 | **orchestrator** | Message routing, action coordination, multi-step processing | Production-ready |
+| **agent-tools** | Tool registry with 8 tools: Calculator, Weather, WebFetch, Dictionary, WorldTime, BitcoinPrice, CryptoPrice, CurrencyConverter | Production-ready |
 | **mock-brain** | Mock brain implementations for testing | Stable |
 | **broadcaster** | Signal outbound delivery | Working |
 | **agent-brain** | Onboarding, routing, and subscriptions | Stub |
-
-There is no workspace-level Cargo.toml; each crate is built independently.
 
 ## Quick Start (Development)
 

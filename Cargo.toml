@@ -14,4 +14,5 @@ members = [
     "crates/mock-brain",
     "crates/orchestrator",
     "crates/signal-daemon",
+    "crates/agent-tools",
 ]

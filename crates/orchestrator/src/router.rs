@@ -1,6 +1,6 @@
 //! Message routing using MapleBrain.
 
-use brain_core::{Brain, InboundMessage};
+use brain_core::{Brain, InboundAttachment, InboundMessage};
 use maple_brain::{MapleBrain, MapleBrainConfig};
 use std::env;
 use std::path::Path;
@@ -158,8 +158,21 @@ impl Router {
     /// Returns a default plan (respond only) if routing fails or produces
     /// invalid output.
     pub async fn route(&self, message_text: &str, context: Option<&str>) -> RoutingPlan {
-        // Format the input with context if available
-        let formatted_input = Self::format_router_input(message_text, context);
+        self.route_with_attachments(message_text, context, &[]).await
+    }
+
+    /// Route a message with attachments and return the routing plan.
+    ///
+    /// Returns a default plan (respond only) if routing fails or produces
+    /// invalid output.
+    pub async fn route_with_attachments(
+        &self,
+        message_text: &str,
+        context: Option<&str>,
+        attachments: &[InboundAttachment],
+    ) -> RoutingPlan {
+        // Format the input with context and attachments if available
+        let formatted_input = Self::format_router_input(message_text, context, attachments);
 
         // Create a minimal inbound message for the brain
         let inbound = InboundMessage::direct("router", &formatted_input, 0);
@@ -176,16 +189,97 @@ impl Router {
         }
     }
 
-    /// Format the input for the router with optional context.
-    fn format_router_input(message: &str, context: Option<&str>) -> String {
-        match context {
-            Some(ctx) if !ctx.is_empty() => {
-                format!("[CONTEXT: {}]\n[MESSAGE: {}]", ctx, message)
-            }
-            _ => {
-                format!("[MESSAGE: {}]", message)
+    /// Format the input for the router with optional context and attachments.
+    pub fn format_router_input(
+        message: &str,
+        context: Option<&str>,
+        attachments: &[InboundAttachment],
+    ) -> String {
+        let mut parts = Vec::new();
+
+        // Add context if available
+        if let Some(ctx) = context {
+            if !ctx.is_empty() {
+                parts.push(format!("[CONTEXT: {}]", ctx));
             }
         }
+
+        // Add message
+        parts.push(format!("[MESSAGE: {}]", message));
+
+        // Add attachments description
+        let attachments_desc = Self::format_attachments(attachments);
+        parts.push(format!("[ATTACHMENTS: {}]", attachments_desc));
+
+        parts.join("\n")
+    }
+
+    /// Format attachments into a human-readable description.
+    pub fn format_attachments(attachments: &[InboundAttachment]) -> String {
+        if attachments.is_empty() {
+            return "none".to_string();
+        }
+
+        let image_count = attachments.iter().filter(|a| a.is_image()).count();
+        let video_count = attachments.iter().filter(|a| a.is_video()).count();
+        let audio_count = attachments.iter().filter(|a| a.is_audio()).count();
+        let other_count = attachments.len() - image_count - video_count - audio_count;
+
+        let mut descriptions = Vec::new();
+
+        // Describe images with details
+        if image_count > 0 {
+            let image_details: Vec<String> = attachments
+                .iter()
+                .filter(|a| a.is_image())
+                .map(|a| {
+                    let ext = a
+                        .content_type
+                        .strip_prefix("image/")
+                        .unwrap_or("unknown");
+                    let size = match (a.width, a.height) {
+                        (Some(w), Some(h)) => format!(", {}x{}", w, h),
+                        _ => String::new(),
+                    };
+                    format!("({}{})", ext, size)
+                })
+                .collect();
+
+            if image_count == 1 {
+                descriptions.push(format!("1 image {}", image_details[0]));
+            } else {
+                descriptions.push(format!("{} images {}", image_count, image_details.join(", ")));
+            }
+        }
+
+        // Describe videos
+        if video_count > 0 {
+            descriptions.push(format!(
+                "{} video{}",
+                video_count,
+                if video_count > 1 { "s" } else { "" }
+            ));
+        }
+
+        // Describe audio
+        if audio_count > 0 {
+            descriptions.push(format!(
+                "{} audio file{}",
+                audio_count,
+                if audio_count > 1 { "s" } else { "" }
+            ));
+        }
+
+        // Describe other files
+        if other_count > 0 {
+            descriptions.push(format!(
+                "{} other file{}",
+                other_count,
+                if other_count > 1 { "s" } else { "" }
+            ));
+        }
+
+        descriptions.join(", ")
     }
 
     /// Parse the routing plan from the brain's response.
@@ -257,6 +351,7 @@ impl Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use brain_core::InboundAttachment;
 
     /// Helper function to extract JSON, matching Router's logic.
     fn extract_json(response: &str) -> &str {
@@ -350,19 +445,73 @@ mod tests {
 
     #[test]
     fn test_format_router_input_no_context() {
-        let input = Router::format_router_input("hello world", None);
-        assert_eq!(input, "[MESSAGE: hello world]");
+        let input = Router::format_router_input("hello world", None, &[]);
+        assert_eq!(input, "[MESSAGE: hello world]\n[ATTACHMENTS: none]");
     }
 
     #[test]
     fn test_format_router_input_empty_context() {
-        let input = Router::format_router_input("hello world", Some(""));
-        assert_eq!(input, "[MESSAGE: hello world]");
+        let input = Router::format_router_input("hello world", Some(""), &[]);
+        assert_eq!(input, "[MESSAGE: hello world]\n[ATTACHMENTS: none]");
     }
 
     #[test]
     fn test_format_router_input_with_context() {
-        let input = Router::format_router_input("what's bitcoin price?", Some("discussing Minnesota politics"));
-        assert_eq!(input, "[CONTEXT: discussing Minnesota politics]\n[MESSAGE: what's bitcoin price?]");
+        let input = Router::format_router_input("what's bitcoin price?", Some("discussing Minnesota politics"), &[]);
+        assert_eq!(input, "[CONTEXT: discussing Minnesota politics]\n[MESSAGE: what's bitcoin price?]\n[ATTACHMENTS: none]");
+    }
+
+    #[test]
+    fn test_format_attachments_none() {
+        let desc = Router::format_attachments(&[]);
+        assert_eq!(desc, "none");
+    }
+
+    #[test]
+    fn test_format_attachments_single_image() {
+        let attachments = vec![InboundAttachment {
+            content_type: "image/jpeg".to_string(),
+            file_path: Some("/tmp/test.jpg".to_string()),
+            width: Some(1024),
+            height: Some(768),
+            ..Default::default()
+        }];
+        let desc = Router::format_attachments(&attachments);
+        assert_eq!(desc, "1 image (jpeg, 1024x768)");
+    }
+
+    #[test]
+    fn test_format_attachments_multiple_images() {
+        let attachments = vec![
+            InboundAttachment {
+                content_type: "image/jpeg".to_string(),
+                file_path: Some("/tmp/test1.jpg".to_string()),
+                width: Some(1024),
+                height: Some(768),
+                ..Default::default()
+            },
+            InboundAttachment {
+                content_type: "image/png".to_string(),
+                file_path: Some("/tmp/test2.png".to_string()),
+                width: Some(800),
+                height: Some(600),
+                ..Default::default()
+            },
+        ];
+        let desc = Router::format_attachments(&attachments);
+        assert_eq!(desc, "2 images (jpeg, 1024x768), (png, 800x600)");
+    }
+
+    #[test]
+    fn test_format_router_input_with_image() {
+        let attachments = vec![InboundAttachment {
+            content_type: "image/jpeg".to_string(),
+            file_path: Some("/tmp/test.jpg".to_string()),
+            width: Some(1024),
+            height: Some(768),
+            ..Default::default()
+        }];
+        let input = Router::format_router_input("what is this?", None, &attachments);
+        assert_eq!(input, "[MESSAGE: what is this?]\n[ATTACHMENTS: 1 image (jpeg, 1024x768)]");
     }
 }

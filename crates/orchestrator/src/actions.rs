@@ -1,6 +1,9 @@
 //! Routing plan and action types for orchestration.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Sensitivity level for a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -75,6 +78,11 @@ pub enum TaskHint {
     /// Simple queries needing fast responses.
     /// Best models: grok-3-mini, mistral-small-3-1-24b
     Quick,
+
+    /// Image/vision analysis tasks.
+    /// Best models: qwen3-vl-30b (Maple only - Grok has no vision support)
+    /// Note: Vision tasks MUST use Maple regardless of sensitivity.
+    Vision,
 }
 
 impl UserPreference {
@@ -184,6 +192,13 @@ impl RoutingPlan {
             .iter()
             .any(|a| matches!(a, OrchestratorAction::SetPreference { .. }))
     }
+
+    /// Check if the plan contains a use_tool action.
+    pub fn has_use_tool(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::UseTool { .. }))
+    }
 }
 
 /// Individual action in the routing plan.
@@ -252,6 +267,18 @@ pub enum OrchestratorAction {
     /// Ignore the message silently (accidental/mistaken input like "?" or typos).
     /// Unlike Skip, this produces no response at all.
     Ignore,
+
+    /// Execute a tool from the registry.
+    UseTool {
+        /// Tool name (e.g., "calculator", "weather", "web_fetch").
+        name: String,
+        /// Tool arguments as key-value pairs.
+        #[serde(default)]
+        args: HashMap<String, Value>,
+        /// Optional status message to show user while tool runs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
 }
 
 impl OrchestratorAction {
@@ -345,6 +372,28 @@ impl OrchestratorAction {
         }
     }
 
+    /// Create a use_tool action.
+    pub fn use_tool(name: impl Into<String>, args: HashMap<String, Value>) -> Self {
+        Self::UseTool {
+            name: name.into(),
+            args,
+            message: None,
+        }
+    }
+
+    /// Create a use_tool action with a status message.
+    pub fn use_tool_with_message(
+        name: impl Into<String>,
+        args: HashMap<String, Value>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::UseTool {
+            name: name.into(),
+            args,
+            message: Some(message.into()),
+        }
+    }
+
     /// Get a human-readable description of this action.
     pub fn description(&self) -> String {
         match self {
@@ -364,6 +413,9 @@ impl OrchestratorAction {
             Self::SetPreference { preference } => format!("Set preference: {}", preference),
             Self::Skip { reason } => format!("Skip: {}", reason),
             Self::Ignore => "Ignore (accidental message)".to_string(),
+            Self::UseTool { name, args, .. } => {
+                format!("Use tool '{}' with {} args", name, args.len())
+            }
         }
     }
 
@@ -699,6 +751,51 @@ mod tests {
             assert_eq!(*task_hint, TaskHint::Math);
         } else {
             panic!("Expected Respond action");
+        }
+    }
+
+    #[test]
+    fn test_parse_use_tool() {
+        let json = r#"{"actions": [{"type": "use_tool", "name": "calculator", "args": {"expression": "2+2"}}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_use_tool());
+
+        if let OrchestratorAction::UseTool { name, args, message } = &plan.actions[0] {
+            assert_eq!(name, "calculator");
+            assert_eq!(args.get("expression").unwrap().as_str(), Some("2+2"));
+            assert!(message.is_none());
+        } else {
+            panic!("Expected UseTool action");
+        }
+    }
+
+    #[test]
+    fn test_parse_use_tool_with_message() {
+        let json = r#"{"actions": [{"type": "use_tool", "name": "weather", "args": {"location": "NYC"}, "message": "Checking weather..."}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+
+        if let OrchestratorAction::UseTool { name, args, message } = &plan.actions[0] {
+            assert_eq!(name, "weather");
+            assert_eq!(args.get("location").unwrap().as_str(), Some("NYC"));
+            assert_eq!(message.as_deref(), Some("Checking weather..."));
+        } else {
+            panic!("Expected UseTool action");
+        }
+    }
+
+    #[test]
+    fn test_use_tool_helper() {
+        let mut args = HashMap::new();
+        args.insert("url".to_string(), Value::String("https://example.com".to_string()));
+
+        let action = OrchestratorAction::use_tool("web_fetch", args);
+
+        if let OrchestratorAction::UseTool { name, args, message } = action {
+            assert_eq!(name, "web_fetch");
+            assert!(args.contains_key("url"));
+            assert!(message.is_none());
+        } else {
+            panic!("Expected UseTool action");
         }
     }
 }

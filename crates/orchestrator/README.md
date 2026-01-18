@@ -45,7 +45,7 @@ Signal Message
 - `RoutingPlan` - List of actions to execute
 - `OrchestratorAction` - Individual action (Search, ClearContext, Respond, Grok, Maple, etc.)
 - `Sensitivity` - Message sensitivity level (Sensitive, Insensitive, Uncertain)
-- `TaskHint` - Task type for model selection (General, Coding, Math, Creative, Multilingual, Quick)
+- `TaskHint` - Task type for model selection (General, Coding, Math, Creative, Multilingual, Quick, Vision)
 - `UserPreference` - User's preferred agent (Default, PreferPrivacy, PreferSpeed)
 - `PreferenceStore` - Thread-safe storage for user preferences
 - `ModelSelector` - Selects optimal model based on task hint
@@ -171,6 +171,7 @@ The router classifies each message's task type to select the optimal model:
 | `Creative` | Creative writing | gpt-oss-120b | grok-4 |
 | `Multilingual` | Non-English/translation | qwen2-5-72b | grok-4-1-fast |
 | `Quick` | Simple, fast queries | mistral-small-3-1-24b | grok-3-mini |
+| `Vision` | Image/visual analysis | qwen3-vl-30b | N/A (Maple only) |
 
 ### Model Configuration
 
@@ -184,6 +185,7 @@ Override default models via environment variables:
 | `MAPLE_MODEL_CREATIVE` | gpt-oss-120b | Maple creative model |
 | `MAPLE_MODEL_MULTILINGUAL` | qwen2-5-72b | Maple multilingual model |
 | `MAPLE_MODEL_QUICK` | mistral-small-3-1-24b | Maple quick model |
+| `MAPLE_VISION_MODEL` | qwen3-vl-30b | Maple vision model |
 | `GROK_MODEL` | grok-4-1-fast | Default Grok model |
 | `GROK_MODEL_CODING` | grok-3 | Grok coding model |
 | `GROK_MODEL_MATH` | grok-4 | Grok math model |
@@ -192,6 +194,34 @@ Override default models via environment variables:
 | `GROK_MODEL_QUICK` | grok-3-mini | Grok quick model |
 
 **Note:** Currently the model selector logs the recommended model. Dynamic per-request model switching requires additional support in the brain crates.
+
+## Attachment and Image Handling
+
+The router is aware of message attachments and handles them appropriately:
+
+### Image Detection
+
+When a message includes image attachments:
+1. The router is informed via the `[ATTACHMENTS: ...]` metadata line (e.g., `1 image (jpeg, 1024x768)`)
+2. The router sets `task_hint` to `Vision` for image-related requests
+3. Vision tasks are **always** routed to Maple (Grok has no vision support)
+
+### Routing Behavior
+
+| Attachment Type | Task Hint | Route | Notes |
+|-----------------|-----------|-------|-------|
+| Images | `Vision` | Maple only | Grok lacks vision support |
+| Image + sensitive topic | `Vision` | Maple | Double protection |
+| No attachments | Based on content | Normal routing | Standard sensitivity/task routing |
+| Other files (PDF, etc.) | `General` | Normal routing | Not fully supported yet |
+
+### Image-Only Messages
+
+Messages with images but no text are treated as "What is this?" or "Describe this image" requests.
+
+### Explicit Grok with Images
+
+If a user explicitly requests `grok: <query>` but includes an image, the orchestrator automatically falls back to Maple with a warning logged.
 
 ## Example
 
@@ -235,3 +265,4 @@ cargo run -p orchestrator --example orchestrated_bot
 - Raw user messages never leave the TEE for classification
 - Users can opt into speed mode for non-sensitive queries
 - Direct `grok:` commands bypass privacy protections (user's explicit choice)
+- Image attachments are always processed in Maple (TEE) for privacy - Grok has no access to user images

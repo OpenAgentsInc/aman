@@ -94,3 +94,4 @@ pub use sender::{LoggingSender, MessageSender, NoOpSender};
 pub use brain_core::{InboundMessage, OutboundMessage};
 pub use grok_brain::GrokToolExecutor;
 pub use maple_brain::{MapleBrain, MapleBrainConfig};
+pub use agent_tools::{Tool, ToolError, ToolRegistry};
