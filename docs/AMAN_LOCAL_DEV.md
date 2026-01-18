@@ -46,7 +46,9 @@ export MAPLE_MODEL="hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4"
 export MAPLE_VISION_MODEL="qwen3-vl-30b"
 export MAPLE_API_URL="https://enclave.trymaple.ai"
 export MAPLE_MAX_HISTORY_TURNS="10"
-export MAPLE_PROMPT_FILE="crates/maple-brain/PROMPT.md"
+export MAPLE_PROMPT_FILE="SYSTEM_PROMPT.md"
+# Optional router prompt override (or set ROUTER_SYSTEM_PROMPT inline)
+export ROUTER_PROMPT_FILE="ROUTER_PROMPT.md"
 export GROK_API_KEY="..."      # required for GrokBrain/GrokToolExecutor
 export GROK_MODEL="grok-4-1-fast"
 export GROK_ENABLE_X_SEARCH="false"
@@ -171,8 +173,9 @@ cargo run -p maple-brain --example test_with_grok
 ```
 
 For MapleBrain configuration details, see `docs/OPENSECRET_API.md`.
-You can edit the default prompt at `crates/maple-brain/PROMPT.md` or point `MAPLE_PROMPT_FILE`
-to a custom prompt.
+You can edit the default system prompt at `SYSTEM_PROMPT.md` or point `MAPLE_PROMPT_FILE`
+to a custom prompt. The router prompt lives at `ROUTER_PROMPT.md` (override with
+`ROUTER_PROMPT_FILE` or `ROUTER_SYSTEM_PROMPT`).
 
 Note: attachment file paths are resolved relative to the signal-cli data directory.
 If you run signal-cli with a custom `--config` path, ensure your service uses the

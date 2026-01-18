@@ -9,6 +9,11 @@ without leaving Signal. The focus is on minimal retention and operational safety
 ## What it enables today (MVP)
 
 - Signal-based chat via a dedicated account
+- Orchestrated routing with Maple (privacy) + Grok (speed) and action plans
+- Sensitivity + task-hint classification with model selection hooks
+- User preference commands (privacy/speed) and direct Grok/Maple overrides
+- Built-in tools: calculator, weather, web fetch, dictionary, world time, crypto, currency
+- Attachment-aware routing (vision tasks stay on Maple)
 - Opt-in regional alerts (outages, throttling, advisories)
 - Basic onboarding and subscription management
 - Minimal state storage (short context and dedupe)
@@ -21,6 +26,7 @@ without leaving Signal. The focus is on minimal retention and operational safety
 - Nostr-backed persistence (foundation only)
 - Long-term message transcript storage
 - Automated event ingestion from live feeds
+- Dynamic per-request model overrides inside the brain crates
 
 ## Quickstart (local dev)
 
@@ -44,13 +50,15 @@ Edit these files to customize the bot's personality, tone, and routing behavior 
 - `docs/signal-cli-daemon.md` - Signal daemon details
 - `ROADMAP.md` - next phases
 - `crates/README.md` - crate catalog
+- `crates/orchestrator/README.md` - routing + action orchestration
 - `web/README.md` - browser UI
 
 ## Safety posture
 
 Aman is designed for high-risk contexts: opt-in alerts only, "stop" honored everywhere,
-minimal retention, and no message body logging by default. Treat the server as a trusted
-boundary because Signal E2EE terminates there.
+minimal retention, and no message body logging by default. Routing and classification
+decisions can be made inside the Maple TEE, but the server is still a trusted boundary
+because Signal E2EE terminates there.
 
 ## License
 

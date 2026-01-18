@@ -4,11 +4,12 @@
 
 - Signal-native messaging experience.
 - Opt-in regional alerts for activists and human-rights defenders.
-- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`, `admin-web`, `grok-brain`, `orchestrator`.
+- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`, `admin-web`, `grok-brain`, `orchestrator`, `agent-tools`.
 - Data persistence crate: `database` (SQLite via SQLx).
 - Brain interface crate: `brain-core` (shared Brain trait, message types, and ConversationHistory).
 - Optional brain crate: `maple-brain` (OpenSecret-based AI backend).
 - Orchestration crate: `orchestrator` (routes messages, executes action plans, coordinates brains).
+- Tooling crate: `agent-tools` (tool registry and built-in capabilities for the orchestrator).
 - Test harness crate: `mock-brain` (mock implementations for message flow testing, built on `brain-core`).
 - Regional event ingestion as a subsystem/service (documented under `agent_brain::regional_events`).
 - For planned phases beyond the MVP, see `ROADMAP.md`.
@@ -54,9 +55,14 @@
 - `orchestrator` (crate: `crates/orchestrator`)
   - Message routing and action plan execution.
   - Routes messages through a privacy-preserving classifier (maple-brain TEE).
-  - Executes multi-step actions: search, clear context, respond, show help.
+  - Executes multi-step actions: search, clear context, respond, help, tool usage.
+  - Supports direct Grok/Maple commands and per-sender preference switching.
+  - Attaches task hints for model selection and enforces vision-only routing to Maple.
   - Coordinates maple-brain (for routing and responses) and grok-brain (for search).
   - Maintains typing indicators and sends interim status messages.
+- `agent-tools` (crate: `crates/agent-tools`)
+  - Tool registry and implementations for orchestrator-level capabilities.
+  - Built-in tools: calculator, weather, web fetch + summarize, dictionary, world time, crypto, currency.
 - `agent_brain` (crate: `crates/agent-brain`)
   - Owns message handling, onboarding state machine, and routing decisions.
   - Implements the `Brain` trait for use with `message_listener`.
@@ -195,9 +201,12 @@ Note: Attachment-only messages are processed by default (`process_attachment_onl
 3. `Router` (using maple-brain in TEE) classifies the message and returns a `RoutingPlan`.
 4. `Orchestrator` executes actions in sequence:
    - `Search`: Calls grok-brain for real-time search, sends status message.
-   - `ClearContext`: Clears conversation history for sender, sends confirmation.
-   - `Respond`: Generates final response using maple-brain with accumulated context.
-   - `ShowHelp`: Displays help text.
+   - `ClearContext`: Clears conversation history for sender.
+   - `UseTool`: Runs an `agent-tools` capability (weather, calculator, etc.) and adds results to context.
+   - `SetPreference`: Updates sender preference for privacy vs speed.
+   - `Grok`/`Maple`: Direct query routing when explicitly requested.
+   - `Respond`: Generates final response using Maple or Grok with accumulated context.
+   - `Help`: Displays help text.
 5. `Orchestrator` stops typing indicator.
 6. `Orchestrator` returns final response for delivery.
 
@@ -207,6 +216,13 @@ Note: Attachment-only messages are processed by default (`process_attachment_onl
 2. MapleBrain calls `realtime_search` with a sanitized query.
 3. `GrokToolExecutor` fetches results from xAI and returns them.
 4. MapleBrain synthesizes the final response for Signal.
+
+### Tool execution flow (orchestrator)
+
+1. Router emits a `use_tool` action with name + arguments.
+2. `Orchestrator` executes the tool via `agent-tools` registry.
+3. Tool output is appended to context (`[TOOL RESULTS]`).
+4. `Respond` action uses the augmented message for the final reply.
 
 ### Event flow (notifications)
 
@@ -266,11 +282,13 @@ Environment variables (names may be implementation-specific):
 - `MAPLE_MODEL`: text model name for MapleBrain.
 - `MAPLE_VISION_MODEL`: vision model name for MapleBrain.
 - `MAPLE_SYSTEM_PROMPT`: optional system prompt override.
-- `MAPLE_PROMPT_FILE`: path to prompt file (default: `PROMPT.md`).
+- `MAPLE_PROMPT_FILE`: path to prompt file (default: `SYSTEM_PROMPT.md`).
 - `MAPLE_MAX_TOKENS`: max tokens for MapleBrain responses.
 - `MAPLE_TEMPERATURE`: temperature for MapleBrain responses.
 - `MAPLE_MAX_HISTORY_TURNS`: per-sender history length.
 - `MAPLE_MAX_TOOL_ROUNDS`: max tool execution rounds per request (default: 2).
+- `ROUTER_SYSTEM_PROMPT`: optional router prompt override for the orchestrator.
+- `ROUTER_PROMPT_FILE`: router prompt file path (default: `ROUTER_PROMPT.md`).
 - `GROK_API_KEY`: xAI API key for `grok-brain` / `GrokToolExecutor`.
 - `GROK_API_URL`: optional API URL override (default: `https://api.x.ai`).
 - `GROK_MODEL`: Grok model name (default: `grok-4-1-fast`).

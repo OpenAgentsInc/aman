@@ -13,6 +13,8 @@ with configuration and usage details.
 | `brain-core` | Shared Brain trait and message types for AI backends |
 | `maple-brain` | OpenSecret-backed Brain implementation |
 | `grok-brain` | xAI Grok Brain and tool executor |
+| `orchestrator` | Message routing, action planning, and tool orchestration |
+| `agent-tools` | Tool registry and built-in tools for orchestrator actions |
 | `database` | SQLite persistence (users/topics/notifications) via SQLx |
 | `api` | OpenAI-compatible chat API (local inference gateway) |
 | `ingester` | Document chunking and Nostr publishing/indexing |

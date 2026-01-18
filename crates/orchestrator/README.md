@@ -7,9 +7,9 @@ Message orchestrator for coordinating brain routing and tool execution.
 The orchestrator coordinates message processing between signal-daemon, maple-brain, and grok-brain. It:
 
 1. Routes messages through a privacy-preserving classifier (maple-brain TEE)
-2. Classifies message sensitivity (sensitive→Maple, insensitive→Grok)
+2. Classifies message sensitivity and task hints (sensitive→Maple, insensitive→Grok)
 3. Manages user preferences for agent selection
-4. Executes multi-step action plans (search, clear context, respond)
+4. Executes multi-step action plans (search, use_tool, clear context, respond, help, direct routing)
 5. Sends interim status messages to users
 6. Maintains typing indicators throughout processing
 
@@ -27,8 +27,9 @@ Signal Message
 │         ↓                                            │
 │  3. Execute actions sequentially:                    │
 │     • search → Call grok, send "Searching..." msg    │
-│     • clear_context → Clear history, confirm         │
-│     • respond → Final response via maple-brain       │
+│     • use_tool → Run agent-tools, add context        │
+│     • clear_context → Clear history                  │
+│     • respond → Final response via Maple/Grok        │
 │         ↓                                            │
 │  4. Stop typing indicator                            │
 │         ↓                                            │
@@ -52,6 +53,7 @@ Signal Message
 - `MapleModels` / `GrokModels` - Model configurations per provider
 - `AgentIndicator` - Response prefix indicator (Privacy, Speed)
 - `Context` - Accumulated search results for augmenting responses
+- `ToolRegistry` - Registry of orchestrator-level tools (agent-tools)
 - `MessageSender` trait - Abstraction for sending messages
 
 ### Usage
@@ -130,8 +132,22 @@ The router classifies messages and generates action plans:
 | `Grok { query }` | Route directly to Grok (user explicitly requested) |
 | `Maple { query }` | Route directly to Maple (user explicitly requested) |
 | `SetPreference { preference }` | Change user's default agent preference |
+| `UseTool { name, args, message }` | Execute an `agent-tools` capability and add output to context |
 | `Skip { reason }` | Skip processing with reason |
 | `Ignore` | Silently ignore message (typos, accidental sends) |
+
+## Built-in Tools
+
+The orchestrator uses the default `agent-tools` registry by default:
+
+- `calculator` - Safe math expression evaluation
+- `weather` - Current weather via wttr.in
+- `web_fetch` - Fetch and optionally summarize URL content
+- `dictionary` - Word definitions via Free Dictionary API
+- `world_time` - Timezone lookup via WorldTimeAPI
+- `bitcoin_price` - BTC price via mempool.space
+- `crypto_price` - Crypto prices via CoinGecko
+- `currency_converter` - Fiat conversion via exchangerate.host
 
 ## Sensitivity-Based Routing
 
