@@ -63,6 +63,9 @@ export MAPLE_PROMPT_FILE="SYSTEM_PROMPT.md"
 export ROUTER_PROMPT_FILE="ROUTER_PROMPT.md"
 export GROK_API_KEY="..."      # required for GrokBrain/GrokToolExecutor
 export GROK_MODEL="grok-4-1-fast"
+# Optional Grok system prompt override
+# export GROK_SYSTEM_PROMPT="You are a helpful assistant."
+export GROK_PROMPT_FILE="SYSTEM_PROMPT.md"
 export GROK_ENABLE_X_SEARCH="false"
 export GROK_ENABLE_WEB_SEARCH="false"
 export REGION_POLL_INTERVAL_SECONDS="60"

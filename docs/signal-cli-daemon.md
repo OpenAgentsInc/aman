@@ -165,6 +165,27 @@ curl -X POST http://localhost:8080/api/v1/rpc \
   }'
 ```
 
+### Styled Text (textStyle ranges)
+
+Signal supports formatting via body ranges. Use `textStyle` with start/length ranges:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "send",
+  "params": {
+    "recipient": ["+9876543210"],
+    "message": "Hello bold world",
+    "textStyle": [
+      { "start": 6, "length": 4, "style": "BOLD" }
+    ]
+  },
+  "id": "3"
+}
+```
+
+Supported styles: `BOLD`, `ITALIC`, `MONOSPACE`, `STRIKETHROUGH`.
+
 ### Common Methods
 
 | Method | Description |

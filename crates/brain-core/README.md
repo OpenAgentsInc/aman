@@ -15,7 +15,8 @@ Defines the shared `Brain` trait, `ToolExecutor` trait, and common types used by
 
 - `InboundMessage` - Incoming message with sender, text, timestamp, group_id, attachments, routing metadata
 - `InboundAttachment` - Attachment metadata (content type, filename, file path, size, dimensions)
-- `OutboundMessage` - Reply container with recipient and text
+- `OutboundMessage` - Reply container with recipient, text, and optional styles
+- `TextStyle` - Formatting ranges for Signal text (bold/italic/monospace/strikethrough)
 - `BrainError` - Common error types for brain implementations
 - `ToolRequest` / `ToolResult` - Tool call input/output types (optional metadata)
 - `ToolRequestMeta` - Optional sender/group metadata for tools

@@ -13,6 +13,7 @@ normalizes inbound messages into `InboundMessage` values (including attachment m
 - **Graceful Shutdown**: Clean shutdown with `run_with_shutdown()` or `run_until_stopped()`
 - **Attachment Support**: Processes messages with images; attachment-only messages supported
 - **Typing Indicators**: Optional typing indicators during processing
+- **Formatted Replies**: Forwards `OutboundMessage.styles` as Signal textStyle ranges when present
 - **Auto-Reconnection**: Inherits SSE auto-reconnection from signal-daemon
 
 ## Public Interfaces

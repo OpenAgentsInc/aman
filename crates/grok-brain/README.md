@@ -34,6 +34,7 @@ grok-brain = { path = "../grok-brain" }
 | `GROK_API_URL` | | `https://api.x.ai` | xAI API base URL |
 | `GROK_MODEL` | | `grok-4-1-fast` | Model to use |
 | `GROK_SYSTEM_PROMPT` | | - | System prompt for the AI |
+| `GROK_PROMPT_FILE` | | `SYSTEM_PROMPT.md` | Path to system prompt file |
 | `GROK_MAX_TOKENS` | | `1024` | Maximum response tokens |
 | `GROK_TEMPERATURE` | | `0.7` | Generation temperature (0.0-2.0) |
 | `GROK_MAX_HISTORY_TURNS` | | `10` | Max conversation turns to keep |
@@ -45,9 +46,15 @@ grok-brain = { path = "../grok-brain" }
 ```bash
 GROK_API_KEY=xai-your-api-key-here
 GROK_SYSTEM_PROMPT="You are a helpful assistant that provides concise, accurate responses."
+GROK_PROMPT_FILE=SYSTEM_PROMPT.md
 GROK_ENABLE_X_SEARCH=true
 GROK_ENABLE_WEB_SEARCH=true
 ```
+
+System prompt priority:
+1. `GROK_SYSTEM_PROMPT` (if set)
+2. `GROK_PROMPT_FILE` contents (if file exists)
+3. No system prompt
 
 ## Usage
 

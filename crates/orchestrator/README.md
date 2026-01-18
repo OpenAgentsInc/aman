@@ -10,9 +10,11 @@ The orchestrator coordinates message processing between signal-daemon, maple-bra
 2. Classifies message sensitivity and task hints (sensitive→Maple, insensitive→Grok)
 3. Manages user preferences for agent selection
 4. Executes multi-step action plans (search, use_tool, clear context, respond, help, direct routing)
-5. Sends interim status messages to users
-6. Maintains typing indicators throughout processing
-7. Persists preferences, summaries, and tool history in SQLite (when configured)
+5. Prompts for PII handling choices when personal data is detected
+6. Sends interim status messages to users
+7. Maintains typing indicators throughout processing
+8. Formats responses with markdown-to-Signal styles and metadata footers
+9. Persists preferences, summaries, and tool history in SQLite (when configured)
 
 ## Architecture
 
@@ -30,7 +32,8 @@ Signal Message
 │     • search → Call grok, send "Searching..." msg    │
 │     • use_tool → Run agent-tools, add context        │
 │     • clear_context → Clear history                  │
-│     • respond → Final response via Maple/Grok        │
+│     • ask_privacy_choice → Prompt for PII handling   │
+│     • respond → Final response via Maple/Grok + footer │
 │         ↓                                            │
 │  4. Stop typing indicator                            │
 │         ↓                                            │
@@ -47,7 +50,7 @@ Signal Message
 - `RoutingPlan` - List of actions to execute
 - `OrchestratorAction` - Individual action (Search, ClearContext, Respond, Grok, Maple, etc.)
 - `Sensitivity` - Message sensitivity level (Sensitive, Insensitive, Uncertain)
-- `TaskHint` - Task type for model selection (General, Coding, Math, Creative, Multilingual, Quick, Vision)
+- `TaskHint` - Task type for model selection (General, Coding, Math, Creative, Multilingual, Quick, Vision, AboutBot)
 - `UserPreference` - User's preferred agent (Default, PreferPrivacy, PreferSpeed)
 - `PreferenceStore` - Thread-safe storage for user preferences
 - `MemoryStore` - SQLite-backed rolling summaries and tool history
@@ -58,7 +61,7 @@ Signal Message
 - `AgentIndicator` - Response prefix indicator (Privacy, Speed)
 - `Context` - Accumulated search results for augmenting responses
 - `ToolRegistry` - Registry of orchestrator-level tools (agent-tools)
-- `MessageSender` trait - Abstraction for sending messages
+- `MessageSender` trait - Abstraction for sending messages (supports styled text)
 
 ### Usage
 
@@ -150,14 +153,18 @@ The router classifies messages and generates action plans:
 |--------|-------------|
 | `Search { query, message }` | Execute real-time search via Grok, send status message |
 | `ClearContext { message }` | Clear conversation history for sender |
-| `Respond { sensitivity }` | Generate response, routed based on sensitivity and user preference |
+| `Respond { sensitivity, has_pii, pii_types }` | Generate response, routed based on sensitivity and user preference (PII triggers privacy prompt) |
 | `Help` | Display help text |
 | `Grok { query }` | Route directly to Grok (user explicitly requested) |
 | `Maple { query }` | Route directly to Maple (user explicitly requested) |
 | `SetPreference { preference }` | Change user's default agent preference |
 | `UseTool { name, args, message }` | Execute an `agent-tools` capability and add output to context |
+| `AskPrivacyChoice { pii_types, original_message }` | Prompt user to choose sanitize/private/cancel when PII is detected |
+| `PrivacyChoiceResponse { choice }` | Handle the user's response to a privacy choice prompt |
 | `Skip { reason }` | Skip processing with reason |
 | `Ignore` | Silently ignore message (typos, accidental sends) |
+
+Note: Privacy choice responses are currently acknowledged but full sanitize/private routing is still in progress.
 
 ## Built-in Tools
 
@@ -171,6 +178,9 @@ The orchestrator uses the default `agent-tools` registry by default:
 - `bitcoin_price` - BTC price via mempool.space
 - `crypto_price` - Crypto prices via CoinGecko
 - `currency_converter` - Fiat conversion via exchangerate.host
+- `unit_converter` - Unit conversions (length, temp, weight, data, etc.)
+- `random_number` - Random numbers/dice/coin flips
+- `sanitize` - PII redaction using a Maple-backed sanitizer
 
 ## Sensitivity-Based Routing
 
@@ -181,6 +191,8 @@ The router classifies each message's sensitivity:
 | `Sensitive` | Always uses Maple (TEE) | Health, finances, legal, personal info |
 | `Insensitive` | Uses Grok (fast) by default | Weather, news, coding, general knowledge |
 | `Uncertain` | Follows user preference (defaults to Maple) | Ambiguous context |
+
+If PII is detected, the router can request an explicit privacy choice before responding.
 
 ## User Preferences
 
@@ -196,9 +208,17 @@ Direct commands bypass normal routing:
 - `grok: <query>` - Send directly to Grok
 - `maple: <query>` - Send directly to Maple
 
-Speed mode responses are prefixed with `[*]` as a subtle indicator.
+Direct Grok responses are prefixed with `[*]` as a subtle indicator.
 
 Preferences are stored in memory by default; set `SQLITE_PATH` to persist across restarts.
+
+## Response Formatting
+
+`Respond` actions are formatted before delivery:
+
+- Markdown markers are converted into Signal text styles (bold/italic/monospace/strikethrough).
+- A footer is appended with the mode label, selected model, and tools used.
+- Styled ranges are attached via `OutboundMessage.styles`; transports can render or ignore them.
 
 ## Task-Based Model Selection
 
@@ -213,6 +233,7 @@ The router classifies each message's task type to select the optimal model:
 | `Multilingual` | Non-English/translation | qwen2-5-72b | grok-4-1-fast |
 | `Quick` | Simple, fast queries | mistral-small-3-1-24b | grok-3-mini |
 | `Vision` | Image/visual analysis | qwen3-vl-30b | N/A (Maple only) |
+| `AboutBot` | Questions about Aman itself | llama-3.3-70b | grok-4-1-fast |
 
 ### Model Configuration
 

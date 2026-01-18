@@ -25,7 +25,7 @@ This document defines what Aman stores, what it does not store, and the default 
 - `users`, `topics`, `notifications`: subscription store (via `database` crate).
 - `preferences`: sender/group routing preferences.
 - `conversation_summaries`: rolling summaries for routing context.
-- `tool_history`: tool execution records (sanitized inputs/outputs).
+- `tool_history`: tool execution records (sanitized inputs/outputs; avoid raw PII).
 - `clear_context_events`: history resets for audit and retention.
 - Optional: attachment metadata (filename, content type, local file path) if persisted for processing.
 
@@ -78,6 +78,11 @@ Adjust these windows based on threat model and legal constraints.
 
 - GrokToolExecutor receives only sanitized search queries (no raw user text).
 - Search results are returned to the brain for synthesis; tool outputs are stored in `tool_history` when durable memory is enabled.
+
+## PII handling notes
+
+- The router can flag PII and prompt the user for a privacy choice.
+- The `sanitize` tool exists to redact PII before fast-mode requests, but full orchestration wiring is still in progress.
 
 ## Security notes
 

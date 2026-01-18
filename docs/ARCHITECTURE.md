@@ -34,16 +34,19 @@
   - HTTP/SSE client for signal-cli daemon.
   - Shared dependency for inbound and outbound transport.
   - SSE auto-reconnection with configurable exponential backoff.
+  - Supports styled text via `textStyle` ranges for Signal formatting.
 - `message_listener` (crate: `crates/message-listener`)
   - Owns Signal inbound transport via `signal-daemon` (HTTP/SSE).
   - Normalizes inbound messages into `InboundMessage` records (including attachments metadata).
   - Emits normalized events into the local queue/state store.
+  - Forwards `OutboundMessage.styles` to Signal as styled text when present.
   - Configurable brain processing timeout (default: 60s) prevents pipeline hangs.
   - Graceful shutdown via `run_with_shutdown()` or `run_until_stopped()`.
   - Supports attachment-only messages (configurable).
 - `brain-core` (crate: `crates/brain-core`)
   - Shared Brain trait, ToolExecutor trait, and message types for AI backends.
   - Defines attachments metadata (`InboundAttachment`) for inbound processing.
+  - Provides `TextStyle` ranges and `OutboundMessage.styles` for formatted replies.
   - Provides `ConversationHistory` for per-sender message history with auto-trimming.
   - Exposes routing metadata and prompt hashing helpers for reproducibility.
 - `maple-brain` (crate: `crates/maple-brain`)
@@ -56,15 +59,16 @@
 - `orchestrator` (crate: `crates/orchestrator`)
   - Message routing and action plan execution.
   - Routes messages through a privacy-preserving classifier (maple-brain TEE).
-  - Executes multi-step actions: search, clear context, respond, help, tool usage.
+  - Executes multi-step actions: search, clear context, respond, help, tool usage, privacy choice prompts.
   - Supports direct Grok/Maple commands and per-sender preference switching.
   - Attaches task hints for model selection and enforces vision-only routing to Maple.
   - Coordinates maple-brain (for routing and responses) and grok-brain (for search).
   - Maintains typing indicators and sends interim status messages.
+  - Formats responses with markdown-to-Signal styles and metadata footers.
   - Persists preferences, rolling summaries, and tool history in SQLite (when configured).
 - `agent-tools` (crate: `crates/agent-tools`)
   - Tool registry and implementations for orchestrator-level capabilities.
-  - Built-in tools: calculator, weather, web fetch + summarize, dictionary, world time, crypto, currency.
+  - Built-in tools: calculator, weather, web fetch + summarize, dictionary, world time, bitcoin price, crypto price, currency converter, unit converter, random number, sanitize.
   - Registry adapter for `brain-core::ToolExecutor` with policy controls.
 - `agent_brain` (crate: `crates/agent-brain`)
   - Owns message handling, onboarding state machine, and routing decisions.
@@ -206,6 +210,7 @@ Region parsing:
 4. `MessageProcessor` sends `OutboundMessage` via `signal-daemon`.
 
 Note: Attachment-only messages are processed by default (`process_attachment_only: true`).
+If `OutboundMessage.styles` is set, the listener sends styled text ranges to Signal.
 
 ### Orchestrator flow (recommended)
 
@@ -217,16 +222,20 @@ Note: Attachment-only messages are processed by default (`process_attachment_onl
    - `ClearContext`: Clears conversation history for sender.
    - `UseTool`: Runs an `agent-tools` capability (weather, calculator, etc.) and adds results to context.
    - `SetPreference`: Updates sender preference for privacy vs speed.
+   - `AskPrivacyChoice`: Prompts the user when PII is detected (sanitize vs private vs cancel).
+   - `PrivacyChoiceResponse`: Handles the user's PII choice and routes accordingly.
    - `Grok`/`Maple`: Direct query routing when explicitly requested.
-   - `Respond`: Generates final response using Maple or Grok with accumulated context.
+   - `Respond`: Generates final response using Maple or Grok with accumulated context, then formats with a footer.
    - `Help`: Displays help text.
 5. `Orchestrator` stops typing indicator.
-6. `Orchestrator` returns final response for delivery.
+6. `Orchestrator` returns final response for delivery (optionally with text styles).
 
 **Sensitivity Classification:**
 - **Sensitive** → Routes to Maple (health, finances, legal, personal, controversial)
 - **Insensitive** → Can use Grok (weather, news, coding, entertainment, how-to)
 - **Uncertain** → Follows user preference or defaults to Maple
+
+If PII is detected, the router can request an explicit privacy choice before responding.
 
 **Task Hints for Model Selection:**
 - `general` - Standard conversations (llama-3.3-70b)
@@ -251,6 +260,7 @@ Note: Attachment-only messages are processed by default (`process_attachment_onl
 2. `Orchestrator` executes the tool via `agent-tools` registry.
 3. Tool output is appended to context (`[TOOL RESULTS]`).
 4. `Respond` action uses the augmented message for the final reply.
+5. Response footer lists tools used and the selected model.
 
 ### Event flow (notifications)
 
@@ -332,6 +342,7 @@ Environment variables (names may be implementation-specific):
 - `GROK_API_URL`: optional API URL override (default: `https://api.x.ai`).
 - `GROK_MODEL`: Grok model name (default: `grok-4-1-fast`).
 - `GROK_SYSTEM_PROMPT`: optional system prompt override.
+- `GROK_PROMPT_FILE`: path to prompt file (default: `SYSTEM_PROMPT.md`).
 - `GROK_MAX_TOKENS`: max tokens for GrokBrain responses.
 - `GROK_TEMPERATURE`: temperature for GrokBrain responses.
 - `GROK_MAX_HISTORY_TURNS`: per-sender history length.
@@ -383,6 +394,9 @@ User Message
      ↓
 Router (in Maple TEE)
      ├─ Detects PII? → AskPrivacyChoice prompt
+     │      ├─ Sanitize → sanitize tool (Maple) → Grok (fast mode)
+     │      ├─ Private → Maple only
+     │      └─ Cancel → stop processing
      ├─ Sensitive topic? → Route to Maple only
      └─ Insensitive? → May use Grok (per preference)
      ↓
@@ -394,10 +408,14 @@ If tool needed (search):
 
 ### PII Detection
 
-The router detects 12 types of PII:
+The router flags PII via `has_pii` and `pii_types` in `respond` actions, or emits
+an explicit `ask_privacy_choice` action. PII types include:
+
 - name, phone, email, ssn
 - card, account, address, dob
 - medical, income, financial, id
+
+Note: the sanitize tool exists but full orchestration wiring is still pending.
 
 ## Safety posture
 
@@ -535,9 +553,11 @@ AccessPolicy content:
 - **grok-brain**: xAI Grok Brain and GrokToolExecutor implementations.
 - **orchestrator**: message routing and action plan execution coordinator.
 - **ToolExecutor**: interface for executing external tools (e.g., real-time search).
-- **RoutingPlan**: list of actions (search, use_tool, clear_context, respond, grok, maple, help, skip, ignore, ask_privacy_choice, set_preference) to execute.
+- **RoutingPlan**: list of actions (search, use_tool, clear_context, respond, grok, maple, help, skip, ignore, ask_privacy_choice, privacy_choice_response, set_preference) to execute.
 - **agent-tools**: extensible tool registry with 11 built-in tools (Calculator, Weather, WebFetch, Dictionary, WorldTime, BitcoinPrice, CryptoPrice, CurrencyConverter, UnitConverter, RandomNumber, Sanitize).
-- **ModelSelector**: component that chooses optimal model based on task hints (general, coding, math, creative, multilingual, quick, vision).
+- **TextStyle**: formatting range for Signal messages (bold, italic, monospace, strikethrough).
+- **FormattedMessage**: response payload with plain text plus optional `TextStyle` ranges.
+- **ModelSelector**: component that chooses optimal model based on task hints (general, coding, math, creative, multilingual, quick, vision, about_bot).
 - **PreferenceStore**: per-user storage for agent preferences (prefer_speed, prefer_privacy, default).
 - **ConversationHistory**: per-sender message history with auto-trimming (in brain-core).
 - **DocManifest**: planned event describing a document and its chunks.

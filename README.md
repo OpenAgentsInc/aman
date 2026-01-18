@@ -8,7 +8,7 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - End-to-end encrypted communications via Signal
 - Privacy-preserving AI processing using Trusted Execution Environments (TEE)
 - Intelligent sensitivity-based routing between privacy and speed modes
-- PII detection and sanitization capabilities
+- PII detection with privacy-choice prompts (sanitization tool available)
 - Rich tool ecosystem for real-world tasks
 
 ## Current Capabilities (MVP)
@@ -18,7 +18,9 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - Sensitivity + task-hint classification with per-request model overrides
 - Router/system prompt hashing for reproducible routing decisions
 - User preference commands (privacy/speed) and direct Grok/Maple overrides
-- Built-in tools: calculator, weather, web fetch, dictionary, world time, crypto, currency
+- Response formatting: markdown-to-Signal styles with mode/model/tool footer
+- PII detection with user choice (sanitize vs private vs cancel)
+- Built-in tools: calculator, weather, web fetch, dictionary, world time, bitcoin price, crypto price, currency conversion, unit conversion, random numbers, sanitize
 - ToolExecutor adapter for agent-tools with allowlists, rate limits, and caching
 - Attachment-aware routing (vision tasks stay on Maple)
 - Opt-in regional alerts (outages, throttling, advisories)
@@ -35,6 +37,7 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - Long-term message transcript storage
 - Automated event ingestion from live feeds
 - End-to-end durable memory in the brain crates (Maple/Grok history is still in-memory)
+- End-to-end PII sanitization flow (tool exists, orchestration wiring pending)
 
 ## Quickstart (local dev)
 
@@ -46,8 +49,8 @@ The bot's behavior is controlled by two prompt files at the project root:
 
 | File | Purpose | Env Override |
 |------|---------|--------------|
-| `SYSTEM_PROMPT.md` | Main bot persona and response style | `MAPLE_SYSTEM_PROMPT` or `MAPLE_PROMPT_FILE` |
-| `ROUTER_PROMPT.md` | Message classification and action routing | `ROUTER_SYSTEM_PROMPT` or `ROUTER_PROMPT_FILE` |
+| `SYSTEM_PROMPT.md` | Main bot persona and response style (Maple + Grok) | `MAPLE_SYSTEM_PROMPT` / `MAPLE_PROMPT_FILE`, or `GROK_SYSTEM_PROMPT` / `GROK_PROMPT_FILE` |
+| `ROUTER_PROMPT.md` | Message classification and action routing | `ROUTER_SYSTEM_PROMPT` / `ROUTER_PROMPT_FILE` |
 
 Edit these files to customize the bot's personality, tone, and routing behavior without recompiling.
 

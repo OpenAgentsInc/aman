@@ -22,3 +22,9 @@ with configuration and usage details.
 | `ingester` | Document chunking and Nostr publishing/indexing |
 | `nostr-persistence` | Nostr publisher/indexer for durable doc/chunk metadata |
 | `admin-web` | Admin dashboard and broadcast UI |
+
+## Supporting Crates
+
+| Crate | Description |
+| --- | --- |
+| `proton-proxy` | SMTP client for Proton Mail Bridge (E2E encrypted email) |

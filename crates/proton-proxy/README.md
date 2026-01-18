@@ -67,6 +67,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - All Proton-to-Proton emails are E2E encrypted automatically
 - Your Proton account password never leaves your machine
 
+## Testing
+
+Integration tests are ignored by default because they require a running Bridge:
+
+```bash
+PROTON_USERNAME=you@proton.me \
+PROTON_PASSWORD=bridge-password \
+cargo test -p proton-proxy --test send_test_email -- --ignored
+```
+
 ## License
 
 MIT

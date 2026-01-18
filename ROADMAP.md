@@ -13,7 +13,9 @@ persistence and rehydration.
 - `grok-brain` provides a Grok-backed Brain and ToolExecutor with per-request model overrides.
 - `orchestrator` routes messages, executes action plans, attaches routing metadata, and tracks preferences.
 - `agent-tools` ships a tool registry plus a ToolExecutor adapter with allowlists, rate limits, timeouts, and caching.
+- Tool surface now includes unit conversion, random numbers, and a Maple-backed PII sanitize tool.
 - SQLite persistence now covers preferences, rolling summaries, tool history, and clear-context events (when configured).
+- Orchestrator can detect PII, prompt for privacy choices, and format responses with metadata footers.
 - `agent-brain` implements onboarding and subscription routing; ships `agent_brain_bot` and `region_event_send`.
 - `regional_event_listener` exists as a documented subsystem; intake wiring is still pending.
 - `nostr-persistence` crate is started (publisher/indexer foundation).
@@ -61,17 +63,37 @@ Goal: move beyond in-memory context and align memory across Maple/Grok.
 - Retention policy config (per-sender TTL + global caps).
 - Shared history keys across direct and group messages.
 
-## Phase 4 - Brain memory sync + shared context (next)
+## Phase 4 - Brain memory contract + shared context framing (next)
 
-Goal: make Maple/Grok consume the same durable memory view.
+Goal: give Maple/Grok a consistent memory contract with explicit safety gates.
 
-- Add a `brain-core` MemoryStore trait with adapters for SQLite.
-- Use durable summaries as prompt context for Maple/Grok responses.
-- Hydrate per-sender memory into Maple/Grok history windows on cold start.
-- Respect clear-context events across brains and cached tool outputs.
-- Add background compaction jobs for summaries and tool history.
+- Add `brain-core::MemoryStore` + `MemorySnapshot` types (summaries, tool history, clear-context).
+- Define a standard memory prompt format (short, stable, attribution-friendly).
+- Add memory policy inputs (max tokens, TTL, PII handling, per-sender overrides).
+- Hydrate per-sender memory into Maple/Grok on cold start (summary-first, history-last).
+- Wire `clear_context` events through memory snapshots and brain history resets.
 
-## Phase 5 - Nostr persistence schema + encryption
+## Phase 5 - Brain memory hydration + durability wiring
+
+Goal: actually use durable memory in live brain calls, not just in the orchestrator.
+
+- Map SQLite summaries + tool history into brain prompts with strict size budgets.
+- Implement per-request memory hydration for Maple/Grok with configurable templates.
+- Add memory compaction jobs (summary rollups, tool history pruning, clear-context honoring).
+- Include privacy-choice outcomes in memory (sanitized vs private).
+- Track memory provenance in routing metadata for audits.
+
+## Phase 6 - PII sanitization workflow end-to-end
+
+Goal: complete the privacy-choice loop with actual sanitization and fast-mode fallback.
+
+- Implement `sanitize` tool execution (Maple-only) when user chooses sanitize.
+- Persist sanitized inputs alongside tool history (never store raw PII).
+- Route sanitized requests to Grok and keep private requests on Maple.
+- Add policy tests for PII detection, sanitize outputs, and tool-history storage.
+- Provide operator metrics for PII prompts and user choices.
+
+## Phase 7 - Nostr persistence schema + encryption
 
 Goal: make memory portable and cryptographically bound.
 
@@ -79,8 +101,9 @@ Goal: make memory portable and cryptographically bound.
 - Encrypt sensitive payloads; publish encrypted references + hashes.
 - Define provenance/policy events for memory updates and deletions.
 - Map SQLite memory rows to Nostr events with deterministic IDs.
+- Add key rotation + migration guidance for operators.
 
-## Phase 6 - Nostr sync + rehydration
+## Phase 8 - Nostr sync + rehydration
 
 Goal: rebuild local memory from Nostr events and keep nodes in sync.
 
@@ -88,8 +111,18 @@ Goal: rebuild local memory from Nostr events and keep nodes in sync.
 - Reconcile conflicts between local SQLite and relay event streams.
 - Store large blobs in object storage/IPFS with Nostr refs + hashes.
 - Add replay/backup tooling for disaster recovery.
+- Add audit tooling for memory provenance and tamper checks.
 
-## Phase 7 - RAG pipeline + retrieval
+## Phase 9 - Brain rehydration from Nostr + shared retrieval
+
+Goal: make Nostr-backed memory first-class in brain inference.
+
+- Rehydrate Maple/Grok memory snapshots from Nostr at startup.
+- Maintain local memory caches with Nostr sync checkpoints.
+- Use Nostr-backed knowledge as retrieval context (citations + summaries).
+- Keep privacy policies attached to memory payloads across sync.
+
+## Phase 10 - RAG pipeline + retrieval
 
 Goal: retrieval-augmented responses with citations over Signal.
 
@@ -98,7 +131,7 @@ Goal: retrieval-augmented responses with citations over Signal.
 - Expose retrieval as a tool in both orchestrator and `brain-core` tool calls.
 - Deliver short, Signal-friendly citations/snippets in responses.
 
-## Phase 8 - Safety, policy, and high-risk workflows
+## Phase 11 - Safety, policy, and high-risk workflows
 
 Goal: enforce strong privacy defaults for closed-society contexts.
 
@@ -107,7 +140,7 @@ Goal: enforce strong privacy defaults for closed-society contexts.
 - Media sanitization helpers (face blur, audio distortion, background obfuscation).
 - Policy enforcement for sensitive domains and high-risk escalation paths.
 
-## Phase 9 - Multi-agent federation + governance
+## Phase 12 - Multi-agent federation + governance
 
 Goal: compose specialized brains and operators without losing policy control.
 
@@ -128,6 +161,8 @@ Goal: compose specialized brains and operators without losing policy control.
 
 - Orchestrator-first service binary that wires listener + routing + tools.
 - Shared tool registry + policy layer for orchestrator + brain tool calls.
+- `brain-core` MemoryStore + MemorySnapshot contract for shared memory.
+- PII sanitize workflow (tool wiring + policy tests).
 - DB schema for preferences, summaries, tool history, and dedupe.
 - `crates/nostr-persistence` publisher/indexer with rehydration tooling.
 - `crates/ingester` expansions for docs + YouTube.

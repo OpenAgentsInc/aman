@@ -27,13 +27,15 @@ Aman is a Signal-native chatbot that runs on a server using `signal-cli`. It rec
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         ORCHESTRATOR                                 │
 │  Router (classify) → RoutingPlan [actions] → Orchestrator (execute) │
-│  Actions: search, use_tool, clear_context, respond, show_help       │
+│  Actions: search, use_tool, clear_context, respond, help, privacy_choice │
 └─────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        AGENT-TOOLS                                   │
-│  ToolRegistry → Calculator, Weather, WebFetch                        │
+│  ToolRegistry → Calculator, Weather, WebFetch, Dictionary, WorldTime │
+│                 BitcoinPrice, CryptoPrice, CurrencyConverter         │
+│                 UnitConverter, RandomNumber, Sanitize                │
 └─────────────────────────────────────────────────────────────────────┘
                               │
               ┌───────────────┴───────────────┐
@@ -72,7 +74,7 @@ Located in `crates/`:
 | **maple-brain** | OpenSecret TEE-based AI with vision and tool support | Production-ready |
 | **grok-brain** | xAI Grok for real-time search tools | Production-ready |
 | **orchestrator** | Message routing, action coordination, multi-step processing | Production-ready |
-| **agent-tools** | Tool registry with 8 tools: Calculator, Weather, WebFetch, Dictionary, WorldTime, BitcoinPrice, CryptoPrice, CurrencyConverter | Production-ready |
+| **agent-tools** | Tool registry with 11 tools: Calculator, Weather, WebFetch, Dictionary, WorldTime, BitcoinPrice, CryptoPrice, CurrencyConverter, UnitConverter, RandomNumber, Sanitize | Production-ready |
 | **mock-brain** | Mock brain implementations for testing | Stable |
 | **broadcaster** | Signal outbound delivery | Working |
 | **agent-brain** | Onboarding, routing, and subscriptions | Stub |
@@ -235,6 +237,8 @@ Environment variables (via `.env`):
 | `GROK_API_KEY` | - | **Required** - xAI API key |
 | `GROK_API_URL` | `https://api.x.ai` | API URL |
 | `GROK_MODEL` | `grok-4-1-fast` | Model name |
+| `GROK_SYSTEM_PROMPT` | - | System prompt override |
+| `GROK_PROMPT_FILE` | `SYSTEM_PROMPT.md` | Path to system prompt file |
 | `GROK_ENABLE_WEB_SEARCH` | `false` | Enable web search |
 | `GROK_ENABLE_X_SEARCH` | `false` | Enable X/Twitter search |
 
@@ -373,7 +377,7 @@ The bot's behavior is controlled by two prompt files at the project root:
 
 | File | Purpose | Env Override |
 |------|---------|--------------|
-| `SYSTEM_PROMPT.md` | Main bot persona and response style | `MAPLE_SYSTEM_PROMPT` or `MAPLE_PROMPT_FILE` |
+| `SYSTEM_PROMPT.md` | Main bot persona and response style | `MAPLE_SYSTEM_PROMPT` / `MAPLE_PROMPT_FILE` or `GROK_SYSTEM_PROMPT` / `GROK_PROMPT_FILE` |
 | `ROUTER_PROMPT.md` | Message classification and action routing | `ROUTER_SYSTEM_PROMPT` or `ROUTER_PROMPT_FILE` |
 
 **Priority for each prompt:**

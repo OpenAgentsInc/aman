@@ -35,6 +35,7 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 - `maple-brain` provides an OpenSecret-based Brain implementation (optional).
 - `grok-brain` provides an xAI Grok-based Brain and tool executor (optional).
 - `orchestrator` coordinates maple-brain (routing/responses) and grok-brain (search) with action plans.
+- `orchestrator` can prompt for PII handling choices and format responses with Signal styles.
 - `mock-brain` provides test Brain implementations for local development.
 - `agent_brain` owns the state machine, routing, and subscription updates.
 - `broadcaster` owns outbound delivery, retries, and chunking.
@@ -66,6 +67,7 @@ For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 - Treat the server as a trusted endpoint (Signal E2EE terminates at the server).
 - Prefer retention-disabled settings (e.g., `store: false`) when supported by your provider.
 - Bind the admin web UI to localhost or place it behind authentication.
+- PII detection can prompt for sanitize/private/cancel choices (sanitization wiring is still in progress).
 
 ## Future phases (planned)
 

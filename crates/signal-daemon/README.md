@@ -61,6 +61,15 @@ let params = SendParams::text("+1234567890", "Check this out")
     .with_attachment("/path/to/file.jpg");
 client.send(params).await?;
 
+// Styled text
+use signal_daemon::TextStyleParam;
+let styles = vec![TextStyleParam {
+    start: 6,
+    length: 4,
+    style: "BOLD".to_string(),
+}];
+client.send_styled_text("+1234567890", "Hello bold world", styles).await?;
+
 // Reply to a message
 let params = SendParams::text("+1234567890", "This is a reply")
     .with_quote(1234567890123, "+0987654321");
@@ -183,6 +192,7 @@ let handle = client.start_health_monitor(Duration::from_secs(30));
 | `account` | `Option<String>` | Account (multi-account mode) |
 | `quote_timestamp` | `Option<u64>` | Reply to message timestamp |
 | `quote_author` | `Option<String>` | Reply to message author |
+| `text_style` | `Vec<TextStyleParam>` | Styled text ranges (BOLD/ITALIC/MONOSPACE/STRIKETHROUGH) |
 
 ### SendResult
 
