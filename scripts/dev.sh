@@ -31,7 +31,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 FORCE_BUILD=false
 START_DAEMON=false
 BIN_DIR="$PROJECT_ROOT/bin"
-BINARY_NAME="aman_bot"
+BINARY_NAME="orchestrated_bot"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -85,11 +85,11 @@ check_env() {
 
 # Build the bot
 build_bot() {
-    echo "Building aman_bot..."
+    echo "Building orchestrated_bot..."
 
     # Build in release mode for better performance
-    cargo build --release --example aman_bot \
-        --manifest-path "$PROJECT_ROOT/crates/maple-brain/Cargo.toml"
+    cargo build --release --example orchestrated_bot \
+        --manifest-path "$PROJECT_ROOT/crates/orchestrator/Cargo.toml"
 
     # Ensure bin directory exists
     mkdir -p "$BIN_DIR"
@@ -186,7 +186,7 @@ main() {
     export RUST_LOG="${RUST_LOG:-info}"
 
     # Run the bot
-    echo "Starting aman_bot..."
+    echo "Starting orchestrated_bot..."
     echo "  Log level: $RUST_LOG"
     echo "  Binary: $BIN_DIR/$BINARY_NAME"
     echo ""

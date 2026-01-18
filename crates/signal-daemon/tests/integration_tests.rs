@@ -324,7 +324,7 @@ mod sse_tests {
         let config = DaemonConfig::default();
         let client = SignalClient::connect(config).await.unwrap();
 
-        let mut stream = signal_daemon::subscribe(&client);
+        let mut stream = signal_daemon::subscribe(&client).unwrap();
 
         // Just verify the stream can be created and polled
         // In a real test, you'd send a message from another device

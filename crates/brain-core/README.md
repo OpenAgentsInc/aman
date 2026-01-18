@@ -2,19 +2,28 @@
 
 ## Responsibility
 
-Defines the shared `Brain` trait and message types used by Aman brain implementations.
+Defines the shared `Brain` trait, `ToolExecutor` trait, and common types used by Aman brain implementations.
 
-## Public interface
+## Public Interface
 
-- `Brain` trait: async `process` + metadata methods.
-- `InboundMessage`: sender, text, timestamp, group_id, attachments.
-- `InboundAttachment`: attachment metadata (content type, filename, file path, size, dimensions).
-- `OutboundMessage`: reply container with recipient and text.
-- `BrainError`: common error types for brain implementations.
-- `ToolExecutor`: optional interface for executing external tools (e.g., real-time search).
-- `ToolRequest` / `ToolResult`: tool call input/output types.
+### Traits
+
+- `Brain` - Async `process()` method for message handling + metadata methods
+- `ToolExecutor` - Interface for executing external tools (e.g., real-time search)
+
+### Types
+
+- `InboundMessage` - Incoming message with sender, text, timestamp, group_id, attachments
+- `InboundAttachment` - Attachment metadata (content type, filename, file path, size, dimensions)
+- `OutboundMessage` - Reply container with recipient and text
+- `BrainError` - Common error types for brain implementations
+- `ToolRequest` / `ToolResult` - Tool call input/output types
+- `ConversationHistory` - Per-sender conversation history with automatic trimming
+- `HistoryMessage` - Individual message in conversation history
 
 ## Usage
+
+### Basic Brain Implementation
 
 ```rust
 use brain_core::{async_trait, Brain, BrainError, InboundMessage, OutboundMessage};
@@ -33,13 +42,64 @@ impl Brain for MyBrain {
 }
 ```
 
+### ConversationHistory
+
+```rust
+use brain_core::ConversationHistory;
+
+// Create history that keeps 5 turns per sender
+let history = ConversationHistory::new(5);
+
+// Add exchanges
+history.add_exchange("+1234", "Hello", "Hi there!").await;
+history.add_exchange("+1234", "How are you?", "I'm doing well!").await;
+
+// Retrieve history for a sender
+let messages = history.get("+1234").await;
+assert_eq!(messages.len(), 4); // 2 turns = 4 messages
+
+// Clear history for a sender
+history.clear("+1234").await;
+
+// Clear all history
+history.clear_all().await;
+```
+
+### ToolExecutor
+
+```rust
+use brain_core::{async_trait, ToolExecutor, ToolRequest, ToolResult, BrainError};
+
+struct MyToolExecutor;
+
+#[async_trait]
+impl ToolExecutor for MyToolExecutor {
+    async fn execute(&self, request: ToolRequest) -> Result<ToolResult, BrainError> {
+        match request.name.as_str() {
+            "search" => {
+                let query = request.require_string("query")?;
+                // Execute search...
+                Ok(ToolResult::success(&request.id, "Search results here"))
+            }
+            _ => Ok(ToolResult::error(&request.id, "Unknown tool"))
+        }
+    }
+
+    fn supported_tools(&self) -> Vec<String> {
+        vec!["search".to_string()]
+    }
+}
+```
+
 ## Notes
 
-- This crate has no I/O; it is purely types + trait definitions.
-- Attachments are represented as metadata and file paths from signal-cli.
-- Tool executors receive sanitized queries crafted by the brain (privacy boundary).
+- This crate has no I/O; it is purely types + trait definitions
+- Attachments are represented as metadata and file paths from signal-cli
+- Tool executors receive sanitized queries crafted by the brain (privacy boundary)
+- ConversationHistory uses `tokio::sync::RwLock` for thread-safe access
 
-## Security notes
+## Security Notes
 
-- Treat attachment file paths as sensitive.
-- Avoid logging message contents by default.
+- Treat attachment file paths as sensitive
+- Avoid logging message contents by default
+- Tool queries should be sanitized to not leak raw user messages

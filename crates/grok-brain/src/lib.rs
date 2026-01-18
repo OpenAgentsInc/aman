@@ -49,7 +49,6 @@
 mod api_types;
 mod brain;
 mod config;
-mod history;
 mod tool_executor;
 
 pub use brain::GrokBrain;
@@ -57,4 +56,7 @@ pub use config::GrokBrainConfig;
 pub use tool_executor::GrokToolExecutor;
 
 // Re-export brain-core types for convenience
-pub use brain_core::{async_trait, Brain, BrainError, InboundMessage, OutboundMessage, ToolExecutor};
+pub use brain_core::{
+    async_trait, Brain, BrainError, ConversationHistory, HistoryMessage, InboundMessage,
+    OutboundMessage, ToolExecutor,
+};

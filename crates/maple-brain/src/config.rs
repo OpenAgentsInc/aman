@@ -7,6 +7,9 @@ use brain_core::BrainError;
 /// Default path for the system prompt file.
 pub const DEFAULT_PROMPT_FILE: &str = "PROMPT.md";
 
+/// Default maximum number of tool call rounds.
+const DEFAULT_MAX_TOOL_ROUNDS: usize = 2;
+
 /// Configuration for MapleBrain.
 #[derive(Debug, Clone)]
 pub struct MapleBrainConfig {
@@ -33,6 +36,10 @@ pub struct MapleBrainConfig {
 
     /// Maximum number of conversation turns to keep in history.
     pub max_history_turns: usize,
+
+    /// Maximum number of tool call rounds to prevent infinite loops.
+    /// Default: 2 (one search should usually be enough).
+    pub max_tool_rounds: usize,
 }
 
 impl Default for MapleBrainConfig {
@@ -46,6 +53,7 @@ impl Default for MapleBrainConfig {
             max_tokens: Some(1024),
             temperature: Some(0.7),
             max_history_turns: 10,
+            max_tool_rounds: DEFAULT_MAX_TOOL_ROUNDS,
         }
     }
 }
@@ -65,6 +73,7 @@ impl MapleBrainConfig {
     /// - `MAPLE_MAX_TOKENS` - Max tokens (default: 1024)
     /// - `MAPLE_TEMPERATURE` - Temperature (default: 0.7)
     /// - `MAPLE_MAX_HISTORY_TURNS` - Max history turns (default: 10)
+    /// - `MAPLE_MAX_TOOL_ROUNDS` - Max tool call rounds (default: 2)
     ///
     /// System prompt priority:
     /// 1. `MAPLE_SYSTEM_PROMPT` env var (if set)
@@ -106,6 +115,11 @@ impl MapleBrainConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
 
+        let max_tool_rounds = env::var("MAPLE_MAX_TOOL_ROUNDS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(DEFAULT_MAX_TOOL_ROUNDS);
+
         Ok(Self {
             api_url,
             api_key,
@@ -115,6 +129,7 @@ impl MapleBrainConfig {
             max_tokens: max_tokens.or(Some(1024)),
             temperature: temperature.or(Some(0.7)),
             max_history_turns,
+            max_tool_rounds,
         })
     }
 
@@ -160,6 +175,15 @@ impl MapleBrainConfig {
     /// Set the vision model.
     pub fn with_vision_model(mut self, model: impl Into<String>) -> Self {
         self.vision_model = model.into();
+        self
+    }
+
+    /// Set the maximum number of tool call rounds.
+    ///
+    /// This limits how many times the model can request tool execution
+    /// in a single message processing. Set to 0 to disable tools entirely.
+    pub fn with_max_tool_rounds(mut self, rounds: usize) -> Self {
+        self.max_tool_rounds = rounds;
         self
     }
 

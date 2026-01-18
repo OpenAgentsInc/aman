@@ -1,6 +1,8 @@
 //! GrokBrain implementation using xAI API.
 
-use brain_core::{async_trait, Brain, BrainError, InboundMessage, OutboundMessage};
+use brain_core::{
+    async_trait, Brain, BrainError, ConversationHistory, InboundMessage, OutboundMessage,
+};
 use reqwest::Client;
 use tracing::{debug, info, warn};
 
@@ -8,7 +10,6 @@ use crate::api_types::{
     ApiError, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, SearchParameters,
 };
 use crate::config::GrokBrainConfig;
-use crate::history::ConversationHistory;
 
 /// A brain implementation that uses xAI's Grok API for AI processing.
 ///

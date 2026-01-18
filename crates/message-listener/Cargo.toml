@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 maple = ["dep:maple-brain"]
+signal = ["tokio/signal"]
 
 [dependencies]
 brain-core = { path = "../brain-core" }
@@ -20,7 +21,7 @@ maple-brain = { path = "../maple-brain", optional = true }
 futures = "0.3"
 thiserror = "2"
 tracing = "0.1"
-tokio = { version = "1", features = ["rt", "sync"] }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

@@ -137,6 +137,19 @@ export HTTP_ADDR="127.0.0.1:8080"
 cargo run -p agent-brain --bin agent_brain_bot
 ```
 
+Optional: run the orchestrated bot (recommended):
+
+```bash
+# Using the dev script (requires MAPLE_API_KEY and GROK_API_KEY in .env)
+./scripts/dev.sh
+
+# Or manually
+export MAPLE_API_KEY="..."
+export GROK_API_KEY="..."
+export AMAN_NUMBER="+15551234567"
+cargo run -p orchestrator --example orchestrated_bot
+```
+
 Optional: run the message listener with a Brain implementation:
 
 ```bash

@@ -6,7 +6,16 @@ The message listener owns Signal inbound transport. It connects to the signal-cl
 normalizes inbound messages into `InboundMessage` values (including attachment metadata), and can optionally run a
 `MessageProcessor` to invoke a Brain implementation and send responses.
 
-## Public interfaces
+## Features
+
+- **Brain Integration**: Process messages through any `Brain` implementation
+- **Timeout Protection**: Configurable timeout prevents pipeline hangs from slow AI responses (default: 60s)
+- **Graceful Shutdown**: Clean shutdown with `run_with_shutdown()` or `run_until_stopped()`
+- **Attachment Support**: Processes messages with images; attachment-only messages supported
+- **Typing Indicators**: Optional typing indicators during processing
+- **Auto-Reconnection**: Inherits SSE auto-reconnection from signal-daemon
+
+## Public Interfaces
 
 Consumes:
 
@@ -19,21 +28,73 @@ Produces:
 
 Processing:
 
-- `MessageProcessor` calls a `Brain` implementation and sends replies via `signal-daemon`.
-- `MessageProcessor` resolves attachment paths using `DaemonConfig` (defaults to the signal-cli data dir).
-- For queue-based systems, persist `InboundMessage` to your store for `agent_brain` to consume.
+- `MessageProcessor` calls a `Brain` implementation and sends replies via `signal-daemon`
+- `MessageProcessor` resolves attachment paths using `DaemonConfig`
 
-## Signal-cli mode
+## Usage
 
-Preferred:
+### Basic MessageProcessor
 
-- signal-cli daemon `--http` with SSE events (`/api/v1/events`).
+```rust
+use message_listener::{MessageProcessor, ProcessorConfig, EchoBrain};
+use signal_daemon::{DaemonConfig, SignalClient};
 
-Fallback:
+let client = SignalClient::connect(DaemonConfig::default()).await?;
+let brain = EchoBrain::default();
+let config = ProcessorConfig::with_bot_number("+15551234567");
 
-- `signal-cli receive` polling loop (manual mode).
+let processor = MessageProcessor::new(client, brain, config);
+processor.run().await?;
+```
 
-## How to run it
+### With Timeout Configuration
+
+```rust
+use std::time::Duration;
+
+let config = ProcessorConfig {
+    bot_number: Some("+15551234567".to_string()),
+    brain_timeout: Duration::from_secs(30),  // 30 second timeout
+    ..Default::default()
+};
+```
+
+### Graceful Shutdown
+
+```rust
+// Using a custom shutdown signal
+let shutdown = async {
+    tokio::signal::ctrl_c().await.unwrap();
+};
+processor.run_with_shutdown(shutdown).await?;
+
+// Or use the convenience method (requires "signal" feature)
+processor.run_until_stopped().await?;
+```
+
+### Attachment-Only Messages
+
+```rust
+let config = ProcessorConfig {
+    process_attachment_only: true,  // Default: true
+    ..Default::default()
+};
+```
+
+## Configuration
+
+### ProcessorConfig Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `bot_number` | `Option<String>` | `None` | Bot's phone number (to ignore messages from self) |
+| `process_groups` | `bool` | `true` | Whether to process group messages |
+| `process_direct` | `bool` | `true` | Whether to process direct messages |
+| `send_typing_indicators` | `bool` | `false` | Send typing indicators while processing |
+| `brain_timeout` | `Duration` | `60s` | Timeout for brain processing |
+| `process_attachment_only` | `bool` | `true` | Process messages with attachments but no text |
+
+## How to Run
 
 This crate is a library. Use it from a service binary or run the examples.
 
@@ -46,31 +107,44 @@ cargo run -p message-listener --example processor_bot
 # MapleBrain (OpenSecret) processor
 export MAPLE_API_KEY="..."
 cargo run -p message-listener --example maple_bot --features maple
+
+# With graceful shutdown support
+cargo run -p message-listener --example processor_bot --features signal
 ```
 
 For daemon setup, see `docs/signal-cli-daemon.md`.
-If signal-cli uses a custom data directory (`--config`), ensure your client
-config uses the matching directory (via `DaemonConfig::with_data_dir`) so
-attachment paths resolve correctly.
 
-## How to test it
+## How to Test
 
-- `cargo test -p message-listener`
-- Use the examples above with a local signal-cli daemon.
+```bash
+# Unit tests
+cargo test -p message-listener
 
-## Failure modes
+# With signal feature
+cargo test -p message-listener --features signal
+```
 
-- signal-cli daemon not running or unreachable.
-- Duplicate deliveries without dedupe persistence.
-- Attachments present but files missing or inaccessible.
-- Attachment-only messages are currently skipped (no text content).
-- MapleBrain config/attestation failures when using OpenSecret.
+## Error Handling
 
-## Roadmap
+### ProcessorError Variants
 
-- See `ROADMAP.md` for planned RAG and Nostr phases. The listener remains the inbound Signal transport layer.
+| Variant | Description |
+|---------|-------------|
+| `Daemon(DaemonError)` | Error from the signal daemon |
+| `Brain(BrainError)` | Error from the brain during processing |
+| `Timeout(Duration)` | Brain processing timed out |
+| `StreamEnded` | The message stream ended unexpectedly |
 
-## Security notes
+## Failure Modes
 
-- Do not log raw message bodies or attachment file paths by default.
-- Protect signal-cli storage paths and credentials.
+- signal-cli daemon not running or unreachable (auto-reconnects)
+- Brain processing timeout (returns `ProcessorError::Timeout`)
+- Duplicate deliveries without dedupe persistence
+- Attachments present but files missing or inaccessible
+- MapleBrain config/attestation failures when using OpenSecret
+
+## Security Notes
+
+- Do not log raw message bodies or attachment file paths by default
+- Protect signal-cli storage paths and credentials
+- Brain timeout prevents resource exhaustion from slow AI responses

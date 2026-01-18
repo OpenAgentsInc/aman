@@ -20,7 +20,6 @@
 
 mod brain;
 mod config;
-mod history;
 mod tools;
 
 pub use brain::{MapleBrain, StatusCallback, StatusUpdate};
@@ -28,4 +27,7 @@ pub use config::MapleBrainConfig;
 pub use tools::{ToolDefinition, ToolExecutor, ToolRequest, ToolResult};
 
 // Re-export brain-core types for convenience
-pub use brain_core::{async_trait, Brain, BrainError, InboundMessage, OutboundMessage};
+pub use brain_core::{
+    async_trait, Brain, BrainError, ConversationHistory, HistoryMessage, InboundMessage,
+    OutboundMessage,
+};

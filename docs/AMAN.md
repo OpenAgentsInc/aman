@@ -31,14 +31,15 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 ```
 
 - `message_listener` owns inbound Signal transport and normalization.
-- `brain-core` defines the shared `Brain` trait and message types (including attachments metadata).
+- `brain-core` defines the shared `Brain` trait, `ToolExecutor` trait, `ConversationHistory`, and message types.
 - `maple-brain` provides an OpenSecret-based Brain implementation (optional).
 - `grok-brain` provides an xAI Grok-based Brain and tool executor (optional).
+- `orchestrator` coordinates maple-brain (routing/responses) and grok-brain (search) with action plans.
 - `mock-brain` provides test Brain implementations for local development.
 - `agent_brain` owns the state machine, routing, and subscription updates.
 - `broadcaster` owns outbound delivery, retries, and chunking.
 - `regional_event_listener` ingests regional events and emits `RegionEvent` records.
-- `signal-daemon` is the HTTP/SSE client used by `message_listener` and `broadcaster`.
+- `signal-daemon` is the HTTP/SSE client (with auto-reconnection) used by `message_listener` and `broadcaster`.
 - `database` provides SQLite persistence for users, topics, and subscriptions.
 - Web UI in `web/` provides browser-based chat via `/api/chat` (separate from Signal flow).
 - `api` provides an OpenAI-compatible inference endpoint for the web UI.
@@ -46,11 +47,13 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 - `ingester` chunks files and publishes/indexes Nostr events for the knowledge base.
 - `admin-web` provides a dashboard and broadcast tool for operators.
 
-Optional: `message_listener` can also run a `MessageProcessor` that calls a `Brain`
-(mock or MapleBrain) directly and sends replies via `signal-daemon`.
-`agent-brain` also ships a simple `agent_brain_bot` binary for local Signal MVP use.
-MapleBrain can optionally call `realtime_search` via a `ToolExecutor` (e.g., Grok)
-for privacy-preserving real-time lookups.
+Optional modes:
+- `orchestrator` runs the full orchestrated bot with routing and search (recommended).
+- `message_listener` can also run a `MessageProcessor` that calls a `Brain`
+  (mock or MapleBrain) directly and sends replies via `signal-daemon`.
+- `agent-brain` ships a simple `agent_brain_bot` binary for local Signal MVP use.
+- MapleBrain can optionally call `realtime_search` via a `ToolExecutor` (e.g., Grok)
+  for privacy-preserving real-time lookups.
 
 For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 

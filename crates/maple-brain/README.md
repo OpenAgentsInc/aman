@@ -36,6 +36,7 @@ maple-brain = { path = "../maple-brain" }
 | `MAPLE_MAX_TOKENS` | No | `1024` | Maximum tokens in response |
 | `MAPLE_TEMPERATURE` | No | `0.7` | Sampling temperature (0.0-2.0) |
 | `MAPLE_MAX_HISTORY_TURNS` | No | `10` | Conversation history per sender |
+| `MAPLE_MAX_TOOL_ROUNDS` | No | `2` | Max tool execution rounds per request |
 
 ### System Prompt File
 

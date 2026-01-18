@@ -15,7 +15,7 @@
 //! let listener = MessageListener::connect(config).await?;
 //!
 //! // Subscribe to incoming messages
-//! let mut stream = listener.subscribe();
+//! let mut stream = listener.subscribe()?;
 //!
 //! while let Some(result) = stream.next().await {
 //!     match result {
@@ -52,7 +52,6 @@
 
 mod processor;
 
-use futures::stream::Stream;
 use signal_daemon::{DaemonConfig, DaemonError, MessageStream, SignalClient};
 use thiserror::Error;
 use tracing::info;
@@ -99,15 +98,23 @@ impl MessageListener {
     ///
     /// Returns a stream of message envelopes. The stream will continue
     /// indefinitely until an error occurs or the connection is closed.
-    pub fn subscribe(&self) -> impl Stream<Item = Result<Envelope, DaemonError>> + Send {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the SSE connection cannot be established.
+    pub fn subscribe(&self) -> Result<MessageStream, DaemonError> {
         signal_daemon::subscribe(&self.client)
     }
 
     /// Subscribe to incoming messages with custom reconnection configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the SSE connection cannot be established.
     pub fn subscribe_with_reconnect(
         &self,
         reconnect_config: ReconnectConfig,
-    ) -> MessageStream {
+    ) -> Result<MessageStream, DaemonError> {
         signal_daemon::subscribe_with_reconnect(&self.client, reconnect_config)
     }
 

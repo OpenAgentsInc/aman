@@ -77,7 +77,7 @@ client.send_typing("+1234567890", false).await?;
 use signal_daemon::subscribe;
 use futures::StreamExt;
 
-let mut stream = subscribe(&client);
+let mut stream = subscribe(&client)?;
 
 while let Some(result) = stream.next().await {
     match result {
@@ -275,6 +275,26 @@ match client.send_text(recipient, message).await {
 
 ## Common Patterns
 
+### SSE Auto-Reconnection
+
+The SSE stream automatically reconnects on connection loss with exponential backoff:
+
+```rust
+use signal_daemon::{subscribe, subscribe_with_reconnect, ReconnectConfig};
+
+// Default: unlimited retries, 500ms initial delay, 30s max delay
+let mut stream = subscribe(&client)?;
+
+// Custom reconnection config
+let config = ReconnectConfig::default()
+    .with_max_retries(5);  // Give up after 5 attempts
+let mut stream = subscribe_with_reconnect(&client, config)?;
+
+// Disable reconnection entirely
+let config = ReconnectConfig::no_reconnect();
+let mut stream = subscribe_with_reconnect(&client, config)?;
+```
+
 ### Echo Bot
 
 ```rust
@@ -282,7 +302,7 @@ use signal_daemon::{DaemonConfig, SignalClient, subscribe};
 use futures::StreamExt;
 
 let client = SignalClient::connect(DaemonConfig::default()).await?;
-let mut stream = subscribe(&client);
+let mut stream = subscribe(&client)?;
 
 while let Some(Ok(envelope)) = stream.next().await {
     if let Some(msg) = &envelope.data_message {

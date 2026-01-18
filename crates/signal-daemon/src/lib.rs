@@ -23,7 +23,7 @@
 //!
 //! // Subscribe to incoming messages
 //! use futures::StreamExt;
-//! let mut messages = signal_daemon::subscribe(&client);
+//! let mut messages = signal_daemon::subscribe(&client)?;
 //! while let Some(result) = messages.next().await {
 //!     match result {
 //!         Ok(envelope) => {

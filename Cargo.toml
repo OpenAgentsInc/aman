@@ -12,5 +12,6 @@ members = [
     "crates/ingester",
     "crates/message-listener",
     "crates/mock-brain",
+    "crates/orchestrator",
     "crates/signal-daemon",
 ]

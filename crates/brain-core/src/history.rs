@@ -1,4 +1,7 @@
 //! Conversation history management.
+//!
+//! This module provides per-sender conversation history tracking with
+//! automatic turn-based trimming.
 
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -31,6 +34,26 @@ impl HistoryMessage {
 }
 
 /// Per-sender conversation history.
+///
+/// Maintains separate conversation histories for each sender (or group),
+/// with automatic trimming to a configurable maximum number of turns.
+///
+/// # Example
+///
+/// ```rust
+/// use brain_core::ConversationHistory;
+///
+/// #[tokio::main(flavor = "current_thread")]
+/// async fn main() {
+///     let history = ConversationHistory::new(5); // Keep 5 turns
+///
+///     history.add_exchange("+1234", "Hello", "Hi there!").await;
+///     history.add_exchange("+1234", "How are you?", "I'm doing well!").await;
+///
+///     let messages = history.get("+1234").await;
+///     assert_eq!(messages.len(), 4); // 2 turns = 4 messages
+/// }
+/// ```
 #[derive(Debug, Default)]
 pub struct ConversationHistory {
     /// Map from sender ID to their message history.
@@ -57,7 +80,7 @@ impl ConversationHistory {
     /// Add a user message and assistant response to the history.
     pub async fn add_exchange(&self, sender: &str, user_msg: &str, assistant_msg: &str) {
         let mut histories = self.histories.write().await;
-        let history = histories.entry(sender.to_string()).or_insert_with(Vec::new);
+        let history = histories.entry(sender.to_string()).or_default();
 
         history.push(HistoryMessage::user(user_msg));
         history.push(HistoryMessage::assistant(assistant_msg));
@@ -92,7 +115,9 @@ mod tests {
         let history = ConversationHistory::new(5);
 
         history.add_exchange("+1234", "Hello", "Hi there!").await;
-        history.add_exchange("+1234", "How are you?", "I'm doing well!").await;
+        history
+            .add_exchange("+1234", "How are you?", "I'm doing well!")
+            .await;
 
         let messages = history.get("+1234").await;
         assert_eq!(messages.len(), 4);
@@ -106,13 +131,14 @@ mod tests {
     async fn test_history_trimming() {
         let history = ConversationHistory::new(2); // Keep only 2 turns
 
-        history.add_exchange("+1234", "Msg 1", "Reply 1").await;
-        history.add_exchange("+1234", "Msg 2", "Reply 2").await;
-        history.add_exchange("+1234", "Msg 3", "Reply 3").await;
+        history.add_exchange("+1234", "First", "Response 1").await;
+        history.add_exchange("+1234", "Second", "Response 2").await;
+        history.add_exchange("+1234", "Third", "Response 3").await;
 
         let messages = history.get("+1234").await;
         assert_eq!(messages.len(), 4); // 2 turns = 4 messages
-        assert_eq!(messages[0].content, "Msg 2"); // First message trimmed
+        assert_eq!(messages[0].content, "Second");
+        assert_eq!(messages[1].content, "Response 2");
     }
 
     #[tokio::test]
@@ -136,9 +162,30 @@ mod tests {
         let history = ConversationHistory::new(5);
 
         history.add_exchange("+1234", "Hello", "Hi!").await;
-        assert_eq!(history.get("+1234").await.len(), 2);
+        history.add_exchange("+5678", "Hey", "Hello!").await;
 
         history.clear("+1234").await;
-        assert_eq!(history.get("+1234").await.len(), 0);
+
+        let messages1 = history.get("+1234").await;
+        let messages2 = history.get("+5678").await;
+
+        assert!(messages1.is_empty());
+        assert_eq!(messages2.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_clear_all_history() {
+        let history = ConversationHistory::new(5);
+
+        history.add_exchange("+1234", "Hello", "Hi!").await;
+        history.add_exchange("+5678", "Hey", "Hello!").await;
+
+        history.clear_all().await;
+
+        let messages1 = history.get("+1234").await;
+        let messages2 = history.get("+5678").await;
+
+        assert!(messages1.is_empty());
+        assert!(messages2.is_empty());
     }
 }

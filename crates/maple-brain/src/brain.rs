@@ -1,7 +1,10 @@
 //! MapleBrain implementation using OpenSecret SDK.
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use brain_core::{async_trait, Brain, BrainError, InboundAttachment, InboundMessage, OutboundMessage};
+use brain_core::{
+    async_trait, Brain, BrainError, ConversationHistory, InboundAttachment, InboundMessage,
+    OutboundMessage, ToolExecutor, ToolRequest,
+};
 use futures::StreamExt;
 use opensecret::{
     types::{ChatCompletionRequest, ChatMessage, ToolCall},
@@ -14,13 +17,7 @@ use tokio::fs;
 use tracing::{debug, info, warn};
 
 use crate::config::MapleBrainConfig;
-use crate::history::ConversationHistory;
 use crate::tools::ToolDefinition;
-use brain_core::{ToolExecutor, ToolRequest};
-
-/// Maximum number of tool call rounds to prevent infinite loops.
-/// Set to 2 to limit costs and latency - one search should usually be enough.
-const MAX_TOOL_ROUNDS: usize = 2;
 
 /// Status updates that can be sent during message processing.
 #[derive(Debug, Clone)]
@@ -161,6 +158,51 @@ impl MapleBrain {
     /// Clear all conversation histories.
     pub async fn clear_all_history(&self) {
         self.history.clear_all().await;
+    }
+
+    /// Get recent user messages for context (up to last N).
+    ///
+    /// Returns the most recent user messages from conversation history,
+    /// useful for topic detection and context-aware routing.
+    pub async fn get_recent_user_messages(&self, sender: &str, max_messages: usize) -> Vec<String> {
+        let history = self.history.get(sender).await;
+        history
+            .iter()
+            .filter(|msg| msg.role == "user")
+            .map(|msg| msg.content.clone())
+            .rev()
+            .take(max_messages)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
+    }
+
+    /// Get a brief context summary for routing decisions.
+    ///
+    /// Returns a short string summarizing recent conversation topics,
+    /// or None if there's no history.
+    pub async fn get_context_summary(&self, sender: &str) -> Option<String> {
+        let recent = self.get_recent_user_messages(sender, 3).await;
+        if recent.is_empty() {
+            return None;
+        }
+
+        // Create a brief summary of recent topics
+        let summary = recent
+            .iter()
+            .map(|msg| {
+                // Truncate long messages
+                if msg.len() > 50 {
+                    format!("{}...", &msg[..47])
+                } else {
+                    msg.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+
+        Some(summary)
     }
 
     /// Process a message with status updates via callback.
@@ -487,8 +529,11 @@ impl MapleBrain {
         // Tool call loop
         loop {
             rounds += 1;
-            if rounds > MAX_TOOL_ROUNDS {
-                warn!("Exceeded maximum tool call rounds ({})", MAX_TOOL_ROUNDS);
+            if rounds > self.config.max_tool_rounds {
+                warn!(
+                    "Exceeded maximum tool call rounds ({})",
+                    self.config.max_tool_rounds
+                );
                 break;
             }
 

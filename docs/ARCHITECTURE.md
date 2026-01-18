@@ -4,10 +4,11 @@
 
 - Signal-native messaging experience.
 - Opt-in regional alerts for activists and human-rights defenders.
-- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`, `admin-web`, `grok-brain`.
+- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`, `admin-web`, `grok-brain`, `orchestrator`.
 - Data persistence crate: `database` (SQLite via SQLx).
-- Brain interface crate: `brain-core` (shared Brain trait and message types).
+- Brain interface crate: `brain-core` (shared Brain trait, message types, and ConversationHistory).
 - Optional brain crate: `maple-brain` (OpenSecret-based AI backend).
+- Orchestration crate: `orchestrator` (routes messages, executes action plans, coordinates brains).
 - Test harness crate: `mock-brain` (mock implementations for message flow testing, built on `brain-core`).
 - Regional event ingestion as a subsystem/service (documented under `agent_brain::regional_events`).
 - For planned phases beyond the MVP, see `ROADMAP.md`.
@@ -31,13 +32,18 @@
 - `signal-daemon` (crate: `crates/signal-daemon`)
   - HTTP/SSE client for signal-cli daemon.
   - Shared dependency for inbound and outbound transport.
+  - SSE auto-reconnection with configurable exponential backoff.
 - `message_listener` (crate: `crates/message-listener`)
   - Owns Signal inbound transport via `signal-daemon` (HTTP/SSE).
   - Normalizes inbound messages into `InboundMessage` records (including attachments metadata).
   - Emits normalized events into the local queue/state store.
+  - Configurable brain processing timeout (default: 60s) prevents pipeline hangs.
+  - Graceful shutdown via `run_with_shutdown()` or `run_until_stopped()`.
+  - Supports attachment-only messages (configurable).
 - `brain-core` (crate: `crates/brain-core`)
-  - Shared Brain trait and message types for AI backends.
+  - Shared Brain trait, ToolExecutor trait, and message types for AI backends.
   - Defines attachments metadata (`InboundAttachment`) for inbound processing.
+  - Provides `ConversationHistory` for per-sender message history with auto-trimming.
 - `maple-brain` (crate: `crates/maple-brain`)
   - OpenSecret-based Brain implementation with attestation handshake, per-sender history, and vision support.
   - Optional tool calling via `ToolExecutor` (e.g., Grok real-time search).
@@ -45,6 +51,12 @@
 - `grok-brain` (crate: `crates/grok-brain`)
   - xAI Grok Brain implementation with optional X/Web search.
   - Provides `GrokToolExecutor` for MapleBrain tool calls.
+- `orchestrator` (crate: `crates/orchestrator`)
+  - Message routing and action plan execution.
+  - Routes messages through a privacy-preserving classifier (maple-brain TEE).
+  - Executes multi-step actions: search, clear context, respond, show help.
+  - Coordinates maple-brain (for routing and responses) and grok-brain (for search).
+  - Maintains typing indicators and sends interim status messages.
 - `agent_brain` (crate: `crates/agent-brain`)
   - Owns message handling, onboarding state machine, and routing decisions.
   - Implements the `Brain` trait for use with `message_listener`.
@@ -171,10 +183,23 @@ Region parsing:
 
 1. Signal -> `message_listener` receives inbound envelope.
 2. `MessageProcessor` converts to `InboundMessage` (including attachments metadata).
-3. `MessageProcessor` calls a `Brain` implementation (mock or MapleBrain).
+3. `MessageProcessor` calls a `Brain` implementation (mock or MapleBrain) with timeout.
 4. `MessageProcessor` sends `OutboundMessage` via `signal-daemon`.
 
-Note: the current processor requires a text body; attachment-only messages are skipped.
+Note: Attachment-only messages are processed by default (`process_attachment_only: true`).
+
+### Orchestrator flow (recommended)
+
+1. Signal -> `message_listener` receives inbound envelope.
+2. `Orchestrator` starts typing indicator.
+3. `Router` (using maple-brain in TEE) classifies the message and returns a `RoutingPlan`.
+4. `Orchestrator` executes actions in sequence:
+   - `Search`: Calls grok-brain for real-time search, sends status message.
+   - `ClearContext`: Clears conversation history for sender, sends confirmation.
+   - `Respond`: Generates final response using maple-brain with accumulated context.
+   - `ShowHelp`: Displays help text.
+5. `Orchestrator` stops typing indicator.
+6. `Orchestrator` returns final response for delivery.
 
 ### Tool execution flow (optional)
 
@@ -245,6 +270,7 @@ Environment variables (names may be implementation-specific):
 - `MAPLE_MAX_TOKENS`: max tokens for MapleBrain responses.
 - `MAPLE_TEMPERATURE`: temperature for MapleBrain responses.
 - `MAPLE_MAX_HISTORY_TURNS`: per-sender history length.
+- `MAPLE_MAX_TOOL_ROUNDS`: max tool execution rounds per request (default: 2).
 - `GROK_API_KEY`: xAI API key for `grok-brain` / `GrokToolExecutor`.
 - `GROK_API_URL`: optional API URL override (default: `https://api.x.ai`).
 - `GROK_MODEL`: Grok model name (default: `grok-4-1-fast`).
@@ -407,7 +433,10 @@ AccessPolicy content:
 - **maple-brain**: OpenSecret-backed Brain implementation.
 - **admin-web**: admin dashboard and broadcast UI for operators.
 - **grok-brain**: xAI Grok Brain and GrokToolExecutor implementations.
+- **orchestrator**: message routing and action plan execution coordinator.
 - **ToolExecutor**: interface for executing external tools (e.g., real-time search).
+- **RoutingPlan**: list of actions (search, clear context, respond, show help) to execute.
+- **ConversationHistory**: per-sender message history with auto-trimming (in brain-core).
 - **DocManifest**: planned event describing a document and its chunks.
 - **Chunk**: planned unit of text for retrieval and citations.
 - **Embedding artifact**: planned vector or reference for retrieval.

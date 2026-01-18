@@ -1,11 +1,17 @@
 //! Message processor that connects signal-daemon to a Brain implementation.
 
+use std::time::Duration;
+
 use brain_core::{Brain, BrainError};
 use futures::StreamExt;
 use mock_brain::EnvelopeExt;
 use signal_daemon::{DaemonError, Envelope, SignalClient};
 use thiserror::Error;
+use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
+
+/// Default timeout for brain processing (60 seconds).
+const DEFAULT_BRAIN_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Configuration for the message processor.
 #[derive(Debug, Clone)]
@@ -21,6 +27,15 @@ pub struct ProcessorConfig {
 
     /// Whether to send typing indicators while processing.
     pub send_typing_indicators: bool,
+
+    /// Timeout for brain processing. If a brain takes longer than this to
+    /// respond, the request will be cancelled and an error returned.
+    /// Default: 60 seconds.
+    pub brain_timeout: Duration,
+
+    /// Whether to process messages that have attachments but no text.
+    /// Default: true (process attachment-only messages).
+    pub process_attachment_only: bool,
 }
 
 impl Default for ProcessorConfig {
@@ -30,6 +45,8 @@ impl Default for ProcessorConfig {
             process_groups: true,
             process_direct: true,
             send_typing_indicators: false,
+            brain_timeout: DEFAULT_BRAIN_TIMEOUT,
+            process_attachment_only: true,
         }
     }
 }
@@ -54,6 +71,10 @@ pub enum ProcessorError {
     /// Error from the brain during processing.
     #[error("brain error: {0}")]
     Brain(#[from] BrainError),
+
+    /// Brain processing timed out.
+    #[error("brain processing timed out after {0:?}")]
+    Timeout(Duration),
 
     /// The message stream ended unexpectedly.
     #[error("message stream ended")]
@@ -116,16 +137,26 @@ impl<B: Brain> MessageProcessor<B> {
             }
         }
 
-        // Check if it has a data message with text
+        // Check if it has a data message
         let data_message = envelope
             .data_message
             .as_ref()
             .ok_or_else(|| "no data message".to_string())?;
 
-        data_message
-            .message
-            .as_ref()
-            .ok_or_else(|| "no text content".to_string())?;
+        // Check if message has text content
+        let has_text = data_message.message.is_some();
+        let has_attachments = !data_message.attachments.is_empty();
+
+        // Must have either text or attachments (if attachment-only is enabled)
+        if !has_text {
+            if has_attachments && self.config.process_attachment_only {
+                // Allow attachment-only messages
+            } else if has_attachments {
+                return Err("attachment-only messages disabled".to_string());
+            } else {
+                return Err("no text content or attachments".to_string());
+            }
+        }
 
         // Check group/direct message filtering
         let is_group = data_message.group_info.is_some();
@@ -173,10 +204,12 @@ impl<B: Brain> MessageProcessor<B> {
             }
         }
 
-        // Process through brain
-        let response = match self.brain.process(inbound.clone()).await {
-            Ok(resp) => resp,
-            Err(e) => {
+        // Process through brain with timeout
+        let brain_result = timeout(self.config.brain_timeout, self.brain.process(inbound.clone())).await;
+
+        let response = match brain_result {
+            Ok(Ok(resp)) => resp,
+            Ok(Err(e)) => {
                 error!("Brain error for {}: {}", sender, e);
                 // Stop typing indicator on error
                 if self.config.send_typing_indicators {
@@ -191,6 +224,25 @@ impl<B: Brain> MessageProcessor<B> {
                     };
                 }
                 return ProcessResult::Error(ProcessorError::Brain(e));
+            }
+            Err(_elapsed) => {
+                error!(
+                    "Brain processing timed out for {} after {:?}",
+                    sender, self.config.brain_timeout
+                );
+                // Stop typing indicator on timeout
+                if self.config.send_typing_indicators {
+                    let _ = if is_group {
+                        if let Some(ref group_id) = inbound.group_id {
+                            self.client.send_typing_to_group(group_id, false).await
+                        } else {
+                            Ok(())
+                        }
+                    } else {
+                        self.client.send_typing(&sender, false).await
+                    };
+                }
+                return ProcessResult::Error(ProcessorError::Timeout(self.config.brain_timeout));
             }
         };
 
@@ -230,7 +282,7 @@ impl<B: Brain> MessageProcessor<B> {
     pub async fn run(self) -> Result<(), ProcessorError> {
         info!("Starting message processor with brain: {}", self.brain.name());
 
-        let mut stream = signal_daemon::subscribe(&self.client);
+        let mut stream = signal_daemon::subscribe(&self.client)?;
 
         while let Some(result) = stream.next().await {
             match result {
@@ -269,7 +321,7 @@ impl<B: Brain> MessageProcessor<B> {
     {
         info!("Starting message processor with brain: {}", self.brain.name());
 
-        let mut stream = signal_daemon::subscribe(&self.client);
+        let mut stream = signal_daemon::subscribe(&self.client)?;
 
         while let Some(result) = stream.next().await {
             match result {
@@ -286,6 +338,118 @@ impl<B: Brain> MessageProcessor<B> {
 
         warn!("Message stream ended");
         Err(ProcessorError::StreamEnded)
+    }
+
+    /// Run the processor with graceful shutdown support.
+    ///
+    /// This method runs until either:
+    /// - The provided shutdown signal completes
+    /// - The message stream ends
+    /// - An unrecoverable error occurs
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use message_listener::{MessageProcessor, ProcessorConfig, EchoBrain};
+    /// use signal_daemon::{DaemonConfig, SignalClient};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = SignalClient::connect(DaemonConfig::default()).await?;
+    /// let brain = EchoBrain::default();
+    /// let processor = MessageProcessor::with_defaults(client, brain);
+    ///
+    /// // Run until Ctrl+C (requires tokio "signal" feature)
+    /// processor.run_with_shutdown(tokio::signal::ctrl_c()).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn run_with_shutdown<S>(self, shutdown_signal: S) -> Result<(), ProcessorError>
+    where
+        S: std::future::Future<Output = ()> + Send,
+    {
+        info!(
+            "Starting message processor with brain: {} (graceful shutdown enabled)",
+            self.brain.name()
+        );
+
+        let mut stream = signal_daemon::subscribe(&self.client)?;
+
+        tokio::pin!(shutdown_signal);
+
+        loop {
+            tokio::select! {
+                biased;
+
+                // Check for shutdown signal first
+                () = &mut shutdown_signal => {
+                    info!("Shutdown signal received, stopping message processor");
+                    // Call brain's shutdown method if available
+                    if let Err(e) = self.brain.shutdown().await {
+                        warn!("Error during brain shutdown: {}", e);
+                    }
+                    return Ok(());
+                }
+
+                // Then handle messages
+                result = stream.next() => {
+                    match result {
+                        Some(Ok(envelope)) => {
+                            let result = self.process_envelope(&envelope).await;
+                            match result {
+                                ProcessResult::Responded { sender, response, .. } => {
+                                    debug!("Responded to {}: {}", sender, response);
+                                }
+                                ProcessResult::Skipped { reason } => {
+                                    debug!("Skipped: {}", reason);
+                                }
+                                ProcessResult::Error(e) => {
+                                    warn!("Error processing message: {}", e);
+                                }
+                            }
+                        }
+                        Some(Err(e)) => {
+                            error!("Stream error: {}", e);
+                            // Continue on stream errors - reconnection is handled automatically
+                        }
+                        None => {
+                            warn!("Message stream ended");
+                            return Err(ProcessorError::StreamEnded);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Run the processor until Ctrl+C is pressed.
+    ///
+    /// This is a convenience method that wraps [`run_with_shutdown`] with
+    /// the default Ctrl+C signal handler.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use message_listener::{MessageProcessor, ProcessorConfig, EchoBrain};
+    /// use signal_daemon::{DaemonConfig, SignalClient};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = SignalClient::connect(DaemonConfig::default()).await?;
+    /// let brain = EchoBrain::default();
+    /// let processor = MessageProcessor::with_defaults(client, brain);
+    ///
+    /// // Run until Ctrl+C
+    /// processor.run_until_stopped().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "signal")]
+    pub async fn run_until_stopped(self) -> Result<(), ProcessorError> {
+        let shutdown = async {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("Failed to listen for Ctrl+C");
+        };
+        self.run_with_shutdown(shutdown).await
     }
 }
 
