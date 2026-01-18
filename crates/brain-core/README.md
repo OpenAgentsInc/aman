@@ -78,14 +78,17 @@ struct MyToolExecutor;
 
 #[async_trait]
 impl ToolExecutor for MyToolExecutor {
-    async fn execute(&self, request: ToolRequest) -> Result<ToolResult, BrainError> {
+    async fn execute(&self, request: ToolRequest) -> ToolResult {
         match request.name.as_str() {
             "search" => {
-                let query = request.require_string("query")?;
+                let query = match request.require_string("query") {
+                    Ok(query) => query,
+                    Err(err) => return ToolResult::error(&request.id, err),
+                };
                 // Execute search...
-                Ok(ToolResult::success(&request.id, "Search results here"))
+                ToolResult::success(&request.id, format!("Search results for {}", query))
             }
-            _ => Ok(ToolResult::error(&request.id, "Unknown tool"))
+            _ => ToolResult::error(&request.id, "Unknown tool"),
         }
     }
 

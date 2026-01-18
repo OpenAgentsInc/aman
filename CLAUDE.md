@@ -222,7 +222,7 @@ Environment variables (via `.env`):
 | `MAPLE_MODEL` | `llama-3.3-70b` | Text model |
 | `MAPLE_VISION_MODEL` | `qwen3-vl-30b` | Vision model |
 | `MAPLE_SYSTEM_PROMPT` | - | System prompt override |
-| `MAPLE_PROMPT_FILE` | `PROMPT.md` | Path to system prompt file |
+| `MAPLE_PROMPT_FILE` | `SYSTEM_PROMPT.md` | Path to system prompt file |
 | `MAPLE_MAX_TOKENS` | `1024` | Max response tokens |
 | `MAPLE_TEMPERATURE` | `0.7` | Generation temperature |
 | `MAPLE_MAX_HISTORY_TURNS` | `10` | Conversation history length |
@@ -237,6 +237,27 @@ Environment variables (via `.env`):
 | `GROK_MODEL` | `grok-4-1-fast` | Model name |
 | `GROK_ENABLE_WEB_SEARCH` | `false` | Enable web search |
 | `GROK_ENABLE_X_SEARCH` | `false` | Enable X/Twitter search |
+
+### Orchestrator + Memory Configuration
+
+Durable memory is enabled when `SQLITE_PATH` is set.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SQLITE_PATH` | `./data/aman.db` | SQLite path or URL for preferences + summaries |
+| `ROUTER_SYSTEM_PROMPT` | - | Inline router prompt override |
+| `ROUTER_PROMPT_FILE` | `ROUTER_PROMPT.md` | Router prompt file path |
+| `AMAN_MEMORY_SUMMARY_MAX_ENTRIES` | `8` | Max exchanges in rolling summary |
+| `AMAN_MEMORY_SUMMARY_MAX_ENTRY_CHARS` | `160` | Max chars per summary line |
+| `AMAN_MEMORY_SUMMARY_MAX_CHARS` | `1200` | Max summary length |
+| `AMAN_MEMORY_TOOL_OUTPUT_MAX_CHARS` | `2000` | Max stored tool output length |
+| `AMAN_MEMORY_SUMMARY_TTL_DAYS` | `30` | Summary TTL in days (0 disables) |
+| `AMAN_MEMORY_TOOL_TTL_DAYS` | `14` | Tool history TTL in days (0 disables) |
+| `AMAN_MEMORY_CLEAR_TTL_DAYS` | `30` | Clear-context TTL in days (0 disables) |
+| `AMAN_MEMORY_MAX_SUMMARIES` | `5000` | Max summary rows (0 disables) |
+| `AMAN_MEMORY_MAX_TOOL_HISTORY` | `10000` | Max tool history rows (0 disables) |
+| `AMAN_MEMORY_MAX_TOOL_HISTORY_PER_KEY` | `200` | Max tool rows per sender/group (0 disables) |
+| `AMAN_MEMORY_MAX_CLEAR_EVENTS` | `5000` | Max clear-context rows (0 disables) |
 
 ### Processor Configuration
 

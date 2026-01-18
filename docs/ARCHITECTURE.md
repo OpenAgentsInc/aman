@@ -284,6 +284,17 @@ Environment variables (names may be implementation-specific):
 - `SIGNAL_CLI_JAR`: path to `signal-cli.jar`.
 - `HTTP_ADDR`: HTTP bind address for signal-cli daemon.
 - `SQLITE_PATH`: bot state database path.
+- `AMAN_MEMORY_SUMMARY_MAX_ENTRIES`: max exchanges in rolling summary (default: 8).
+- `AMAN_MEMORY_SUMMARY_MAX_ENTRY_CHARS`: max chars per summary line (default: 160).
+- `AMAN_MEMORY_SUMMARY_MAX_CHARS`: max summary length (default: 1200).
+- `AMAN_MEMORY_TOOL_OUTPUT_MAX_CHARS`: max stored tool output length (default: 2000).
+- `AMAN_MEMORY_SUMMARY_TTL_DAYS`: summary TTL in days (0 disables).
+- `AMAN_MEMORY_TOOL_TTL_DAYS`: tool history TTL in days (0 disables).
+- `AMAN_MEMORY_CLEAR_TTL_DAYS`: clear-context TTL in days (0 disables).
+- `AMAN_MEMORY_MAX_SUMMARIES`: max summary rows (0 disables).
+- `AMAN_MEMORY_MAX_TOOL_HISTORY`: max tool history rows (0 disables).
+- `AMAN_MEMORY_MAX_TOOL_HISTORY_PER_KEY`: max tool rows per sender/group (0 disables).
+- `AMAN_MEMORY_MAX_CLEAR_EVENTS`: max clear-context rows (0 disables).
 - `AMAN_DEFAULT_LANGUAGE`: default language label for new contacts.
 - `SIGNAL_DAEMON_URL`: base URL for signal-cli daemon (optional override).
 - `SIGNAL_DAEMON_ACCOUNT`: account selector for daemon multi-account mode (optional).

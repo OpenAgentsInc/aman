@@ -38,6 +38,18 @@ export HTTP_ADDR="127.0.0.1:8080"
 # export SIGNAL_CLI_JAR="build/signal-cli.jar"
 export SQLITE_PATH="./data/aman.db"
 export AMAN_DEFAULT_LANGUAGE="English"
+# Optional memory tuning (orchestrator)
+# export AMAN_MEMORY_SUMMARY_MAX_ENTRIES="8"
+# export AMAN_MEMORY_SUMMARY_MAX_ENTRY_CHARS="160"
+# export AMAN_MEMORY_SUMMARY_MAX_CHARS="1200"
+# export AMAN_MEMORY_TOOL_OUTPUT_MAX_CHARS="2000"
+# export AMAN_MEMORY_SUMMARY_TTL_DAYS="30"
+# export AMAN_MEMORY_TOOL_TTL_DAYS="14"
+# export AMAN_MEMORY_CLEAR_TTL_DAYS="30"
+# export AMAN_MEMORY_MAX_SUMMARIES="5000"
+# export AMAN_MEMORY_MAX_TOOL_HISTORY="10000"
+# export AMAN_MEMORY_MAX_TOOL_HISTORY_PER_KEY="200"
+# export AMAN_MEMORY_MAX_CLEAR_EVENTS="5000"
 export OPENAI_API_KEY="..."   # optional (OpenAI-compatible provider)
 export MODEL="gpt-5"           # optional
 export STORE_OPENAI_RESPONSES="false"
@@ -62,6 +74,7 @@ export ADMIN_ADDR="127.0.0.1:8788"
 ```
 
 See `.env.example` for the full set of Maple/Grok configuration knobs.
+Setting `SQLITE_PATH` enables durable preferences, summaries, and tool history for the orchestrator.
 
 ## 3) Fetch and build signal-cli
 

@@ -234,7 +234,7 @@ Override default models via environment variables:
 | `GROK_MODEL_MULTILINGUAL` | grok-4-1-fast | Grok multilingual model |
 | `GROK_MODEL_QUICK` | grok-3-mini | Grok quick model |
 
-**Note:** Currently the model selector logs the recommended model. Dynamic per-request model switching requires additional support in the brain crates.
+The model selector applies per-request overrides via routing metadata; Maple/Grok respect those overrides.
 
 ## Attachment and Image Handling
 

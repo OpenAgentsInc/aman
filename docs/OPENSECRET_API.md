@@ -228,7 +228,8 @@ This provides true end-to-end encryption where prompts and responses are never v
 
 For server-side usage in Aman, MapleBrain uses the Rust `opensecret` SDK and an API key:
 
-- Set `MAPLE_API_KEY` (required) and optional `MAPLE_API_URL`, `MAPLE_MODEL`, `MAPLE_VISION_MODEL`, `MAPLE_PROMPT_FILE`.
+- Set `MAPLE_API_KEY` (required) and optional `MAPLE_API_URL`, `MAPLE_MODEL`, `MAPLE_VISION_MODEL`,
+  `MAPLE_SYSTEM_PROMPT`, and `MAPLE_PROMPT_FILE` (default: `SYSTEM_PROMPT.md`).
 - MapleBrain performs an attestation handshake on startup and uses streaming responses.
 
 ### Vision Support (MapleBrain)

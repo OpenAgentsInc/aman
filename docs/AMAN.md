@@ -40,7 +40,7 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 - `broadcaster` owns outbound delivery, retries, and chunking.
 - `regional_event_listener` ingests regional events and emits `RegionEvent` records.
 - `signal-daemon` is the HTTP/SSE client (with auto-reconnection) used by `message_listener` and `broadcaster`.
-- `database` provides SQLite persistence for users, topics, and subscriptions.
+- `database` provides SQLite persistence for users, topics, subscriptions, and durable memory tables.
 - Web UI in `web/` provides browser-based chat via `/api/chat` (separate from Signal flow).
 - `api` provides an OpenAI-compatible inference endpoint for the web UI.
 - `api` can optionally read a local knowledge base via `AMAN_KB_PATH`.
@@ -54,6 +54,8 @@ Optional modes:
 - `agent-brain` ships a simple `agent_brain_bot` binary for local Signal MVP use.
 - MapleBrain can optionally call `realtime_search` via a `ToolExecutor` (e.g., Grok)
   for privacy-preserving real-time lookups.
+  When `SQLITE_PATH` is set, the orchestrator persists preferences, rolling summaries,
+  tool history, and clear-context events for routing context and audit.
 
 For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 
