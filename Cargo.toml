@@ -13,6 +13,7 @@ members = [
     "crates/message-listener",
     "crates/mock-brain",
     "crates/orchestrator",
+    "crates/proton-proxy",
     "crates/signal-daemon",
     "crates/agent-tools",
 ]
