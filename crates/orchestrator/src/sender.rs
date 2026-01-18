@@ -77,6 +77,28 @@ pub trait MessageSender: Send + Sync {
         is_group: bool,
         started: bool,
     ) -> Result<(), OrchestratorError>;
+
+    /// Send a text message with an attachment.
+    ///
+    /// # Arguments
+    /// * `recipient` - Phone number or group ID
+    /// * `text` - Message content
+    /// * `attachment_path` - Path to the attachment file
+    /// * `is_group` - Whether this is a group message
+    ///
+    /// Default implementation returns an error (not supported).
+    async fn send_message_with_attachment(
+        &self,
+        recipient: &str,
+        text: &str,
+        attachment_path: &str,
+        is_group: bool,
+    ) -> Result<(), OrchestratorError> {
+        let _ = (recipient, text, attachment_path, is_group);
+        Err(OrchestratorError::SendFailed(
+            "Attachments not supported by this sender".to_string(),
+        ))
+    }
 }
 
 /// A no-op message sender for testing that discards all messages.

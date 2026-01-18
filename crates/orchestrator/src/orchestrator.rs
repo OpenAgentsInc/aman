@@ -17,6 +17,9 @@ use serde_json::{json, Value};
 use agent_tools::ToolRegistry;
 use tracing::{debug, info, trace, warn};
 
+#[cfg(feature = "lightning")]
+use donation_wallet::{DonationWallet, DonationWalletConfig};
+
 use brain_core::{Sensitivity, TaskHint};
 use crate::actions::{OrchestratorAction, PrivacyChoice, RoutingPlan, UserPreference};
 use crate::context::Context;
@@ -167,6 +170,9 @@ pub struct Orchestrator<S: MessageSender> {
     profile: ProfileStore,
     /// Support text for donation/support inquiries.
     support_text: String,
+    /// Optional donation wallet for Lightning payments.
+    #[cfg(feature = "lightning")]
+    donation_wallet: Option<Arc<DonationWallet>>,
 }
 
 impl<S: MessageSender> Orchestrator<S> {
@@ -196,6 +202,8 @@ impl<S: MessageSender> Orchestrator<S> {
             email_client: None,
             profile: ProfileStore::new(),
             support_text: load_support_text(),
+            #[cfg(feature = "lightning")]
+            donation_wallet: None,
         }
     }
 
@@ -226,6 +234,8 @@ impl<S: MessageSender> Orchestrator<S> {
             email_client: None,
             profile: ProfileStore::new(),
             support_text: load_support_text(),
+            #[cfg(feature = "lightning")]
+            donation_wallet: None,
         }
     }
 
@@ -267,6 +277,10 @@ impl<S: MessageSender> Orchestrator<S> {
         // Try to initialize email client from environment
         let email_client = Self::load_email_client_from_env();
 
+        // Try to initialize donation wallet from environment
+        #[cfg(feature = "lightning")]
+        let donation_wallet = Self::load_donation_wallet_from_env();
+
         let maple_brain = Arc::new(maple_brain);
         let mut tool_registry = agent_tools::default_registry();
         let brain: Arc<dyn Brain> = maple_brain.clone();
@@ -285,6 +299,8 @@ impl<S: MessageSender> Orchestrator<S> {
             email_client,
             profile,
             support_text: load_support_text(),
+            #[cfg(feature = "lightning")]
+            donation_wallet,
         })
     }
 
@@ -313,6 +329,10 @@ impl<S: MessageSender> Orchestrator<S> {
         // Try to initialize email client from environment
         let email_client = Self::load_email_client_from_env();
 
+        // Try to initialize donation wallet from environment
+        #[cfg(feature = "lightning")]
+        let donation_wallet = Self::load_donation_wallet_from_env();
+
         Ok(Self {
             router,
             maple_brain,
@@ -326,6 +346,8 @@ impl<S: MessageSender> Orchestrator<S> {
             email_client,
             profile,
             support_text: load_support_text(),
+            #[cfg(feature = "lightning")]
+            donation_wallet,
         })
     }
 
@@ -684,6 +706,12 @@ impl<S: MessageSender> Orchestrator<S> {
 
                 OrchestratorAction::MissingAttachment { intent } => {
                     return self.execute_missing_attachment(message, intent).await;
+                }
+
+                OrchestratorAction::DonateLightning { amount_sats } => {
+                    return self
+                        .execute_donate_lightning(message, *amount_sats, recipient, is_group)
+                        .await;
                 }
             }
         }
@@ -1490,6 +1518,164 @@ impl<S: MessageSender> Orchestrator<S> {
         Ok(OutboundMessage::reply_to(message, &self.support_text))
     }
 
+    /// Execute a donate_lightning action - generate a Lightning invoice with QR code.
+    #[cfg(feature = "lightning")]
+    async fn execute_donate_lightning(
+        &self,
+        message: &InboundMessage,
+        amount_sats: Option<u64>,
+        recipient: &str,
+        is_group: bool,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        // Check if wallet is configured
+        let wallet = match &self.donation_wallet {
+            Some(w) => w,
+            None => {
+                let error_msg = "Lightning donations are not configured. Please contact the bot operator.";
+                warn!("{}", error_msg);
+                return Ok(OutboundMessage::reply_to(message, error_msg));
+            }
+        };
+
+        info!("Generating Lightning invoice (amount: {:?} sats)", amount_sats);
+
+        // Convert sats to msats (1 sat = 1000 msats)
+        let amount_msats = amount_sats.map(|sats| (sats as i64) * 1000).unwrap_or(0);
+        let description = Some("Aman Bot Donation".to_string());
+        let expiry_secs = Some(3600); // 1 hour
+
+        // Create the invoice
+        let transaction = match wallet.create_invoice(amount_msats, description, expiry_secs).await {
+            Ok(tx) => tx,
+            Err(e) => {
+                let error_msg = format!("Failed to create Lightning invoice: {}", e);
+                warn!("{}", error_msg);
+                return Ok(OutboundMessage::reply_to(message, error_msg));
+            }
+        };
+
+        // Extract invoice string
+        let invoice = &transaction.invoice;
+        if invoice.is_empty() {
+            let error_msg = "Failed to generate Lightning invoice: empty invoice returned";
+            warn!("{}", error_msg);
+            return Ok(OutboundMessage::reply_to(message, error_msg));
+        }
+
+        // Generate QR code
+        let qr_path = match Self::generate_qr_code(invoice) {
+            Ok(path) => path,
+            Err(e) => {
+                // Fall back to just sending the invoice text
+                warn!("Failed to generate QR code: {}. Sending invoice text only.", e);
+                let response_text = format!(
+                    "Pay with Lightning:\n\n{}\n\n(QR code generation failed: {})",
+                    invoice, e
+                );
+                return Ok(OutboundMessage::reply_to(message, response_text));
+            }
+        };
+
+        // Build response text
+        let amount_text = match amount_sats {
+            Some(sats) => format!("{} sats", sats),
+            None => "any amount".to_string(),
+        };
+        let response_text = format!(
+            "Lightning Invoice ({})\n\nScan the QR code or copy the invoice:\n{}",
+            amount_text, invoice
+        );
+
+        // Send message with QR code attachment
+        match self
+            .sender
+            .send_message_with_attachment(recipient, &response_text, &qr_path, is_group)
+            .await
+        {
+            Ok(()) => {
+                info!("Sent Lightning invoice with QR code to {}", recipient);
+            }
+            Err(e) => {
+                // Clean up temp file
+                let _ = std::fs::remove_file(&qr_path);
+
+                // Fall back to text-only
+                warn!("Failed to send with attachment: {}. Sending text only.", e);
+                let response_text = format!(
+                    "Pay with Lightning:\n\n{}\n\n(Failed to send QR code: {})",
+                    invoice, e
+                );
+                return Ok(OutboundMessage::reply_to(message, response_text));
+            }
+        }
+
+        // Clean up temp file
+        if let Err(e) = std::fs::remove_file(&qr_path) {
+            debug!("Failed to clean up QR code temp file: {}", e);
+        }
+
+        // Return Skipped since we already sent the response
+        Err(OrchestratorError::Skipped("invoice sent with attachment".to_string()))
+    }
+
+    /// Execute a donate_lightning action - stub when lightning feature is disabled.
+    #[cfg(not(feature = "lightning"))]
+    async fn execute_donate_lightning(
+        &self,
+        message: &InboundMessage,
+        _amount_sats: Option<u64>,
+        _recipient: &str,
+        _is_group: bool,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        let error_msg = "Lightning donations are not enabled in this build.";
+        warn!("{}", error_msg);
+        Ok(OutboundMessage::reply_to(message, error_msg))
+    }
+
+    /// Generate a QR code PNG file for the given data.
+    ///
+    /// Uses the `qrencode` command-line tool.
+    /// Returns the path to the generated PNG file.
+    #[cfg(feature = "lightning")]
+    fn generate_qr_code(data: &str) -> Result<String, String> {
+        use std::process::Command;
+
+        // Generate unique temp file path
+        let uuid = uuid::Uuid::new_v4();
+        let temp_path = format!("/tmp/aman_qr_{}.png", uuid);
+
+        // Run qrencode to generate QR code
+        // -o output file, -s size (pixels per module), -l error correction level (H=high)
+        let output = Command::new("qrencode")
+            .arg("-o")
+            .arg(&temp_path)
+            .arg("-s")
+            .arg("10")
+            .arg("-l")
+            .arg("H")
+            .arg(data)
+            .output()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    "qrencode command not found - please install it (apt install qrencode)".to_string()
+                } else {
+                    format!("Failed to run qrencode: {}", e)
+                }
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("qrencode failed: {}", stderr));
+        }
+
+        // Verify file was created
+        if !std::path::Path::new(&temp_path).exists() {
+            return Err("QR code file was not created".to_string());
+        }
+
+        Ok(temp_path)
+    }
+
     async fn record_exchange(
         &self,
         history_key: &str,
@@ -1608,6 +1794,55 @@ impl<S: MessageSender> Orchestrator<S> {
                 None
             }
         }
+    }
+
+    /// Try to create a donation wallet from environment variables.
+    /// Returns None if not configured (no Lightning backend credentials found).
+    ///
+    /// Checks backends in order: Phoenixd, NWC, Strike
+    #[cfg(feature = "lightning")]
+    fn load_donation_wallet_from_env() -> Option<Arc<DonationWallet>> {
+        // Try Phoenixd first
+        if let Ok(config) = DonationWalletConfig::phoenixd_from_env() {
+            match DonationWallet::new(config) {
+                Ok(wallet) => {
+                    info!("Donation wallet initialized (Phoenixd)");
+                    return Some(Arc::new(wallet));
+                }
+                Err(e) => {
+                    warn!("Failed to create Phoenixd wallet: {}", e);
+                }
+            }
+        }
+
+        // Try NWC
+        if let Ok(config) = DonationWalletConfig::nwc_from_env() {
+            match DonationWallet::new(config) {
+                Ok(wallet) => {
+                    info!("Donation wallet initialized (NWC)");
+                    return Some(Arc::new(wallet));
+                }
+                Err(e) => {
+                    warn!("Failed to create NWC wallet: {}", e);
+                }
+            }
+        }
+
+        // Try Strike
+        if let Ok(config) = DonationWalletConfig::strike_from_env() {
+            match DonationWallet::new(config) {
+                Ok(wallet) => {
+                    info!("Donation wallet initialized (Strike)");
+                    return Some(Arc::new(wallet));
+                }
+                Err(e) => {
+                    warn!("Failed to create Strike wallet: {}", e);
+                }
+            }
+        }
+
+        debug!("Donation wallet not configured (no Lightning backend credentials found)");
+        None
     }
 
     /// Get the sender.

@@ -6,7 +6,7 @@ Output JSON with an "actions" array. Each action has a "type" field.
 
 ### Response Actions (include "sensitivity" and "task_hint" fields)
 - "respond": Generate a response. Include:
-  - "sensitivity": "sensitive", "insensitive", or "uncertain"
+  - "sensitivity": "sensitive" or "insensitive" (default to "insensitive")
   - "task_hint": task type for model selection
   - "has_pii": true/false - whether message contains personally identifiable information
   - "pii_types": array of PII types detected (only if has_pii is true)
@@ -27,6 +27,7 @@ Output JSON with an "actions" array. Each action has a "type" field.
     - "world_time": Get time in a city/timezone. Args: {"location": "Tokyo"}
     - "unit_converter": Convert between units. Args: {"value": 100, "from": "km", "to": "miles"}
     - "random_number": Generate random numbers. Args: {"min": 1, "max": 6} for dice, {} for 1-100
+  - **Note:** The "sanitize" tool processes PII and uses Maple for privacy. Other tools use Grok by default.
 
 ### Email/Dropbox Actions
 - "send_email": Submit attachments to the admin inbox (dropbox). Include:
@@ -40,6 +41,8 @@ Output JSON with an "actions" array. Each action has a "type" field.
 - "privacy_choice_response": User is responding to a PII privacy choice prompt. Include "choice" field: "sanitize", "private", or "cancel".
 - "help": User is asking about bot capabilities.
 - "support": User is asking about supporting, donating to, or learning more about the project.
+- "donate_lightning": User wants to donate via Bitcoin Lightning. Generates an invoice.
+  Optionally include "amount_sats" for a specific amount in satoshis.
 - "skip": Don't process. Include "reason" field.
 - "ignore": Silently ignore (typos, "?", ".", stray characters).
 - "missing_attachment": User references an attachment that wasn't included. Include "intent" field describing what they wanted to do (e.g., "analyze the image", "read the document").
@@ -100,47 +103,49 @@ Detect personally identifiable information (PII) in the user's message. Set `has
 
 ## Sensitivity Classification
 
-Classify the sensitivity of requests based on whether they contain PII:
+**DEFAULT: Use Grok (insensitive).** Maple is only used for specific privacy-critical scenarios.
 
-**sensitive** - Use privacy-preserving mode (Maple TEE):
-- ONLY use when the message contains actual PII (see PII Detection above)
-- If `has_pii: true`, then `sensitivity: "sensitive"`
+Maple (privacy-preserving TEE) is used ONLY when:
+1. **Actual PII detected** - The message contains personally identifiable information (see PII Detection above)
+2. **Explicit privacy request** - User says "private", "confidential", "sensitive", or "secret"
+3. **Vision/image tasks** - Grok cannot process images (enforced by system, not this classifier)
+4. **Privacy-requiring tools** - Tools like "sanitize" that process sensitive data
 
-**insensitive** - Can use fast mode (Grok):
-- Use for ALL messages that do NOT contain PII
-- General topics like health, finance, legal, relationships are insensitive unless they include actual PII
-- Examples that are insensitive (no PII):
-  - "what's the bitcoin price?" - no PII
-  - "give me investment tips" - no PII (general advice)
-  - "I have a headache, what should I do?" - no PII (no specific medical details)
-  - "how do I file for divorce?" - no PII (general question)
-  - "what's the best credit card?" - no PII
+### insensitive (DEFAULT - use Grok)
 
-**Rules for sensitivity (STRICT - follow exactly):**
-1. If `has_pii: true` → `sensitivity: "sensitive"`
-2. If user explicitly says the request is sensitive/private/confidential → `sensitivity: "sensitive"`
-3. **ALL other cases** → `sensitivity: "insensitive"`
+Use for **ALL messages that don't meet the criteria above**:
+- General questions, advice, explanations
+- Health/medical questions (even about treatments, medications, symptoms) - **no PII = insensitive**
+- Financial questions (investments, crypto, budgeting) - **no PII = insensitive**
+- Legal questions (divorce, lawsuits, rights) - **no PII = insensitive**
+- Political topics, controversial opinions - **insensitive**
+- Mental health topics (depression, anxiety, therapy) - **no PII = insensitive**
+- Relationship advice - **no PII = insensitive**
+- ANY topic where no personal data is shared - **insensitive**
 
-**NOT sensitive (use insensitive) - these are ALL insensitive:**
-- Political topics, controversial opinions
-- Questions about violence, war, crimes
-- Health/medical questions (even about treatments, medications, symptoms)
-- Financial questions (investments, crypto, budgeting)
-- Legal questions (divorce, lawsuits, rights)
-- Relationship advice
-- Drug-related questions (recreational or medical)
-- Mental health topics (depression, anxiety, therapy)
-- ANY topic that doesn't contain actual PII data
+Examples:
+- "what's the bitcoin price?" → insensitive (no PII)
+- "give me investment tips" → insensitive (general advice)
+- "I have a headache, what should I do?" → insensitive (no specific medical details)
+- "how do I file for divorce?" → insensitive (general question)
+- "what's the best credit card?" → insensitive (no PII)
 
-**Only sensitive when:**
-- User explicitly says "private", "confidential", "sensitive", "secret"
-- Message contains actual PII (names, SSN, addresses, phone numbers, etc.)
+### sensitive (use Maple)
+
+Use **ONLY** when:
+1. `has_pii: true` - Message contains actual PII data
+2. User explicitly marks the request as private/confidential
 
 Examples of explicit sensitivity requests:
 - "this is private, but..." → sensitive
 - "keep this confidential..." → sensitive
 - "this is sensitive..." → sensitive
 - "privately, I want to ask..." → sensitive
+
+**Rules (STRICT - follow exactly):**
+1. If `has_pii: true` → `sensitivity: "sensitive"`
+2. If user explicitly says "private", "confidential", "sensitive", "secret" → `sensitivity: "sensitive"`
+3. **ALL other cases** → `sensitivity: "insensitive"`
 
 ## Task Hint Classification
 
@@ -303,6 +308,10 @@ If the user says something like "1" or "sanitize" but it's a new conversation wi
 - For "message" fields on search, write short one-liners (under 50 chars)
 - Default task_hint to "general" if unsure
 
+**"support" vs "donate_lightning":**
+- Use "support" for general inquiries: "How can I support?", "Who made this?", "How can I contribute?"
+- Use "donate_lightning" when user specifically requests a Lightning invoice: "send me an invoice", "I want to pay with lightning", "generate a bitcoin invoice"
+
 ## Examples
 
 [MESSAGE: what's the weather in NYC?]
@@ -410,6 +419,24 @@ If the user says something like "1" or "sanitize" but it's a new conversation wi
 
 [MESSAGE: How can I contribute?]
 → {"actions": [{"type": "support"}]}
+
+[MESSAGE: I want to donate with Lightning]
+→ {"actions": [{"type": "donate_lightning"}]}
+
+[MESSAGE: Can I send you some bitcoin?]
+→ {"actions": [{"type": "donate_lightning"}]}
+
+[MESSAGE: Generate a Lightning invoice for 1000 sats]
+→ {"actions": [{"type": "donate_lightning", "amount_sats": 1000}]}
+
+[MESSAGE: Send me an invoice]
+→ {"actions": [{"type": "donate_lightning"}]}
+
+[MESSAGE: I want to pay with lightning]
+→ {"actions": [{"type": "donate_lightning"}]}
+
+[MESSAGE: Create a bitcoin invoice for 5000 satoshis]
+→ {"actions": [{"type": "donate_lightning", "amount_sats": 5000}]}
 
 [MESSAGE: What settings can I change?]
 → {"actions": [{"type": "help"}]}

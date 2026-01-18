@@ -22,7 +22,7 @@ use futures::StreamExt;
 use orchestrator::{
     InboundMessage, MessageSender, Orchestrator, OrchestratorError,
 };
-use signal_daemon::{DaemonConfig, Envelope, ProcessConfig, SignalClient};
+use signal_daemon::{DaemonConfig, Envelope, ProcessConfig, SendParams, SignalClient};
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
@@ -73,6 +73,27 @@ impl MessageSender for SignalMessageSender {
         };
 
         result.map_err(|e| OrchestratorError::SendFailed(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn send_message_with_attachment(
+        &self,
+        recipient: &str,
+        text: &str,
+        attachment_path: &str,
+        is_group: bool,
+    ) -> Result<(), OrchestratorError> {
+        let params = if is_group {
+            SendParams::group(recipient, text)
+        } else {
+            SendParams::text(recipient, text)
+        };
+        let params = params.with_attachment(attachment_path);
+
+        self.client
+            .send(params)
+            .await
+            .map_err(|e| OrchestratorError::SendFailed(e.to_string()))?;
         Ok(())
     }
 }

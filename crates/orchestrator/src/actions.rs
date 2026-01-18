@@ -258,6 +258,13 @@ impl RoutingPlan {
             .iter()
             .any(|a| matches!(a, OrchestratorAction::Support))
     }
+
+    /// Check if the plan contains a donate_lightning action.
+    pub fn has_donate_lightning(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::DonateLightning { .. }))
+    }
 }
 
 /// Individual action in the routing plan.
@@ -413,6 +420,13 @@ pub enum OrchestratorAction {
     MissingAttachment {
         /// What the user was trying to do (e.g., "analyze the image", "read the document").
         intent: String,
+    },
+
+    /// Generate a Lightning invoice for donations.
+    DonateLightning {
+        /// Optional amount in sats (0/None = user chooses amount).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        amount_sats: Option<u64>,
     },
 }
 
@@ -639,6 +653,18 @@ impl OrchestratorAction {
         }
     }
 
+    /// Create a donate_lightning action.
+    pub fn donate_lightning() -> Self {
+        Self::DonateLightning { amount_sats: None }
+    }
+
+    /// Create a donate_lightning action with a specific amount.
+    pub fn donate_lightning_with_amount(amount_sats: u64) -> Self {
+        Self::DonateLightning {
+            amount_sats: Some(amount_sats),
+        }
+    }
+
     /// Get a human-readable description of this action.
     pub fn description(&self) -> String {
         match self {
@@ -695,6 +721,10 @@ impl OrchestratorAction {
             Self::MissingAttachment { intent } => {
                 format!("Missing attachment (user wanted to: {})", intent)
             }
+            Self::DonateLightning { amount_sats } => match amount_sats {
+                Some(sats) => format!("Generate Lightning invoice ({} sats)", sats),
+                None => "Generate Lightning invoice (any amount)".to_string(),
+            },
         }
     }
 
