@@ -164,6 +164,14 @@ impl AgentIndicator {
             Self::Speed => "speed mode",
         }
     }
+
+    /// Get a short label for the footer.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Privacy => "🔒 Privacy",
+            Self::Speed => "⚡ Speed",
+        }
+    }
 }
 
 #[cfg(test)]

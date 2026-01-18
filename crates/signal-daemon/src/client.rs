@@ -11,7 +11,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::DaemonConfig;
 use crate::error::DaemonError;
-use crate::types::{SendParams, SendResult, TypingParams};
+use crate::types::{SendParams, SendResult, TextStyleParam, TypingParams};
 
 /// JSON-RPC 2.0 request structure.
 #[derive(Debug, Serialize)]
@@ -157,6 +157,38 @@ impl SignalClient {
         message: &str,
     ) -> Result<SendResult, DaemonError> {
         let params = SendParams::group(group_id, message);
+        self.send(params).await
+    }
+
+    /// Send a styled text message to a recipient.
+    ///
+    /// # Arguments
+    /// * `recipient` - Phone number to send to
+    /// * `message` - Text content (with markdown markers removed)
+    /// * `styles` - Text style ranges for formatting
+    pub async fn send_styled_text(
+        &self,
+        recipient: &str,
+        message: &str,
+        styles: Vec<TextStyleParam>,
+    ) -> Result<SendResult, DaemonError> {
+        let params = SendParams::text(recipient, message).with_styles(styles);
+        self.send(params).await
+    }
+
+    /// Send a styled text message to a group.
+    ///
+    /// # Arguments
+    /// * `group_id` - Group ID to send to
+    /// * `message` - Text content (with markdown markers removed)
+    /// * `styles` - Text style ranges for formatting
+    pub async fn send_styled_to_group(
+        &self,
+        group_id: &str,
+        message: &str,
+        styles: Vec<TextStyleParam>,
+    ) -> Result<SendResult, DaemonError> {
+        let params = SendParams::group(group_id, message).with_styles(styles);
         self.send(params).await
     }
 

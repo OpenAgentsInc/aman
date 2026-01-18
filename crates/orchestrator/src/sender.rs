@@ -1,8 +1,10 @@
 //! Message sender trait and implementations.
 
 use async_trait::async_trait;
+use brain_core::TextStyle;
 
 use crate::error::OrchestratorError;
+use crate::formatting::FormattedMessage;
 
 /// Trait for sending messages and typing indicators.
 ///
@@ -21,6 +23,47 @@ pub trait MessageSender: Send + Sync {
         text: &str,
         is_group: bool,
     ) -> Result<(), OrchestratorError>;
+
+    /// Send a styled text message with formatting.
+    ///
+    /// # Arguments
+    /// * `recipient` - Phone number or group ID
+    /// * `text` - Message content (plain text with markers removed)
+    /// * `styles` - Text style ranges for formatting
+    /// * `is_group` - Whether this is a group message
+    ///
+    /// Default implementation ignores styles and calls `send_message`.
+    async fn send_styled_message(
+        &self,
+        recipient: &str,
+        text: &str,
+        styles: &[TextStyle],
+        is_group: bool,
+    ) -> Result<(), OrchestratorError> {
+        // Default: ignore styles and send plain text
+        let _ = styles;
+        self.send_message(recipient, text, is_group).await
+    }
+
+    /// Send a formatted message (convenience wrapper).
+    ///
+    /// # Arguments
+    /// * `recipient` - Phone number or group ID
+    /// * `message` - Formatted message with text and styles
+    /// * `is_group` - Whether this is a group message
+    async fn send_formatted(
+        &self,
+        recipient: &str,
+        message: &FormattedMessage,
+        is_group: bool,
+    ) -> Result<(), OrchestratorError> {
+        if message.has_styles() {
+            self.send_styled_message(recipient, &message.text, &message.styles, is_group)
+                .await
+        } else {
+            self.send_message(recipient, &message.text, is_group).await
+        }
+    }
 
     /// Set typing indicator state.
     ///

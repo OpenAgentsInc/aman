@@ -74,6 +74,7 @@
 mod actions;
 mod context;
 mod error;
+mod formatting;
 mod model_selection;
 mod memory;
 mod orchestrator;
@@ -85,6 +86,7 @@ mod sender;
 pub use actions::{OrchestratorAction, RoutingPlan, UserPreference};
 pub use context::Context;
 pub use error::OrchestratorError;
+pub use formatting::{parse_markdown, format_with_footer, FormattedMessage, StyleType};
 pub use model_selection::{GrokModels, MapleModels, ModelSelector};
 pub use memory::{MemorySettings, MemoryStore, RetentionPolicy, SummaryPolicy};
 pub use orchestrator::{Orchestrator, HELP_TEXT};

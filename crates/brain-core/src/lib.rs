@@ -39,6 +39,7 @@ pub use error::BrainError;
 pub use history::{ConversationHistory, HistoryMessage};
 pub use message::{
     InboundAttachment, InboundMessage, OutboundMessage, RoutingInfo, Sensitivity, TaskHint,
+    TextStyle,
 };
 pub use prompt::hash_prompt;
 pub use tools::{ToolExecutor, ToolRequest, ToolRequestMeta, ToolResult};

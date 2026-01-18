@@ -80,6 +80,22 @@ impl SendParams {
         self.quote_author = Some(author.into());
         self
     }
+
+    /// Add text styles for formatting.
+    pub fn with_styles(mut self, styles: Vec<TextStyleParam>) -> Self {
+        self.text_style = styles;
+        self
+    }
+
+    /// Add a single text style.
+    pub fn with_style(mut self, start: u32, length: u32, style: impl Into<String>) -> Self {
+        self.text_style.push(TextStyleParam {
+            start,
+            length,
+            style: style.into(),
+        });
+        self
+    }
 }
 
 /// A mention parameter for sending.

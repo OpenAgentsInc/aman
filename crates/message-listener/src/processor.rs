@@ -2,7 +2,8 @@
 
 use std::time::Duration;
 
-use brain_core::{Brain, BrainError};
+use brain_core::{Brain, BrainError, TextStyle};
+use signal_daemon::types::TextStyleParam;
 use futures::StreamExt;
 use mock_brain::EnvelopeExt;
 use signal_daemon::{DaemonError, Envelope, SignalClient};
@@ -246,15 +247,28 @@ impl<B: Brain> MessageProcessor<B> {
             }
         };
 
-        // Send response
+        // Send response (with styles if any)
+        let styles = convert_styles(&response.styles);
         let send_result = if response.is_group {
-            self.client
-                .send_to_group(&response.recipient, &response.text)
-                .await
+            if styles.is_empty() {
+                self.client
+                    .send_to_group(&response.recipient, &response.text)
+                    .await
+            } else {
+                self.client
+                    .send_styled_to_group(&response.recipient, &response.text, styles)
+                    .await
+            }
         } else {
-            self.client
-                .send_text(&response.recipient, &response.text)
-                .await
+            if styles.is_empty() {
+                self.client
+                    .send_text(&response.recipient, &response.text)
+                    .await
+            } else {
+                self.client
+                    .send_styled_text(&response.recipient, &response.text, styles)
+                    .await
+            }
         };
 
         match send_result {
@@ -451,6 +465,18 @@ impl<B: Brain> MessageProcessor<B> {
         };
         self.run_with_shutdown(shutdown).await
     }
+}
+
+/// Convert brain-core TextStyle to signal-daemon TextStyleParam.
+fn convert_styles(styles: &[TextStyle]) -> Vec<TextStyleParam> {
+    styles
+        .iter()
+        .map(|s| TextStyleParam {
+            start: s.start,
+            length: s.length,
+            style: s.style.clone(),
+        })
+        .collect()
 }
 
 #[cfg(test)]

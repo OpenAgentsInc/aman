@@ -5,34 +5,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Sensitivity level for a request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum Sensitivity {
-    /// Sensitive content - use privacy-preserving mode (Maple TEE).
-    /// Examples: health, finances, legal, personal info, relationships.
-    Sensitive,
-
-    /// Insensitive content - can use fast mode (Grok).
-    /// Examples: weather, news, sports, general knowledge, coding.
-    #[default]
-    Insensitive,
-
-    /// Uncertain - could go either way, follow user preference.
-    Uncertain,
-}
-
-impl Sensitivity {
-    /// Check if this sensitivity level should use Maple (privacy mode).
-    pub fn prefers_maple(&self) -> bool {
-        matches!(self, Sensitivity::Sensitive | Sensitivity::Uncertain)
-    }
-
-    /// Check if this sensitivity level can use Grok (fast mode).
-    pub fn allows_grok(&self) -> bool {
-        matches!(self, Sensitivity::Insensitive)
-    }
-}
+// Re-export types from brain_core for consistency
+pub use brain_core::{Sensitivity, TaskHint};
 
 /// User preference for which agent to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -49,40 +23,38 @@ pub enum UserPreference {
     PreferSpeed,
 }
 
-/// Task hint for model selection.
-///
-/// The router classifies the type of task to help select the best model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// User's choice for how to handle detected PII.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum TaskHint {
-    /// General conversation and questions (default).
-    #[default]
-    General,
+pub enum PrivacyChoice {
+    /// Sanitize: Remove PII and use fast mode (Grok).
+    Sanitize,
+    /// Private: Keep PII and use privacy mode (Maple TEE).
+    Private,
+    /// Cancel: Don't process the message.
+    Cancel,
+}
 
-    /// Programming and technical development tasks.
-    /// Best models: qwen3-coder-480b, deepseek-r1, grok-3
-    Coding,
+impl PrivacyChoice {
+    /// Parse a privacy choice from user input.
+    pub fn from_input(input: &str) -> Option<Self> {
+        let input = input.trim().to_lowercase();
+        match input.as_str() {
+            "1" | "sanitize" | "sanitise" | "remove" | "fast" => Some(Self::Sanitize),
+            "2" | "private" | "privacy" | "secure" | "maple" => Some(Self::Private),
+            "3" | "cancel" | "stop" | "nevermind" | "never mind" | "no" => Some(Self::Cancel),
+            _ => None,
+        }
+    }
 
-    /// Mathematical and analytical reasoning.
-    /// Best models: deepseek-r1-0528
-    Math,
-
-    /// Creative writing and content generation.
-    /// Best models: gpt-oss-120b
-    Creative,
-
-    /// Non-English or translation tasks.
-    /// Best models: qwen2-5-72b
-    Multilingual,
-
-    /// Simple queries needing fast responses.
-    /// Best models: grok-3-mini, mistral-small-3-1-24b
-    Quick,
-
-    /// Image/vision analysis tasks.
-    /// Best models: qwen3-vl-30b (Maple only - Grok has no vision support)
-    /// Note: Vision tasks MUST use Maple regardless of sensitivity.
-    Vision,
+    /// Get a human-readable description of this choice.
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::Sanitize => "sanitize and use fast mode",
+            Self::Private => "keep private and use secure mode",
+            Self::Cancel => "cancel the request",
+        }
+    }
 }
 
 impl UserPreference {

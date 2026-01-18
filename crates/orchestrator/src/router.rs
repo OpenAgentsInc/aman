@@ -554,6 +554,7 @@ mod tests {
         if let OrchestratorAction::Respond {
             sensitivity,
             task_hint,
+            ..
         } = &plan.actions[0]
         {
             assert_eq!(*sensitivity, Sensitivity::Sensitive);
@@ -575,6 +576,7 @@ mod tests {
         if let OrchestratorAction::Respond {
             sensitivity,
             task_hint,
+            ..
         } = &plan.actions[0]
         {
             assert_eq!(*sensitivity, Sensitivity::Sensitive);

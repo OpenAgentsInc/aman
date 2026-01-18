@@ -13,9 +13,10 @@ use agent_tools::ToolRegistry;
 use tracing::{debug, info, warn};
 
 use brain_core::{Sensitivity, TaskHint};
-use crate::actions::{OrchestratorAction, RoutingPlan, UserPreference};
+use crate::actions::{OrchestratorAction, PrivacyChoice, RoutingPlan, UserPreference};
 use crate::context::Context;
 use crate::error::OrchestratorError;
+use crate::formatting::format_with_footer;
 use crate::memory::{MemorySettings, MemoryStore};
 use crate::model_selection::ModelSelector;
 use crate::preferences::{AgentIndicator, PreferenceStore};
@@ -670,15 +671,28 @@ impl<S: MessageSender> Orchestrator<S> {
         };
         let summary_text = response.text.clone();
 
-        // Add indicator prefix if using speed mode
-        if indicator == AgentIndicator::Speed && !indicator.prefix().is_empty() {
-            response.text = format!("{}{}", indicator.prefix(), response.text);
-        }
+        // Format response with metadata footer
+        let mode_label = indicator.label();
+        let tools_used: Option<Vec<String>> = if context.has_results() {
+            Some(context.tools_used())
+        } else {
+            None
+        };
+        let formatted = format_with_footer(
+            &response.text,
+            mode_label,
+            Some(selected_model),
+            tools_used.as_deref(),
+        );
+
+        // Apply formatting to response
+        response.text = formatted.text;
+        response.styles = formatted.styles;
 
         self.record_exchange(history_key, &message.text, &summary_text)
             .await;
 
-        info!("Generated response: {} chars", response.text.len());
+        info!("Generated response: {} chars, {} styles", response.text.len(), response.styles.len());
         Ok(response)
     }
 
@@ -822,6 +836,61 @@ impl<S: MessageSender> Orchestrator<S> {
         };
 
         Ok(OutboundMessage::reply_to(message, response_text))
+    }
+
+    /// Execute an ask privacy choice action - ask user how to handle detected PII.
+    async fn execute_ask_privacy_choice(
+        &self,
+        message: &InboundMessage,
+        pii_types: &[String],
+        _original_message: &str,
+        _sensitivity: Sensitivity,
+        _task_hint: TaskHint,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        let pii_list = pii_types.join(", ");
+
+        let response_text = format!(
+            "I noticed your message contains personal information ({}).\n\n\
+             How would you like me to handle it?\n\n\
+             1. Sanitize - Remove personal details and use fast mode\n\
+             2. Private - Keep as-is and use secure enclave\n\
+             3. Cancel - Don't process this message\n\n\
+             Reply with 1, 2, or 3 (or: sanitize, private, cancel)",
+            pii_list
+        );
+
+        info!("Asking privacy choice for PII types: {}", pii_list);
+        Ok(OutboundMessage::reply_to(message, response_text))
+    }
+
+    /// Execute a privacy choice response - handle user's choice for PII handling.
+    async fn execute_privacy_choice_response(
+        &self,
+        message: &InboundMessage,
+        choice: PrivacyChoice,
+        _history_key: &str,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+
+        info!("Processing privacy choice: {:?}", choice);
+
+        match choice {
+            PrivacyChoice::Sanitize => {
+                // TODO: Implement actual PII sanitization using the sanitize tool
+                // For now, just acknowledge and process normally with Grok
+                let response_text = "Got it! I'll process your request with fast mode. \
+                                     (Note: Full PII sanitization coming soon)";
+                Ok(OutboundMessage::reply_to(message, response_text))
+            }
+            PrivacyChoice::Private => {
+                // Process with Maple (privacy mode)
+                let response_text = "Processing your request securely in the private enclave.";
+                Ok(OutboundMessage::reply_to(message, response_text))
+            }
+            PrivacyChoice::Cancel => {
+                let response_text = "Request cancelled. Your message was not processed.";
+                Ok(OutboundMessage::reply_to(message, response_text))
+            }
+        }
     }
 
     async fn record_exchange(

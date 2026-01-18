@@ -79,6 +79,23 @@ impl Context {
         self.tool_results.len()
     }
 
+    /// Get a list of all tools used (search counts as "search").
+    pub fn tools_used(&self) -> Vec<String> {
+        let mut tools = Vec::new();
+
+        if self.has_search_results() {
+            tools.push("search".to_string());
+        }
+
+        for result in &self.tool_results {
+            if !tools.contains(&result.tool) {
+                tools.push(result.tool.clone());
+            }
+        }
+
+        tools
+    }
+
     /// Create an augmented message with the context prepended.
     ///
     /// If there are search or tool results, they are formatted and prepended
