@@ -5,7 +5,7 @@ use std::path::Path;
 use brain_core::BrainError;
 
 /// Default path for the system prompt file.
-pub const DEFAULT_PROMPT_FILE: &str = "PROMPT.md";
+pub const DEFAULT_PROMPT_FILE: &str = "SYSTEM_PROMPT.md";
 
 /// Default maximum number of tool call rounds.
 const DEFAULT_MAX_TOOL_ROUNDS: usize = 2;
@@ -69,7 +69,7 @@ impl MapleBrainConfig {
     /// - `MAPLE_MODEL` - Model name for text (default: llama-3.3-70b)
     /// - `MAPLE_VISION_MODEL` - Model name for images (default: qwen3-vl-30b)
     /// - `MAPLE_SYSTEM_PROMPT` - System prompt (overrides prompt file)
-    /// - `MAPLE_PROMPT_FILE` - Path to system prompt file (default: PROMPT.md)
+    /// - `MAPLE_PROMPT_FILE` - Path to system prompt file (default: SYSTEM_PROMPT.md)
     /// - `MAPLE_MAX_TOKENS` - Max tokens (default: 1024)
     /// - `MAPLE_TEMPERATURE` - Temperature (default: 0.7)
     /// - `MAPLE_MAX_HISTORY_TURNS` - Max history turns (default: 10)

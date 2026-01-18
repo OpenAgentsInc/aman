@@ -32,7 +32,7 @@ maple-brain = { path = "../maple-brain" }
 | `MAPLE_MODEL` | No | `llama-3.3-70b` | Model for text-only messages |
 | `MAPLE_VISION_MODEL` | No | `qwen3-vl-30b` | Model for messages with images |
 | `MAPLE_SYSTEM_PROMPT` | No | - | System prompt (overrides prompt file) |
-| `MAPLE_PROMPT_FILE` | No | `PROMPT.md` | Path to system prompt file |
+| `MAPLE_PROMPT_FILE` | No | `SYSTEM_PROMPT.md` | Path to system prompt file |
 | `MAPLE_MAX_TOKENS` | No | `1024` | Maximum tokens in response |
 | `MAPLE_TEMPERATURE` | No | `0.7` | Sampling temperature (0.0-2.0) |
 | `MAPLE_MAX_HISTORY_TURNS` | No | `10` | Conversation history per sender |
@@ -40,14 +40,14 @@ maple-brain = { path = "../maple-brain" }
 
 ### System Prompt File
 
-You can define a system prompt in a `PROMPT.md` file instead of using an environment variable. This is useful for longer, more complex prompts.
+You can define a system prompt in a `SYSTEM_PROMPT.md` file instead of using an environment variable. This is useful for longer, more complex prompts.
 
 **Priority order:**
 1. `MAPLE_SYSTEM_PROMPT` environment variable (if set)
-2. Contents of prompt file (default: `PROMPT.md` in current directory)
+2. Contents of prompt file (`MAPLE_PROMPT_FILE` or default `SYSTEM_PROMPT.md`)
 3. No system prompt
 
-**Example PROMPT.md:**
+**Example SYSTEM_PROMPT.md:**
 ```markdown
 You are a helpful AI assistant communicating via Signal messenger.
 

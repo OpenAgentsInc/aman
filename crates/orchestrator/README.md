@@ -7,9 +7,11 @@ Message orchestrator for coordinating brain routing and tool execution.
 The orchestrator coordinates message processing between signal-daemon, maple-brain, and grok-brain. It:
 
 1. Routes messages through a privacy-preserving classifier (maple-brain TEE)
-2. Executes multi-step action plans (search, clear context, respond)
-3. Sends interim status messages to users
-4. Maintains typing indicators throughout processing
+2. Classifies message sensitivity (sensitive→Maple, insensitive→Grok)
+3. Manages user preferences for agent selection
+4. Executes multi-step action plans (search, clear context, respond)
+5. Sends interim status messages to users
+6. Maintains typing indicators throughout processing
 
 ## Architecture
 
@@ -41,7 +43,11 @@ Signal Message
 - `Orchestrator<S: MessageSender>` - Main orchestrator struct
 - `Router` - Message classifier using maple-brain
 - `RoutingPlan` - List of actions to execute
-- `OrchestratorAction` - Individual action (Search, ClearContext, Respond, ShowHelp)
+- `OrchestratorAction` - Individual action (Search, ClearContext, Respond, Grok, Maple, etc.)
+- `Sensitivity` - Message sensitivity level (Sensitive, Insensitive, Uncertain)
+- `UserPreference` - User's preferred agent (Default, PreferPrivacy, PreferSpeed)
+- `PreferenceStore` - Thread-safe storage for user preferences
+- `AgentIndicator` - Response prefix indicator (Privacy, Speed)
 - `Context` - Accumulated search results for augmenting responses
 - `MessageSender` trait - Abstraction for sending messages
 
@@ -90,6 +96,22 @@ Environment variables (via `.env`):
 | `MAPLE_API_URL` | No | OpenSecret API URL (default: `https://enclave.trymaple.ai`) |
 | `GROK_API_URL` | No | xAI API URL (default: `https://api.x.ai`) |
 
+### Router Prompt Configuration
+
+The router uses a system prompt to classify messages. Configure it via:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ROUTER_SYSTEM_PROMPT` | - | Inline router prompt (overrides file) |
+| `ROUTER_PROMPT_FILE` | `ROUTER_PROMPT.md` | Path to router prompt file |
+
+**Priority:**
+1. `ROUTER_SYSTEM_PROMPT` env var (if set)
+2. Contents of prompt file
+3. Embedded default prompt
+
+Edit `ROUTER_PROMPT.md` at the project root to customize routing behavior without recompiling.
+
 See the main `CLAUDE.md` for full configuration reference.
 
 ## Actions
@@ -100,8 +122,39 @@ The router classifies messages and generates action plans:
 |--------|-------------|
 | `Search { query, message }` | Execute real-time search via Grok, send status message |
 | `ClearContext { message }` | Clear conversation history for sender |
-| `Respond` | Generate final response using accumulated context |
-| `ShowHelp` | Display help text |
+| `Respond { sensitivity }` | Generate response, routed based on sensitivity and user preference |
+| `Help` | Display help text |
+| `Grok { query }` | Route directly to Grok (user explicitly requested) |
+| `Maple { query }` | Route directly to Maple (user explicitly requested) |
+| `SetPreference { preference }` | Change user's default agent preference |
+| `Skip { reason }` | Skip processing with reason |
+| `Ignore` | Silently ignore message (typos, accidental sends) |
+
+## Sensitivity-Based Routing
+
+The router classifies each message's sensitivity:
+
+| Sensitivity | Behavior | Examples |
+|-------------|----------|----------|
+| `Sensitive` | Always uses Maple (TEE) | Health, finances, legal, personal info |
+| `Insensitive` | Uses Grok (fast) by default | Weather, news, coding, general knowledge |
+| `Uncertain` | Follows user preference (defaults to Maple) | Ambiguous context |
+
+## User Preferences
+
+Users can set their preferred agent:
+
+| Command | Preference | Behavior |
+|---------|------------|----------|
+| "use grok", "prefer speed" | `PreferSpeed` | Uses Grok for insensitive and uncertain |
+| "use maple", "prefer privacy" | `PreferPrivacy` | Always uses Maple |
+| "reset preferences", "default" | `Default` | Sensitive→Maple, insensitive→Grok, uncertain→Maple |
+
+Direct commands bypass normal routing:
+- `grok: <query>` - Send directly to Grok
+- `maple: <query>` - Send directly to Maple
+
+Speed mode responses are prefixed with `[*]` as a subtle indicator.
 
 ## Example
 
@@ -140,5 +193,8 @@ cargo run -p orchestrator --example orchestrated_bot
 ## Security Notes
 
 - All routing decisions happen inside the OpenSecret TEE (privacy-preserving)
+- Sensitive messages are always processed in the TEE, never sent to external APIs
 - Search queries are sanitized before being sent to Grok
 - Raw user messages never leave the TEE for classification
+- Users can opt into speed mode for non-sensitive queries
+- Direct `grok:` commands bypass privacy protections (user's explicit choice)

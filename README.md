@@ -26,6 +26,17 @@ without leaving Signal. The focus is on minimal retention and operational safety
 
 See `docs/AMAN_LOCAL_DEV.md` for the shortest path to running Aman locally.
 
+## Prompt Configuration
+
+The bot's behavior is controlled by two prompt files at the project root:
+
+| File | Purpose | Env Override |
+|------|---------|--------------|
+| `SYSTEM_PROMPT.md` | Main bot persona and response style | `MAPLE_SYSTEM_PROMPT` or `MAPLE_PROMPT_FILE` |
+| `ROUTER_PROMPT.md` | Message classification and action routing | `ROUTER_SYSTEM_PROMPT` or `ROUTER_PROMPT_FILE` |
+
+Edit these files to customize the bot's personality, tone, and routing behavior without recompiling.
+
 ## Docs and references
 
 - `docs/ARCHITECTURE.md` - system design

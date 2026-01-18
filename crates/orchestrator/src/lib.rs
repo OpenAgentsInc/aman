@@ -75,15 +75,17 @@ mod actions;
 mod context;
 mod error;
 mod orchestrator;
+mod preferences;
 mod router;
 mod sender;
 
 // Public exports
-pub use actions::{OrchestratorAction, RoutingPlan};
+pub use actions::{OrchestratorAction, RoutingPlan, Sensitivity, UserPreference};
 pub use context::Context;
 pub use error::OrchestratorError;
 pub use orchestrator::{Orchestrator, HELP_TEXT};
-pub use router::{Router, ROUTER_SYSTEM_PROMPT};
+pub use preferences::{AgentIndicator, PreferenceStore};
+pub use router::{load_router_prompt, Router, DEFAULT_ROUTER_PROMPT_FILE, DEFAULT_ROUTER_SYSTEM_PROMPT};
 pub use sender::{LoggingSender, MessageSender, NoOpSender};
 
 // Re-export commonly used types from dependencies

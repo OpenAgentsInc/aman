@@ -2,6 +2,8 @@
 
 use brain_core::{Brain, InboundMessage};
 use maple_brain::{MapleBrain, MapleBrainConfig};
+use std::env;
+use std::path::Path;
 use tracing::{debug, info, warn};
 
 use crate::actions::RoutingPlan;
@@ -9,11 +11,14 @@ use crate::actions::RoutingPlan;
 use crate::actions::OrchestratorAction;
 use crate::error::OrchestratorError;
 
-/// System prompt for the router.
+/// Default path for the router prompt file.
+pub const DEFAULT_ROUTER_PROMPT_FILE: &str = "ROUTER_PROMPT.md";
+
+/// Default router system prompt (fallback if file not found).
 ///
 /// This prompt instructs the model to analyze messages and return
 /// a JSON routing plan with personalized status messages.
-pub const ROUTER_SYSTEM_PROMPT: &str = r#"You are a message routing assistant. Analyze the user's message and determine what actions are needed.
+pub const DEFAULT_ROUTER_SYSTEM_PROMPT: &str = r#"You are a message routing assistant. Analyze the user's message and determine what actions are needed.
 
 Output JSON with an "actions" array. Each action has a "type" field.
 
@@ -68,6 +73,52 @@ Examples:
 
 Respond with JSON only. No explanation."#;
 
+/// Load the router system prompt.
+///
+/// Priority:
+/// 1. `ROUTER_SYSTEM_PROMPT` env var (if set)
+/// 2. Contents of prompt file (`ROUTER_PROMPT_FILE` or default `ROUTER_PROMPT.md`)
+/// 3. Embedded default prompt
+pub fn load_router_prompt() -> String {
+    // 1. Check for inline env var
+    if let Ok(prompt) = env::var("ROUTER_SYSTEM_PROMPT") {
+        info!("Using router prompt from ROUTER_SYSTEM_PROMPT env var");
+        return prompt;
+    }
+
+    // 2. Try to load from file
+    let prompt_file = env::var("ROUTER_PROMPT_FILE")
+        .unwrap_or_else(|_| DEFAULT_ROUTER_PROMPT_FILE.to_string());
+
+    if let Some(prompt) = load_prompt_file(&prompt_file) {
+        info!("Loaded router prompt from {}", prompt_file);
+        return prompt;
+    }
+
+    // 3. Fall back to embedded default
+    info!("Using embedded default router prompt");
+    DEFAULT_ROUTER_SYSTEM_PROMPT.to_string()
+}
+
+/// Load a prompt from a file path.
+///
+/// Returns `Some(content)` if the file exists and is readable, `None` otherwise.
+fn load_prompt_file(path: impl AsRef<Path>) -> Option<String> {
+    let path = path.as_ref();
+
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            let trimmed = content.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Err(_) => None,
+    }
+}
+
 /// Router that uses MapleBrain to analyze messages and determine actions.
 ///
 /// The router is stateless - it doesn't maintain conversation history
@@ -80,9 +131,10 @@ impl Router {
     /// Create a new router with the given MapleBrain configuration.
     ///
     /// The router uses its own system prompt and disables history.
+    /// Prompt is loaded from file or env var (see `load_router_prompt`).
     pub async fn new(mut config: MapleBrainConfig) -> Result<Self, OrchestratorError> {
         // Override config for routing
-        config.system_prompt = Some(ROUTER_SYSTEM_PROMPT.to_string());
+        config.system_prompt = Some(load_router_prompt());
         config.max_history_turns = 0; // Stateless
         config.temperature = Some(0.0); // Deterministic
         config.max_tokens = Some(256); // Routing plans are small
@@ -291,7 +343,7 @@ mod tests {
         assert!(matches!(plan.actions[0], OrchestratorAction::ClearContext { .. }));
         assert!(matches!(plan.actions[1], OrchestratorAction::Search { .. }));
         assert!(matches!(plan.actions[2], OrchestratorAction::Help));
-        assert!(matches!(plan.actions[3], OrchestratorAction::Respond));
+        assert!(matches!(plan.actions[3], OrchestratorAction::Respond { .. }));
         assert!(matches!(plan.actions[4], OrchestratorAction::Skip { .. }));
         assert!(matches!(plan.actions[5], OrchestratorAction::Ignore));
     }

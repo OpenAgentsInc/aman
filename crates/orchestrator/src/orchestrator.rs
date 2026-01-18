@@ -2,24 +2,33 @@
 
 use std::sync::Arc;
 
-use brain_core::{InboundMessage, OutboundMessage, ToolExecutor, ToolRequest};
-use grok_brain::GrokToolExecutor;
+use brain_core::{Brain, InboundMessage, OutboundMessage, ToolExecutor, ToolRequest};
+use grok_brain::{GrokBrain, GrokBrainConfig, GrokToolExecutor};
 use maple_brain::{MapleBrain, MapleBrainConfig};
 use tracing::{debug, info, warn};
 
-use crate::actions::{OrchestratorAction, RoutingPlan};
+use crate::actions::{OrchestratorAction, RoutingPlan, Sensitivity, UserPreference};
 use crate::context::Context;
 use crate::error::OrchestratorError;
+use crate::preferences::{AgentIndicator, PreferenceStore};
 use crate::router::Router;
 use crate::sender::MessageSender;
 
 /// Help text shown when user asks for help.
-pub const HELP_TEXT: &str = r#"I'm an AI assistant. Here's what I can do:
+pub const HELP_TEXT: &str = r#"I'm an AI assistant with two modes:
 
-• Chat naturally about any topic
-• Search for real-time information (news, prices, events)
-• Remember our conversation context
-• Clear our conversation history on request
+Privacy Mode (Maple): Secure enclave processing for sensitive topics
+Speed Mode (Grok): Fast responses with real-time search
+
+Commands:
+• "use grok" or "prefer speed" - Switch to speed mode
+• "use maple" or "prefer privacy" - Switch to privacy mode
+• "reset preferences" - Return to default (auto-detect)
+• "grok: <query>" - One-time direct query to Grok
+• "maple: <query>" - One-time direct query to Maple
+• "forget our chat" - Clear conversation history
+
+I automatically detect sensitive topics (health, finances, personal) and route them securely. General queries use fast mode for better real-time info.
 
 Just send me a message and I'll do my best to help!"#;
 
@@ -27,83 +36,108 @@ Just send me a message and I'll do my best to help!"#;
 ///
 /// The orchestrator:
 /// - Routes messages through maple-brain for classification
+/// - Uses sensitivity-based routing (sensitive→Maple, insensitive→Grok)
+/// - Respects user preferences for agent selection
 /// - Executes multiple tool calls and actions
 /// - Sends interim status messages to the user
 /// - Maintains typing indicators throughout processing
 /// - Keeps all routing decisions private (via maple-brain TEE)
 pub struct Orchestrator<S: MessageSender> {
-    /// Router for message classification (stateless).
+    /// Router for message classification (stateless, uses Maple).
     router: Router,
-    /// Brain for generating responses (stateful).
-    brain: MapleBrain,
-    /// Tool executor for real-time search.
+    /// Maple brain for sensitive responses (TEE, privacy-preserving).
+    maple_brain: MapleBrain,
+    /// Grok brain for insensitive responses (fast, has native search).
+    grok_brain: GrokBrain,
+    /// Tool executor for real-time search (used by Maple for tool calls).
     search: Arc<GrokToolExecutor>,
     /// Message sender for Signal or other transports.
     sender: S,
+    /// User preference storage.
+    preferences: PreferenceStore,
 }
 
 impl<S: MessageSender> Orchestrator<S> {
     /// Create a new orchestrator with the given components.
     pub fn new(
         router: Router,
-        brain: MapleBrain,
+        maple_brain: MapleBrain,
+        grok_brain: GrokBrain,
         search: GrokToolExecutor,
         sender: S,
     ) -> Self {
         Self {
             router,
-            brain,
+            maple_brain,
+            grok_brain,
             search: Arc::new(search),
             sender,
+            preferences: PreferenceStore::new(),
         }
     }
 
     /// Create an orchestrator from environment variables.
     ///
-    /// This creates all components (router, brain, search) from environment.
+    /// This creates all components (router, brains, search) from environment.
     pub async fn from_env(sender: S) -> Result<Self, OrchestratorError> {
         // Create router (uses its own system prompt)
         let router = Router::from_env().await?;
 
-        // Create brain for responses (with tool support)
-        let brain_config = MapleBrainConfig::from_env()
-            .map_err(|e| OrchestratorError::RoutingFailed(format!("Brain config error: {}", e)))?;
+        // Create Maple brain config for responses (with tool support)
+        let maple_config = MapleBrainConfig::from_env()
+            .map_err(|e| OrchestratorError::RoutingFailed(format!("Maple config error: {}", e)))?;
 
-        // Create Grok tool executor (shared between orchestrator and brain)
+        // Create Grok brain config for responses
+        let grok_config = GrokBrainConfig::from_env()
+            .map_err(|e| OrchestratorError::ToolFailed(format!("Grok config error: {}", e)))?;
+
+        // Create Grok tool executor (shared for search operations)
         let search = Arc::new(
             GrokToolExecutor::from_env()
-                .map_err(|e| OrchestratorError::ToolFailed(format!("Grok config error: {}", e)))?,
+                .map_err(|e| OrchestratorError::ToolFailed(format!("Grok executor error: {}", e)))?,
         );
 
-        // Create brain with shared tool support
-        let brain = MapleBrain::with_shared_tools(brain_config, search.clone())
+        // Create Maple brain with shared tool support
+        let maple_brain = MapleBrain::with_shared_tools(maple_config, search.clone())
             .await
-            .map_err(|e| OrchestratorError::RoutingFailed(format!("Brain init error: {}", e)))?;
+            .map_err(|e| OrchestratorError::RoutingFailed(format!("Maple init error: {}", e)))?;
+
+        // Create Grok brain for direct queries
+        let grok_brain = GrokBrain::new(grok_config)
+            .map_err(|e| OrchestratorError::ToolFailed(format!("Grok brain init error: {}", e)))?;
 
         Ok(Self {
             router,
-            brain,
+            maple_brain,
+            grok_brain,
             search,
             sender,
+            preferences: PreferenceStore::new(),
         })
     }
 
-    /// Create an orchestrator with a shared tool executor.
+    /// Create an orchestrator with shared components.
     pub async fn with_shared_tools(
         router: Router,
-        brain_config: MapleBrainConfig,
+        maple_config: MapleBrainConfig,
+        grok_config: GrokBrainConfig,
         search: Arc<GrokToolExecutor>,
         sender: S,
     ) -> Result<Self, OrchestratorError> {
-        let brain = MapleBrain::with_shared_tools(brain_config, search.clone())
+        let maple_brain = MapleBrain::with_shared_tools(maple_config, search.clone())
             .await
-            .map_err(|e| OrchestratorError::RoutingFailed(format!("Brain init error: {}", e)))?;
+            .map_err(|e| OrchestratorError::RoutingFailed(format!("Maple init error: {}", e)))?;
+
+        let grok_brain = GrokBrain::new(grok_config)
+            .map_err(|e| OrchestratorError::ToolFailed(format!("Grok brain init error: {}", e)))?;
 
         Ok(Self {
             router,
-            brain,
+            maple_brain,
+            grok_brain,
             search,
             sender,
+            preferences: PreferenceStore::new(),
         })
     }
 
@@ -126,7 +160,10 @@ impl<S: MessageSender> Orchestrator<S> {
     /// 3. Routes the message with context to determine actions
     /// 4. Executes actions (search, clear context, etc.)
     /// 5. Generates and returns the final response
-    pub async fn process(&self, message: InboundMessage) -> Result<OutboundMessage, OrchestratorError> {
+    pub async fn process(
+        &self,
+        message: InboundMessage,
+    ) -> Result<OutboundMessage, OrchestratorError> {
         let recipient = message.group_id.as_ref().unwrap_or(&message.sender);
         let is_group = message.group_id.is_some();
         let history_key = Self::history_key(&message);
@@ -139,11 +176,10 @@ impl<S: MessageSender> Orchestrator<S> {
         // 1. Start typing indicator
         if let Err(e) = self.sender.set_typing(recipient, is_group, true).await {
             warn!("Failed to start typing indicator: {}", e);
-            // Continue processing even if typing indicator fails
         }
 
         // 2. Get conversation context (local operation, fast)
-        let context = self.brain.get_context_summary(&history_key).await;
+        let context = self.maple_brain.get_context_summary(&history_key).await;
         if let Some(ref ctx) = context {
             debug!("Conversation context: {}", ctx);
         }
@@ -153,7 +189,9 @@ impl<S: MessageSender> Orchestrator<S> {
         info!("Routing plan: {} actions", plan.actions.len());
 
         // 4. Execute actions, building context
-        let result = self.execute_plan(&message, &plan, recipient, is_group, &history_key).await;
+        let result = self
+            .execute_plan(&message, &plan, recipient, is_group, &history_key)
+            .await;
 
         // 5. Stop typing indicator (always, even on error)
         if let Err(e) = self.sender.set_typing(recipient, is_group, false).await {
@@ -176,8 +214,18 @@ impl<S: MessageSender> Orchestrator<S> {
 
         for action in &plan.actions {
             match action {
-                OrchestratorAction::Search { query, message: status_msg } => {
-                    self.execute_search(query, status_msg.as_deref(), &mut context, recipient, is_group).await?;
+                OrchestratorAction::Search {
+                    query,
+                    message: status_msg,
+                } => {
+                    self.execute_search(
+                        query,
+                        status_msg.as_deref(),
+                        &mut context,
+                        recipient,
+                        is_group,
+                    )
+                    .await?;
                 }
 
                 OrchestratorAction::ClearContext { .. } => {
@@ -185,8 +233,29 @@ impl<S: MessageSender> Orchestrator<S> {
                 }
 
                 OrchestratorAction::Help => {
-                    // Help returns immediately
                     return Ok(OutboundMessage::reply_to(message, HELP_TEXT));
+                }
+
+                OrchestratorAction::Respond { sensitivity } => {
+                    return self
+                        .execute_respond(message, &context, *sensitivity, history_key)
+                        .await;
+                }
+
+                OrchestratorAction::Grok { query } => {
+                    return self.execute_direct_grok(message, query, &context).await;
+                }
+
+                OrchestratorAction::Maple { query } => {
+                    return self
+                        .execute_direct_maple(message, query, &context, history_key)
+                        .await;
+                }
+
+                OrchestratorAction::SetPreference { preference } => {
+                    return self
+                        .execute_set_preference(message, preference, history_key)
+                        .await;
                 }
 
                 OrchestratorAction::Skip { reason } => {
@@ -195,21 +264,16 @@ impl<S: MessageSender> Orchestrator<S> {
                 }
 
                 OrchestratorAction::Ignore => {
-                    // Silently ignore accidental messages
                     info!("Ignoring accidental message");
                     return Err(OrchestratorError::Skipped("accidental message".to_string()));
-                }
-
-                OrchestratorAction::Respond => {
-                    // Final response with accumulated context
-                    return self.execute_respond(message, &context).await;
                 }
             }
         }
 
-        // If no Respond action in plan, generate one anyway
-        info!("No Respond action in plan, generating response anyway");
-        self.execute_respond(message, &context).await
+        // If no Respond action in plan, generate one with default sensitivity
+        info!("No response action in plan, generating response anyway");
+        self.execute_respond(message, &context, Sensitivity::default(), history_key)
+            .await
     }
 
     /// Execute a search action.
@@ -223,14 +287,17 @@ impl<S: MessageSender> Orchestrator<S> {
     ) -> Result<(), OrchestratorError> {
         info!("Executing search: {}", query);
 
-        // Notify user that we're searching (use custom message if provided)
+        // Notify user that we're searching
         let search_msg = status_message
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("Searching: {}", query));
 
-        if let Err(e) = self.sender.send_message(recipient, &search_msg, is_group).await {
+        if let Err(e) = self
+            .sender
+            .send_message(recipient, &search_msg, is_group)
+            .await
+        {
             warn!("Failed to send search notification: {}", e);
-            // Continue with search even if notification fails
         }
 
         // Restart typing indicator after sending message
@@ -243,16 +310,19 @@ impl<S: MessageSender> Orchestrator<S> {
             "orchestrator-search".to_string(),
             "realtime_search".to_string(),
             &format!(r#"{{"query": "{}"}}"#, query.replace('"', "\\\"")),
-        ).map_err(|e| OrchestratorError::ToolFailed(format!("Invalid search request: {}", e)))?;
+        )
+        .map_err(|e| OrchestratorError::ToolFailed(format!("Invalid search request: {}", e)))?;
 
         let result = self.search.execute(request).await;
 
         if result.success {
-            info!("Search completed successfully ({} chars)", result.content.len());
+            info!(
+                "Search completed successfully ({} chars)",
+                result.content.len()
+            );
             context.add_search_result(query, &result.content);
         } else {
             warn!("Search failed: {}", result.content);
-            // Add error to context so brain knows search failed
             context.add_search_result(query, &format!("Search failed: {}", result.content));
         }
 
@@ -262,27 +332,144 @@ impl<S: MessageSender> Orchestrator<S> {
     /// Execute a clear context action (silent - no user notification).
     async fn execute_clear_context(&self, history_key: &str) -> Result<(), OrchestratorError> {
         info!("Clearing conversation history for {}", history_key);
-        self.brain.clear_history(history_key).await;
+        self.maple_brain.clear_history(history_key).await;
+        self.grok_brain.clear_history(history_key).await;
         Ok(())
     }
 
-    /// Execute a respond action - generate the final response.
+    /// Execute a respond action - generate the final response using sensitivity-based routing.
     async fn execute_respond(
         &self,
         message: &InboundMessage,
         context: &Context,
+        sensitivity: Sensitivity,
+        history_key: &str,
     ) -> Result<OutboundMessage, OrchestratorError> {
+        // Determine which agent to use based on sensitivity and user preference
+        let use_grok = self
+            .preferences
+            .should_use_grok(history_key, sensitivity)
+            .await;
+
+        let indicator = if use_grok {
+            AgentIndicator::Speed
+        } else {
+            AgentIndicator::Privacy
+        };
+
+        info!(
+            "Generating response with {:?} (sensitivity: {:?}, use_grok: {})",
+            indicator, sensitivity, use_grok
+        );
+
         // Augment message with search context if any
         let augmented = context.augment_message(message);
 
         debug!("Context summary: {}", context.format_summary());
 
-        // Process through brain
-        use brain_core::Brain;
-        let response = self.brain.process(augmented).await?;
+        // Process through the appropriate brain
+        let mut response = if use_grok {
+            self.grok_brain.process(augmented).await?
+        } else {
+            self.maple_brain.process(augmented).await?
+        };
+
+        // Add indicator prefix if using speed mode
+        if indicator == AgentIndicator::Speed && !indicator.prefix().is_empty() {
+            response.text = format!("{}{}", indicator.prefix(), response.text);
+        }
 
         info!("Generated response: {} chars", response.text.len());
         Ok(response)
+    }
+
+    /// Execute a direct Grok query (user explicitly requested).
+    async fn execute_direct_grok(
+        &self,
+        message: &InboundMessage,
+        query: &str,
+        context: &Context,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        info!("Direct Grok query: {}", query);
+
+        // Create a modified message with the extracted query
+        let mut modified = message.clone();
+        modified.text = query.to_string();
+
+        // Augment with context if any
+        let augmented = context.augment_message(&modified);
+
+        // Process through Grok
+        let mut response = self.grok_brain.process(augmented).await?;
+
+        // Add speed indicator
+        let indicator = AgentIndicator::Speed;
+        if !indicator.prefix().is_empty() {
+            response.text = format!("{}{}", indicator.prefix(), response.text);
+        }
+
+        info!("Direct Grok response: {} chars", response.text.len());
+        Ok(response)
+    }
+
+    /// Execute a direct Maple query (user explicitly requested).
+    async fn execute_direct_maple(
+        &self,
+        message: &InboundMessage,
+        query: &str,
+        context: &Context,
+        _history_key: &str,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        info!("Direct Maple query: {}", query);
+
+        // Create a modified message with the extracted query
+        let mut modified = message.clone();
+        modified.text = query.to_string();
+
+        // Augment with context if any
+        let augmented = context.augment_message(&modified);
+
+        // Process through Maple
+        let response = self.maple_brain.process(augmented).await?;
+
+        info!("Direct Maple response: {} chars", response.text.len());
+        Ok(response)
+    }
+
+    /// Execute a set preference action.
+    async fn execute_set_preference(
+        &self,
+        message: &InboundMessage,
+        preference_str: &str,
+        history_key: &str,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        let preference = UserPreference::from_str(preference_str);
+
+        info!(
+            "Setting preference for {} to {:?}",
+            history_key, preference
+        );
+
+        self.preferences.set(history_key, preference).await;
+
+        let response_text = match preference {
+            UserPreference::PreferSpeed => {
+                "Switched to speed mode. I'll use fast processing for your requests. \
+                 Sensitive topics will still be handled securely.\n\n\
+                 Say \"use maple\" or \"prefer privacy\" to switch back."
+            }
+            UserPreference::PreferPrivacy => {
+                "Switched to privacy mode. All your requests will be processed in the secure enclave.\n\n\
+                 Say \"use grok\" or \"prefer speed\" for faster responses."
+            }
+            UserPreference::Default => {
+                "Preferences reset to default. I'll automatically detect sensitive topics \
+                 and route them securely, while using fast mode for general queries.\n\n\
+                 Say \"use grok\" for speed mode or \"use maple\" for privacy mode."
+            }
+        };
+
+        Ok(OutboundMessage::reply_to(message, response_text))
     }
 
     /// Get the sender.
@@ -290,9 +477,19 @@ impl<S: MessageSender> Orchestrator<S> {
         &self.sender
     }
 
-    /// Get the brain.
-    pub fn brain(&self) -> &MapleBrain {
-        &self.brain
+    /// Get the Maple brain.
+    pub fn maple_brain(&self) -> &MapleBrain {
+        &self.maple_brain
+    }
+
+    /// Get the Grok brain.
+    pub fn grok_brain(&self) -> &GrokBrain {
+        &self.grok_brain
+    }
+
+    /// Get the preference store.
+    pub fn preferences(&self) -> &PreferenceStore {
+        &self.preferences
     }
 }
 
@@ -301,24 +498,30 @@ mod tests {
     use super::*;
     use crate::sender::NoOpSender;
 
-    // Note: Most tests require actual API keys and are integration tests.
-    // These unit tests verify the basic structure.
-
     #[test]
     fn test_history_key_direct() {
         let message = InboundMessage::direct("+1234567890", "hello", 123);
-        assert_eq!(Orchestrator::<NoOpSender>::history_key(&message), "+1234567890");
+        assert_eq!(
+            Orchestrator::<NoOpSender>::history_key(&message),
+            "+1234567890"
+        );
     }
 
     #[test]
     fn test_history_key_group() {
         let message = InboundMessage::group("+1234567890", "hello", 123, "group123");
-        assert_eq!(Orchestrator::<NoOpSender>::history_key(&message), "group:group123");
+        assert_eq!(
+            Orchestrator::<NoOpSender>::history_key(&message),
+            "group:group123"
+        );
     }
 
     #[test]
     fn test_help_text_not_empty() {
         assert!(!HELP_TEXT.is_empty());
-        assert!(HELP_TEXT.contains("AI assistant"));
+        assert!(HELP_TEXT.contains("Privacy Mode"));
+        assert!(HELP_TEXT.contains("Speed Mode"));
+        assert!(HELP_TEXT.contains("use grok"));
+        assert!(HELP_TEXT.contains("use maple"));
     }
 }

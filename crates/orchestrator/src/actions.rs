@@ -2,6 +2,70 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Sensitivity level for a request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Sensitivity {
+    /// Sensitive content - use privacy-preserving mode (Maple TEE).
+    /// Examples: health, finances, legal, personal info, relationships.
+    Sensitive,
+
+    /// Insensitive content - can use fast mode (Grok).
+    /// Examples: weather, news, sports, general knowledge, coding.
+    #[default]
+    Insensitive,
+
+    /// Uncertain - could go either way, follow user preference.
+    Uncertain,
+}
+
+impl Sensitivity {
+    /// Check if this sensitivity level should use Maple (privacy mode).
+    pub fn prefers_maple(&self) -> bool {
+        matches!(self, Sensitivity::Sensitive | Sensitivity::Uncertain)
+    }
+
+    /// Check if this sensitivity level can use Grok (fast mode).
+    pub fn allows_grok(&self) -> bool {
+        matches!(self, Sensitivity::Insensitive)
+    }
+}
+
+/// User preference for which agent to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UserPreference {
+    /// Default behavior: sensitive→Maple, insensitive→Grok, uncertain→Maple.
+    #[default]
+    Default,
+
+    /// Prefer privacy: always use Maple (except explicit "grok:" commands).
+    PreferPrivacy,
+
+    /// Prefer speed: always use Grok (except explicit sensitive detection overrides).
+    PreferSpeed,
+}
+
+impl UserPreference {
+    /// Parse a preference from a string (e.g., from router action).
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "prefer_privacy" | "privacy" | "maple" => Self::PreferPrivacy,
+            "prefer_speed" | "speed" | "grok" | "fast" => Self::PreferSpeed,
+            _ => Self::Default,
+        }
+    }
+
+    /// Get a human-readable description.
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::Default => "default (privacy for sensitive, speed for general)",
+            Self::PreferPrivacy => "privacy mode (all requests use secure enclave)",
+            Self::PreferSpeed => "speed mode (all requests use fast processing)",
+        }
+    }
+}
+
 /// The routing plan from the first-pass analysis.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RoutingPlan {
@@ -18,7 +82,16 @@ impl RoutingPlan {
     /// Create a simple plan with just a respond action.
     pub fn respond_only() -> Self {
         Self {
-            actions: vec![OrchestratorAction::Respond],
+            actions: vec![OrchestratorAction::Respond {
+                sensitivity: Sensitivity::default(),
+            }],
+        }
+    }
+
+    /// Create a simple plan with just a respond action with specific sensitivity.
+    pub fn respond_with_sensitivity(sensitivity: Sensitivity) -> Self {
+        Self {
+            actions: vec![OrchestratorAction::Respond { sensitivity }],
         }
     }
 
@@ -29,7 +102,9 @@ impl RoutingPlan {
 
     /// Check if the plan contains a search action.
     pub fn has_search(&self) -> bool {
-        self.actions.iter().any(|a| matches!(a, OrchestratorAction::Search { .. }))
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::Search { .. }))
     }
 
     /// Check if the plan contains a clear context action.
@@ -42,6 +117,27 @@ impl RoutingPlan {
     /// Check if the plan is an ignore action (accidental message).
     pub fn is_ignore(&self) -> bool {
         self.actions.len() == 1 && matches!(self.actions[0], OrchestratorAction::Ignore)
+    }
+
+    /// Check if the plan contains a direct Grok action.
+    pub fn has_direct_grok(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::Grok { .. }))
+    }
+
+    /// Check if the plan contains a direct Maple action.
+    pub fn has_direct_maple(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::Maple { .. }))
+    }
+
+    /// Check if the plan contains a set preference action.
+    pub fn has_set_preference(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::SetPreference { .. }))
     }
 }
 
@@ -69,7 +165,29 @@ pub enum OrchestratorAction {
     Help,
 
     /// Generate final response (may include gathered context).
-    Respond,
+    Respond {
+        /// Sensitivity level for this response.
+        #[serde(default)]
+        sensitivity: Sensitivity,
+    },
+
+    /// Route directly to Grok (user explicitly requested).
+    Grok {
+        /// The user's query to send to Grok.
+        query: String,
+    },
+
+    /// Route directly to Maple (user explicitly requested).
+    Maple {
+        /// The user's query to send to Maple.
+        query: String,
+    },
+
+    /// Set user preference for which agent to use.
+    SetPreference {
+        /// The preference to set.
+        preference: String,
+    },
 
     /// Skip processing (e.g., for system messages).
     Skip {
@@ -111,6 +229,32 @@ impl OrchestratorAction {
         }
     }
 
+    /// Create a respond action with sensitivity.
+    pub fn respond(sensitivity: Sensitivity) -> Self {
+        Self::Respond { sensitivity }
+    }
+
+    /// Create a direct Grok action.
+    pub fn grok(query: impl Into<String>) -> Self {
+        Self::Grok {
+            query: query.into(),
+        }
+    }
+
+    /// Create a direct Maple action.
+    pub fn maple(query: impl Into<String>) -> Self {
+        Self::Maple {
+            query: query.into(),
+        }
+    }
+
+    /// Create a set preference action.
+    pub fn set_preference(preference: impl Into<String>) -> Self {
+        Self::SetPreference {
+            preference: preference.into(),
+        }
+    }
+
     /// Create a skip action with the given reason.
     pub fn skip(reason: impl Into<String>) -> Self {
         Self::Skip {
@@ -124,7 +268,10 @@ impl OrchestratorAction {
             Self::Search { query, .. } => format!("Search: {}", query),
             Self::ClearContext { .. } => "Clear conversation history".to_string(),
             Self::Help => "Show help information".to_string(),
-            Self::Respond => "Generate response".to_string(),
+            Self::Respond { sensitivity } => format!("Generate response ({:?})", sensitivity),
+            Self::Grok { query } => format!("Direct Grok: {}", query),
+            Self::Maple { query } => format!("Direct Maple: {}", query),
+            Self::SetPreference { preference } => format!("Set preference: {}", preference),
             Self::Skip { reason } => format!("Skip: {}", reason),
             Self::Ignore => "Ignore (accidental message)".to_string(),
         }
@@ -140,7 +287,7 @@ mod tests {
         let json = r#"{
             "actions": [
                 {"type": "search", "query": "bitcoin price today"},
-                {"type": "respond"}
+                {"type": "respond", "sensitivity": "insensitive"}
             ]
         }"#;
 
@@ -156,11 +303,76 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_respond_with_sensitivity() {
+        let json = r#"{"actions": [{"type": "respond", "sensitivity": "sensitive"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+
+        if let OrchestratorAction::Respond { sensitivity } = &plan.actions[0] {
+            assert_eq!(*sensitivity, Sensitivity::Sensitive);
+        } else {
+            panic!("Expected Respond action");
+        }
+    }
+
+    #[test]
+    fn test_parse_respond_default_sensitivity() {
+        let json = r#"{"actions": [{"type": "respond"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+
+        if let OrchestratorAction::Respond { sensitivity } = &plan.actions[0] {
+            assert_eq!(*sensitivity, Sensitivity::Insensitive); // default
+        } else {
+            panic!("Expected Respond action");
+        }
+    }
+
+    #[test]
+    fn test_parse_grok_action() {
+        let json = r#"{"actions": [{"type": "grok", "query": "what's trending?"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_direct_grok());
+
+        if let OrchestratorAction::Grok { query } = &plan.actions[0] {
+            assert_eq!(query, "what's trending?");
+        } else {
+            panic!("Expected Grok action");
+        }
+    }
+
+    #[test]
+    fn test_parse_maple_action() {
+        let json = r#"{"actions": [{"type": "maple", "query": "private question"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_direct_maple());
+
+        if let OrchestratorAction::Maple { query } = &plan.actions[0] {
+            assert_eq!(query, "private question");
+        } else {
+            panic!("Expected Maple action");
+        }
+    }
+
+    #[test]
+    fn test_parse_set_preference() {
+        let json = r#"{"actions": [{"type": "set_preference", "preference": "prefer_speed"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_set_preference());
+
+        if let OrchestratorAction::SetPreference { preference } = &plan.actions[0] {
+            assert_eq!(preference, "prefer_speed");
+            let pref = UserPreference::from_str(preference);
+            assert_eq!(pref, UserPreference::PreferSpeed);
+        } else {
+            panic!("Expected SetPreference action");
+        }
+    }
+
+    #[test]
     fn test_parse_search_with_message() {
         let json = r#"{
             "actions": [
                 {"type": "search", "query": "weather NYC", "message": "Let me check the forecast..."},
-                {"type": "respond"}
+                {"type": "respond", "sensitivity": "insensitive"}
             ]
         }"#;
 
@@ -221,7 +433,7 @@ mod tests {
     fn test_serialize_routing_plan() {
         let plan = RoutingPlan::new(vec![
             OrchestratorAction::search("test query"),
-            OrchestratorAction::Respond,
+            OrchestratorAction::respond(Sensitivity::Insensitive),
         ]);
 
         let json = serde_json::to_string(&plan).unwrap();
@@ -234,5 +446,37 @@ mod tests {
         let plan = RoutingPlan::respond_only();
         assert_eq!(plan.actions.len(), 1);
         assert!(!plan.has_search());
+    }
+
+    #[test]
+    fn test_sensitivity_prefers_maple() {
+        assert!(Sensitivity::Sensitive.prefers_maple());
+        assert!(Sensitivity::Uncertain.prefers_maple());
+        assert!(!Sensitivity::Insensitive.prefers_maple());
+    }
+
+    #[test]
+    fn test_sensitivity_allows_grok() {
+        assert!(Sensitivity::Insensitive.allows_grok());
+        assert!(!Sensitivity::Sensitive.allows_grok());
+        assert!(!Sensitivity::Uncertain.allows_grok());
+    }
+
+    #[test]
+    fn test_user_preference_from_str() {
+        assert_eq!(
+            UserPreference::from_str("prefer_privacy"),
+            UserPreference::PreferPrivacy
+        );
+        assert_eq!(
+            UserPreference::from_str("prefer_speed"),
+            UserPreference::PreferSpeed
+        );
+        assert_eq!(UserPreference::from_str("default"), UserPreference::Default);
+        assert_eq!(UserPreference::from_str("grok"), UserPreference::PreferSpeed);
+        assert_eq!(
+            UserPreference::from_str("maple"),
+            UserPreference::PreferPrivacy
+        );
     }
 }

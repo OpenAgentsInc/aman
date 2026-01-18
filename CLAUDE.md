@@ -341,11 +341,27 @@ Send messages from your phone to test:
 - Tool executors receive only sanitized queries (privacy boundary)
 - Avoid logging message bodies or attachment paths
 
+## Prompt Files
+
+The bot's behavior is controlled by two prompt files at the project root:
+
+| File | Purpose | Env Override |
+|------|---------|--------------|
+| `SYSTEM_PROMPT.md` | Main bot persona and response style | `MAPLE_SYSTEM_PROMPT` or `MAPLE_PROMPT_FILE` |
+| `ROUTER_PROMPT.md` | Message classification and action routing | `ROUTER_SYSTEM_PROMPT` or `ROUTER_PROMPT_FILE` |
+
+**Priority for each prompt:**
+1. Environment variable (inline string)
+2. Environment variable (file path)
+3. Default file at project root
+4. Embedded fallback (router only)
+
 ## Key Files
 
 - `build/signal-cli.jar` - Built signal-cli fat JAR
 - `repos/signal-cli/` - signal-cli Git submodule
 - `bin/orchestrated_bot` - Built bot binary (created by dev.sh)
+- `SYSTEM_PROMPT.md` - Main bot persona prompt
+- `ROUTER_PROMPT.md` - Message routing prompt
 - `docs/ARCHITECTURE.md` - Detailed architecture documentation
 - `docs/signal-cli-daemon.md` - Daemon API documentation
-- `crates/maple-brain/PROMPT.md` - Default system prompt
