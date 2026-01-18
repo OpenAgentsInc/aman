@@ -29,6 +29,7 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - Tool history + clear-context events for auditability (SQLite, if configured)
 - Operator broadcasts and dashboards
 - Optional web UI for browser chat
+- OpenAI-compatible API gateway (echo, orchestrator, or OpenRouter proxy modes)
 
 ## What it is not yet
 

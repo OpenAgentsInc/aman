@@ -26,7 +26,7 @@
   - Reads from SQLite and sends broadcasts via `broadcaster`.
 - `api` (crate: `crates/api`)
   - OpenAI-compatible inference gateway (`/v1/chat/completions`, `/v1/models`).
-  - Uses a local knowledge base (if configured) or stubbed echo responses for local/dev use.
+  - Uses a local knowledge base (if configured), orchestrator brain, or OpenRouter inference mode.
 - `ingester` (crate: `crates/ingester`)
   - Chunks local files into blob refs and publishes DocManifest + ChunkRef events.
   - Can index directly into a local Nostr SQLite DB for testing.
@@ -353,8 +353,14 @@ Environment variables (names may be implementation-specific):
 - `AMAN_API_ADDR`: bind address for the OpenAI-compatible gateway (api crate).
 - `AMAN_API_TOKEN`: bearer token for API access (optional).
 - `AMAN_API_MODEL`: default model name for the gateway.
+- `AMAN_API_MODE`: API mode (`echo`, `orchestrator`, `openrouter`).
 - `AMAN_KB_PATH`: optional path to a local knowledge base directory/file for the gateway.
 - `ADMIN_ADDR`: bind address for the admin web UI (admin-web crate).
+- `OPENROUTER_API_KEY`: API key for OpenRouter (optional API gateway mode).
+- `OPENROUTER_API_URL`: OpenRouter API base URL (default: `https://openrouter.ai/api/v1`).
+- `OPENROUTER_MODEL`: default OpenRouter model if the request omits `model`.
+- `OPENROUTER_HTTP_REFERER`: optional app URL header for OpenRouter.
+- `OPENROUTER_X_TITLE`: optional app title header for OpenRouter.
 - `NOSTR_RELAYS`: comma-separated relay URLs (Phase 2).
 - `NOSTR_DB_PATH`: SQLite path for Nostr indexer (Phase 2).
 - `NOSTR_SECRETBOX_KEY`: optional symmetric key for payload encryption (Phase 2).

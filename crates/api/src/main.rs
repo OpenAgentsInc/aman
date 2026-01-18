@@ -5,23 +5,78 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use axum::body::Body;
 use axum::extract::{Json, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::header::CONTENT_TYPE;
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
+use reqwest::Client;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+use orchestrator::{InboundMessage, NoOpSender, Orchestrator};
+
 #[derive(Clone)]
 struct AppState {
     api_token: Option<String>,
     default_model: String,
     kb: Option<Arc<KnowledgeBase>>,
+    mode: ApiMode,
+    orchestrator: Option<Arc<Orchestrator<NoOpSender>>>,
+    openrouter: Option<OpenRouterConfig>,
+    http_client: Client,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApiMode {
+    Echo,
+    Orchestrator,
+    OpenRouter,
+}
+
+impl ApiMode {
+    fn from_env(value: &str) -> Self {
+        match value.trim().to_lowercase().as_str() {
+            "orchestrator" | "brain" | "aman" => Self::Orchestrator,
+            "openrouter" | "open-router" | "router" => Self::OpenRouter,
+            _ => Self::Echo,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct OpenRouterConfig {
+    api_key: String,
+    api_url: String,
+    model: Option<String>,
+    http_referer: Option<String>,
+    title: Option<String>,
+}
+
+impl OpenRouterConfig {
+    fn from_env() -> Result<Self, String> {
+        let api_key = env::var("OPENROUTER_API_KEY")
+            .map_err(|_| "OPENROUTER_API_KEY not set".to_string())?;
+        let api_url = env::var("OPENROUTER_API_URL")
+            .unwrap_or_else(|_| "https://openrouter.ai/api/v1".to_string());
+        let model = env::var("OPENROUTER_MODEL").ok().filter(|value| !value.trim().is_empty());
+        let http_referer = env::var("OPENROUTER_HTTP_REFERER").ok().filter(|value| !value.trim().is_empty());
+        let title = env::var("OPENROUTER_X_TITLE").ok().filter(|value| !value.trim().is_empty());
+
+        Ok(Self {
+            api_key,
+            api_url,
+            model,
+            http_referer,
+            title,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,12 +164,14 @@ struct Health {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
+    let _ = dotenvy::dotenv();
 
     let addr = env::var("AMAN_API_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".to_string());
     let api_token = env::var("AMAN_API_TOKEN").ok();
     let default_model = env::var("AMAN_API_MODEL").unwrap_or_else(|_| "aman-chat".to_string());
     let kb_path = env::var("AMAN_KB_PATH").ok();
     let nostr_db_path = env::var("NOSTR_DB_PATH").ok();
+    let mode = ApiMode::from_env(&env::var("AMAN_API_MODE").unwrap_or_else(|_| "echo".to_string()));
 
     let kb = match nostr_db_path {
         Some(path) if !path.trim().is_empty() => match KnowledgeBase::from_nostr_db(PathBuf::from(path)) {
@@ -142,10 +199,42 @@ async fn main() {
         },
     };
 
+    let orchestrator = if mode == ApiMode::Orchestrator {
+        info!("Initializing orchestrator-backed API");
+        let orchestrator = Orchestrator::from_env(NoOpSender)
+            .await
+            .unwrap_or_else(|err| {
+                panic!("Failed to initialize orchestrator: {}", err);
+            });
+        Some(Arc::new(orchestrator))
+    } else {
+        None
+    };
+
+    let openrouter = if mode == ApiMode::OpenRouter {
+        match OpenRouterConfig::from_env() {
+            Ok(config) => {
+                info!("Initializing OpenRouter-backed API");
+                Some(config)
+            }
+            Err(err) => panic!("Failed to initialize OpenRouter: {}", err),
+        }
+    } else {
+        None
+    };
+
+    let http_client = Client::builder()
+        .build()
+        .expect("Failed to initialize HTTP client");
+
     let state = AppState {
         api_token,
         default_model,
         kb,
+        mode,
+        orchestrator,
+        openrouter,
+        http_client,
     };
 
     let app = Router::new()
@@ -188,27 +277,52 @@ async fn list_models(State(state): State<AppState>) -> Json<ModelList> {
 async fn chat_completions(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(payload): Json<ChatCompletionRequest>,
+    Json(payload): Json<serde_json::Value>,
 ) -> Result<Response, ApiError> {
     authorize(&state, &headers)?;
 
-    let model = if payload.model.is_empty() {
+    let parsed: ChatCompletionRequest = serde_json::from_value(payload.clone()).map_err(|err| {
+        ApiError::BadRequest(format!("Invalid request body: {}", err))
+    })?;
+
+    let model = if parsed.model.is_empty() {
         state.default_model.clone()
     } else {
-        payload.model.clone()
+        parsed.model.clone()
     };
 
-    let user_text = last_user_text(&payload.messages);
-    let response_text = match (user_text, &state.kb) {
-        (Some(text), Some(kb)) => match kb.search(&text) {
-            Some(hit) => format!("KB hit ({})\n\n{}", hit.source, hit.snippet),
-            None => format!("Echo: {}", text),
+    let user_text = last_user_text(&parsed.messages);
+    if state.mode == ApiMode::OpenRouter {
+        return openrouter_infer(&state, &headers, payload, user_text.as_deref()).await;
+    }
+    let response_text = match state.mode {
+        ApiMode::Orchestrator => {
+            let text = user_text.ok_or_else(|| ApiError::BadRequest("Missing user message".to_string()))?;
+            let sender = header_string(&headers, "x-aman-user").unwrap_or_else(|| "api-user".to_string());
+            let group_id = header_string(&headers, "x-aman-group");
+            let inbound = build_inbound_message(sender, group_id, text);
+            let orchestrator = state
+                .orchestrator
+                .clone()
+                .ok_or_else(|| ApiError::Upstream("Orchestrator not configured".to_string()))?;
+            let response = orchestrator
+                .process(inbound)
+                .await
+                .map_err(|err| ApiError::Upstream(format!("Orchestrator error: {}", err)))?;
+            response.text
+        }
+        ApiMode::Echo => match (user_text, &state.kb) {
+            (Some(text), Some(kb)) => match kb.search(&text) {
+                Some(hit) => format!("KB hit ({})\n\n{}", hit.source, hit.snippet),
+                None => format!("Echo: {}", text),
+            },
+            (Some(text), None) => format!("Echo: {}", text),
+            (None, _) => "Echo: (no user message)".to_string(),
         },
-        (Some(text), None) => format!("Echo: {}", text),
-        (None, _) => "Echo: (no user message)".to_string(),
+        ApiMode::OpenRouter => unreachable!("handled earlier"),
     };
 
-    if payload.stream {
+    if parsed.stream {
         let stream = stream_chat_completion(model, response_text);
         return Ok(Sse::new(stream).into_response());
     }
@@ -263,6 +377,126 @@ fn last_user_text(messages: &[ChatMessage]) -> Option<String> {
         .rev()
         .find(|msg| msg.role == "user")
         .and_then(|msg| extract_text(&msg.content))
+}
+
+fn header_string(headers: &HeaderMap, key: &str) -> Option<String> {
+    headers
+        .get(key)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn build_inbound_message(sender: String, group_id: Option<String>, text: String) -> InboundMessage {
+    let timestamp = unix_timestamp_millis();
+    if let Some(group_id) = group_id {
+        InboundMessage::group(sender, text, timestamp, group_id)
+    } else {
+        InboundMessage::direct(sender, text, timestamp)
+    }
+}
+
+async fn openrouter_infer(
+    state: &AppState,
+    headers: &HeaderMap,
+    payload: serde_json::Value,
+    user_text: Option<&str>,
+) -> Result<Response, ApiError> {
+    let Some(config) = state.openrouter.as_ref() else {
+        return Err(ApiError::Upstream("OpenRouter not configured".to_string()));
+    };
+
+    let mut body = match payload {
+        serde_json::Value::Object(map) => map,
+        _ => return Err(ApiError::BadRequest("Request body must be a JSON object".to_string())),
+    };
+
+    if let (Some(kb), Some(text)) = (state.kb.as_ref(), user_text) {
+        if let Some(hit) = kb.search(text) {
+            if let Some(serde_json::Value::Array(messages)) = body.get_mut("messages") {
+                let context = format!(
+                    "Context from local knowledge base (use only if relevant; cite the source in plain text if used):\nSource: {}\n\n{}",
+                    hit.source, hit.snippet
+                );
+                let context_message = serde_json::json!({
+                    "role": "system",
+                    "content": context,
+                });
+                let insert_at = find_system_tail(messages);
+                messages.insert(insert_at, context_message);
+            } else {
+                warn!("OpenRouter request missing messages array; skipping KB injection");
+            }
+        }
+    }
+
+    if !body.contains_key("model") {
+        if let Some(model) = &config.model {
+            body.insert("model".to_string(), serde_json::Value::String(model.clone()));
+        }
+    }
+
+    if !body.contains_key("user") {
+        if let Some(user) = header_string(headers, "x-aman-user") {
+            body.insert("user".to_string(), serde_json::Value::String(user));
+        }
+    }
+
+    let url = format!("{}/chat/completions", config.api_url.trim_end_matches('/'));
+    let mut request = state
+        .http_client
+        .post(url)
+        .header("Authorization", format!("Bearer {}", config.api_key))
+        .header("Content-Type", "application/json");
+
+    if let Some(referer) = &config.http_referer {
+        request = request.header("HTTP-Referer", referer);
+    }
+
+    if let Some(title) = &config.title {
+        request = request.header("X-Title", title);
+    }
+
+    let response = request
+        .json(&serde_json::Value::Object(body))
+        .send()
+        .await
+        .map_err(|err| ApiError::Upstream(format!("OpenRouter request failed: {}", err)))?;
+
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/json")
+        .to_string();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|err| ApiError::Upstream(format!("OpenRouter response failed: {}", err)))?;
+
+    let mut outgoing = Response::new(Body::from(bytes));
+    *outgoing.status_mut() = status;
+    if let Ok(value) = HeaderValue::from_str(&content_type) {
+        outgoing.headers_mut().insert(CONTENT_TYPE, value);
+    }
+
+    Ok(outgoing)
+}
+
+fn find_system_tail(messages: &[serde_json::Value]) -> usize {
+    let mut index = 0;
+    while index < messages.len() {
+        let role = messages[index]
+            .get("role")
+            .and_then(|value| value.as_str());
+        if role == Some("system") {
+            index += 1;
+        } else {
+            break;
+        }
+    }
+    index
 }
 
 fn extract_text(value: &serde_json::Value) -> Option<String> {
@@ -335,9 +569,18 @@ fn unix_timestamp() -> u64 {
         .as_secs()
 }
 
+fn unix_timestamp_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
 #[derive(Debug)]
 enum ApiError {
     Unauthorized,
+    BadRequest(String),
+    Upstream(String),
 }
 
 impl IntoResponse for ApiError {
@@ -352,6 +595,24 @@ impl IntoResponse for ApiError {
                     }
                 });
                 (StatusCode::UNAUTHORIZED, Json(body)).into_response()
+            }
+            ApiError::BadRequest(message) => {
+                let body = serde_json::json!({
+                    "error": {
+                        "message": message,
+                        "type": "invalid_request_error"
+                    }
+                });
+                (StatusCode::BAD_REQUEST, Json(body)).into_response()
+            }
+            ApiError::Upstream(message) => {
+                let body = serde_json::json!({
+                    "error": {
+                        "message": message,
+                        "type": "server_error"
+                    }
+                });
+                (StatusCode::BAD_GATEWAY, Json(body)).into_response()
             }
         }
     }

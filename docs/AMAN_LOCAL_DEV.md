@@ -219,7 +219,20 @@ Start the OpenAI-compatible API gateway:
 export AMAN_API_ADDR="127.0.0.1:8787"
 export AMAN_API_TOKEN="aman-local"
 export AMAN_API_MODEL="aman-chat"
+export AMAN_API_MODE="orchestrator"  # echo (default), orchestrator, or openrouter
 export AMAN_KB_PATH="./knowledge"
+cargo run -p api
+```
+
+To proxy the API to OpenRouter instead of echo/orchestrator:
+
+```bash
+export AMAN_API_MODE="openrouter"
+export OPENROUTER_API_KEY="sk-or-..."
+export OPENROUTER_API_URL="https://openrouter.ai/api/v1"
+export OPENROUTER_MODEL="openai/gpt-4o-mini"  # optional default
+export OPENROUTER_HTTP_REFERER="https://your-app.example"
+export OPENROUTER_X_TITLE="Your App Name"
 cargo run -p api
 ```
 
