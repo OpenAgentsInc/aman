@@ -155,15 +155,16 @@ impl NostrIndexerImpl {
 
             for chunk in doc.chunks {
                 tx.execute(
-                    "INSERT INTO chunks (chunk_id, doc_id, ord, offset_start, offset_end, chunk_hash, blob_ref) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+                    "INSERT INTO chunks (chunk_id, doc_id, ord, offset_start, offset_end, chunk_hash, blob_ref, text) \
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
                     ON CONFLICT(chunk_id) DO UPDATE SET \
                       doc_id = excluded.doc_id, \
                       ord = excluded.ord, \
                       offset_start = excluded.offset_start, \
                       offset_end = excluded.offset_end, \
                       chunk_hash = excluded.chunk_hash, \
-                      blob_ref = excluded.blob_ref",
+                      blob_ref = excluded.blob_ref, \
+                      text = excluded.text",
                     params![
                         chunk.chunk_id,
                         &doc_id,
@@ -172,6 +173,7 @@ impl NostrIndexerImpl {
                         chunk.offsets.end as i64,
                         chunk.chunk_hash,
                         chunk.blob_ref,
+                        Option::<String>::None,
                     ],
                 )?;
             }
@@ -187,15 +189,16 @@ impl NostrIndexerImpl {
         {
             let conn = self.db.lock().map_err(|_| Error::MutexPoisoned)?;
             conn.execute(
-                "INSERT INTO chunks (chunk_id, doc_id, ord, offset_start, offset_end, chunk_hash, blob_ref) \
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+                "INSERT INTO chunks (chunk_id, doc_id, ord, offset_start, offset_end, chunk_hash, blob_ref, text) \
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
                 ON CONFLICT(chunk_id) DO UPDATE SET \
                   doc_id = excluded.doc_id, \
                   ord = excluded.ord, \
                   offset_start = excluded.offset_start, \
                   offset_end = excluded.offset_end, \
                   chunk_hash = excluded.chunk_hash, \
-                  blob_ref = excluded.blob_ref",
+                  blob_ref = excluded.blob_ref, \
+                  text = excluded.text",
                 params![
                     &chunk_id,
                     chunk.doc_id,
@@ -204,6 +207,7 @@ impl NostrIndexerImpl {
                     chunk.offsets.end as i64,
                     chunk.chunk_hash,
                     chunk.blob_ref,
+                    chunk.text,
                 ],
             )?;
         }
@@ -587,7 +591,8 @@ fn init_schema(conn: &Connection) -> Result<(), Error> {
             offset_start INTEGER,\
             offset_end INTEGER,\
             chunk_hash TEXT NOT NULL,\
-            blob_ref TEXT\
+            blob_ref TEXT,\
+            text TEXT\
         );\
         CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id);\
         CREATE TABLE IF NOT EXISTS policies (\

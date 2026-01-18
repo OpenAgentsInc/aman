@@ -83,6 +83,8 @@ pub struct ChunkRef {
     pub offsets: ChunkOffsets,
     pub chunk_hash: String,
     pub blob_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 impl ChunkRef {
@@ -104,6 +106,7 @@ impl ChunkRef {
             offsets,
             chunk_hash: chunk_hash.into(),
             blob_ref: None,
+            text: None,
         }
     }
 }

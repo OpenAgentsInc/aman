@@ -15,8 +15,26 @@ MEMORY_SUMMARIZE_EVERY_TURNS = "6"
 ALLOW_ANON = "true"
 RATE_LIMIT_MAX = "60"
 RATE_LIMIT_WINDOW_SECS = "60"
+KB_SYNC_LOOKBACK_SECS = "86400"
+KB_MAX_SNIPPET_CHARS = "600"
+KB_MAX_TOTAL_CHARS = "1200"
+KB_MAX_HITS = "3"
+NOSTR_RELAYS = "wss://relay.damus.io"
 
 [[kv_namespaces]]
 binding = "AMAN_MEMORY"
 id = "6adebd90f76f4598906f1102ee496510"
 preview_id = "88a7cb11d3364ff887a5721747abccc6"
+
+[[kv_namespaces]]
+binding = "AMAN_META"
+id = "0f2f3f10f1394c3380588f5adb17c56b"
+preview_id = "98708f15efb6442ca77614267a058a88"
+
+[[d1_databases]]
+binding = "AMAN_KB"
+database_name = "aman_kb"
+database_id = "ad94b9c9-4459-41aa-ad1e-05c6ac5e7d82"
+
+[triggers]
+crons = ["*/5 * * * *"]

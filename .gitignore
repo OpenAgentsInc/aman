@@ -36,6 +36,10 @@ Thumbs.db
 *.log
 logs/
 
+# Node / Wrangler
+**/node_modules/
+**/.wrangler/
+
 # Java / Gradle (signal-cli builds)
 repos/signal-cli/build/
 repos/signal-cli/.gradle/

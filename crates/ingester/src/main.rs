@@ -14,6 +14,8 @@ use nostr_persistence::{
     NostrTag, PublisherConfig, TAG_KIND_CHUNK_REF, TAG_KIND_DOC_MANIFEST,
 };
 
+const INLINE_TEXT_MAX_CHARS: usize = 2000;
+
 #[derive(Debug, Parser)]
 #[command(name = "ingester")]
 #[command(about = "Ingest a document, chunk it, and publish/index via Nostr")]
@@ -45,6 +47,10 @@ struct Args {
     /// Chunk overlap in characters
     #[arg(long, default_value_t = 200)]
     chunk_overlap: usize,
+
+    /// Embed chunk text directly in ChunkRef events (worker-friendly)
+    #[arg(long)]
+    inline_text: bool,
 
     /// Document title (defaults to filename)
     #[arg(long)]
@@ -82,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let chunks = chunk_text(&text, args.chunk_size, args.chunk_overlap);
     let (doc_chunks, chunk_refs) =
-        write_chunks(&doc_id, &args.out_dir, &chunks)?;
+        write_chunks(&doc_id, &args.out_dir, &chunks, args.inline_text)?;
 
     let mut manifest = DocManifest::new(
         doc_id.clone(),
@@ -142,6 +148,22 @@ fn short_hash(hash: &str) -> String {
     hash.chars().take(12).collect()
 }
 
+fn truncate_text(input: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let mut count = 0usize;
+    let mut out = String::new();
+    for ch in input.chars() {
+        if count >= max_chars {
+            break;
+        }
+        out.push(ch);
+        count += 1;
+    }
+    out
+}
+
 fn chunk_text(text: &str, chunk_size: usize, chunk_overlap: usize) -> Vec<(usize, usize, String)> {
     let size = chunk_size.max(1);
     let overlap = chunk_overlap.min(size.saturating_sub(1));
@@ -166,6 +188,7 @@ fn write_chunks(
     doc_id: &str,
     out_dir: &Path,
     chunks: &[(usize, usize, String)],
+    inline_text: bool,
 ) -> Result<(Vec<DocChunk>, Vec<ChunkRef>), Box<dyn std::error::Error>> {
     let doc_dir = out_dir.join(doc_id);
     fs::create_dir_all(&doc_dir)?;
@@ -201,6 +224,12 @@ fn write_chunks(
             format!("sha256:{}", chunk_hash),
         );
         chunk_ref.blob_ref = Some(blob_ref);
+        if inline_text {
+            let snippet = truncate_text(chunk, INLINE_TEXT_MAX_CHARS);
+            if !snippet.is_empty() {
+                chunk_ref.text = Some(snippet);
+            }
+        }
         chunk_refs.push(chunk_ref);
     }
 

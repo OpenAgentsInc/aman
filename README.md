@@ -34,12 +34,12 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - Optional web UI for browser chat
 - OpenAI-compatible API gateway (echo, orchestrator, or OpenRouter proxy modes) with local/Nostr KB injection
 - Receive-only Lightning donation wallet crate (LNI-backed; no send/pay functions exposed)
-- Cloudflare Worker OpenAI-compatible gateway (OpenRouter + KV memory, no Signal dependency)
+- Cloudflare Worker OpenAI-compatible gateway (OpenRouter + KV memory + D1 KB synced from Nostr, no Signal dependency)
 
 ## What it is not yet
 
 - Full RAG pipeline (planned)
-- Full Nostr-backed retrieval (vector search + citations)
+- Vector search + citations for Nostr-backed retrieval (worker currently uses keyword/FTS search)
 - Long-term message transcript storage
 - Automated event ingestion from live feeds
 - End-to-end durable memory in the brain crates (Maple/Grok history is still in-memory)

@@ -205,7 +205,7 @@ To understand the architecture, start with these key concepts:
 - Signal-native messaging experience.
 - Opt-in regional alerts for activists and human-rights defenders.
 - Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`, `admin-web`, `donation-wallet`, `grok-brain`, `orchestrator`, `agent-tools`.
-- Cloudflare Worker gateway: `workers/aman-gateway` (OpenAI-compatible endpoint, OpenRouter-backed, KV memory).
+- Cloudflare Worker gateway: `workers/aman-gateway` (OpenAI-compatible endpoint, OpenRouter-backed, KV memory + D1 KB synced from Nostr).
 - Data persistence crate: `database` (SQLite via SQLx).
 - Brain interface crate: `brain-core` (shared Brain trait, message types, and ConversationHistory).
 - Optional brain crate: `maple-brain` (OpenSecret-based AI backend).
@@ -234,8 +234,9 @@ To understand the architecture, start with these key concepts:
   - Uses a local knowledge base (if configured), orchestrator brain, or OpenRouter inference mode.
 - `aman-gateway-worker` (Cloudflare Worker in `workers/aman-gateway`)
   - OpenAI-compatible endpoint for web clients (no Signal dependency).
-  - Uses OpenRouter for inference and Cloudflare KV for minimal memory snapshots.
-  - Optional Nostr summary publish (stubbed in Phase 1).
+  - Uses OpenRouter for inference, KV for memory snapshots, and D1 for KB storage.
+  - Scheduled sync pulls DocManifest/ChunkRef events from Nostr relays into D1.
+  - Injects KB snippets into prompts; exposes `/kb/status` + `/kb/search` debug endpoints.
 - `ingester` (crate: `crates/ingester`)
   - Chunks local files into blob refs and publishes DocManifest + ChunkRef events.
   - Can index directly into a local Nostr SQLite DB for testing.
@@ -502,6 +503,14 @@ If PII is detected, the router can request an explicit privacy choice before res
 4. If `AMAN_KB_PATH` or `NOSTR_DB_PATH` is set, the API injects a KB snippet into the system context.
 5. `api` returns OpenAI-style chat completions (streaming or non-streaming).
 
+### Worker gateway flow (current)
+
+1. Web client -> `workers/aman-gateway` `/v1/chat/completions`.
+2. Worker loads KV memory (`AMAN_MEMORY`) and D1 KB (`AMAN_KB`).
+3. Scheduled cron sync pulls Nostr DocManifest/ChunkRef events into D1.
+4. Worker injects memory + KB context into the OpenRouter prompt.
+5. Worker returns OpenAI-style chat completions (streaming or non-streaming).
+
 ### Admin web flow
 
 1. Operator opens `admin-web` UI.
@@ -515,6 +524,7 @@ If PII is detected, the router can request an explicit privacy choice before res
 3. `nostr-indexer` stores Nostr events (docs + memory) in `NOSTR_DB_PATH`.
 4. `nostr-rehydrate-memory` projects memory events into the runtime SQLite DB.
 5. `api` reads from `NOSTR_DB_PATH` for knowledge base answers.
+6. `aman-gateway-worker` cron sync pulls DocManifest/ChunkRef events into D1 for web retrieval.
 
 Note: when built with `--features nostr`, the orchestrator also publishes memory
 events (preferences, summaries, tool history, clear-context) to the configured relays.
@@ -608,9 +618,14 @@ Environment variables (names may be implementation-specific):
 - `NWC_URI`: Nostr Wallet Connect URI for donation wallet (optional).
 - `STRIKE_API_KEY`: Strike API key for donation wallet (optional).
 - `NOSTR_RELAYS`: comma-separated relay URLs (memory publishing + indexer).
+- `NOSTR_KB_AUTHOR`: optional pubkey filter for worker KB sync.
 - `NOSTR_DB_PATH`: SQLite path for Nostr indexer and memory rehydration.
 - `NOSTR_SECRETBOX_KEY`: optional symmetric key for payload encryption.
 - `NOSTR_SECRET_KEY`: secret key used by publishers (`ingester`, memory events).
+- `KB_SYNC_LOOKBACK_SECS`: worker KB sync lookback window (seconds).
+- `KB_MAX_SNIPPET_CHARS`: max chars per KB snippet (worker).
+- `KB_MAX_TOTAL_CHARS`: max chars for total KB injection (worker).
+- `KB_MAX_HITS`: max KB hits injected per request (worker).
 
 For daemon setup details, see `docs/signal-cli-daemon.md`.
 
@@ -691,6 +706,7 @@ Already implemented:
 
 - Nostr relay integration for durable doc/chunk metadata and memory events.
 - `nostr-persistence` crate to publish/index Nostr events into SQLite, plus `nostr-rehydrate-memory`.
+- `aman-gateway-worker` scheduled sync of doc/chunk events into D1 with KB prompt injection.
 
 ### Data model (Nostr durability + planned RAG)
 
@@ -700,7 +716,7 @@ Already implemented:
   - inline `chunks` list (id, ord, offsets, chunk_hash, blob_ref)
 - ChunkRef event (implemented)
   - `chunk_id`, `doc_id`, `ord`, offsets
-  - `chunk_hash`, `blob_ref`, timestamps
+  - `chunk_hash`, `blob_ref`, optional inline `text`, timestamps
 - Memory events (implemented)
   - Preferences, summaries, tool history, clear-context (see `docs/NOSTR_MEMORY_SCHEMA.md`)
 - Embedding artifact
@@ -734,6 +750,7 @@ Already implemented:
 - Content format:
   - JSON when unencrypted
   - base64 ciphertext when encrypted
+- ChunkRef payloads can include inline `text` for worker ingestion (`ingester --inline-text`).
 - Relay retention varies by operator (see NIP-11). Choose relays that retain custom kinds.
 - Implementation uses rust-nostr (`nostr-sdk`).
 
@@ -777,7 +794,8 @@ ChunkRef content:
   "ord": 0,
   "offsets": { "start": 0, "end": 512 },
   "chunk_hash": "sha256:...",
-  "blob_ref": "s3://..."
+  "blob_ref": "s3://...",
+  "text": "Optional inline snippet text (worker-friendly)"
 }
 ```
 

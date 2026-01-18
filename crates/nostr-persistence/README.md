@@ -19,7 +19,7 @@ Consumes:
 Produces:
 
 - Nostr events (parameterized replaceable kinds)
-- local SQLite tables: nostr_events, docs, chunks, policies, nostr_memory_*
+- local SQLite tables: nostr_events, docs, chunks (with optional inline `text`), policies, nostr_memory_*
 
 Traits:
 
@@ -30,7 +30,7 @@ Traits:
 ## Event kinds and tags
 
 - DocManifest: kind 30090, tag d=doc_id
-- ChunkRef: kind 30091, tag d=chunk_id
+- ChunkRef: kind 30091, tag d=chunk_id (optional inline `text` for worker-friendly retrieval)
 - AccessPolicy: kind 30092, tag d=scope_id
 - AmanPreference: kind 30093, tag d=<history_key>:preference
 - AmanSummary: kind 30094, tag d=<history_key>:summary

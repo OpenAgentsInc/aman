@@ -8,6 +8,7 @@ Document ingester that chunks files and publishes/indexes Nostr events.
 - Chunk into fixed-size pieces with overlap.
 - Write chunk files to disk and set `blob_ref` to file paths.
 - Publish DocManifest + ChunkRef events (optional).
+- Optionally embed chunk text inline in ChunkRef events (`--inline-text`).
 - Index directly into a local Nostr SQLite DB (optional).
 
 ## Run (local index only)
@@ -26,7 +27,8 @@ export NOSTR_SECRET_KEY=hex:...
 cargo run -p ingester -- \
   --file knowledge/using-ai-to-improve-movements-effectiveness.md \
   --out-dir ./data/ingest \
-  --relay wss://relay.damus.io
+  --relay wss://relay.damus.io \
+  --inline-text
 ```
 
 ## Notes
