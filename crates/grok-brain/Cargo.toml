@@ -19,3 +19,12 @@ tracing = "0.1"
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 dotenvy = "0.15"
+tracing-subscriber = "0.3"
+
+[[example]]
+name = "test_chat"
+path = "examples/test_chat.rs"
+
+[[example]]
+name = "test_search"
+path = "examples/test_search.rs"

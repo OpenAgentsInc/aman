@@ -6,6 +6,7 @@
 //! - [`Brain`] - The trait that all brain implementations must implement
 //! - [`InboundMessage`] / [`OutboundMessage`] - Message types for input/output
 //! - [`BrainError`] - Error types for brain operations
+//! - [`ToolExecutor`] - Trait for external tool execution (e.g., real-time search)
 //!
 //! # Example
 //!
@@ -29,10 +30,12 @@
 
 mod error;
 mod message;
+mod tools;
 mod trait_def;
 
 pub use error::BrainError;
 pub use message::{InboundAttachment, InboundMessage, OutboundMessage};
+pub use tools::{ToolExecutor, ToolRequest, ToolResult};
 pub use trait_def::Brain;
 
 // Re-export async_trait for convenience
