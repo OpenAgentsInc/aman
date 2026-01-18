@@ -7,6 +7,8 @@ use opensecret::{
     types::{ChatCompletionRequest, ChatMessage, ToolCall},
     OpenSecretClient,
 };
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::fs;
 use tracing::{debug, info, warn};
@@ -19,6 +21,30 @@ use brain_core::{ToolExecutor, ToolRequest};
 /// Maximum number of tool call rounds to prevent infinite loops.
 /// Set to 2 to limit costs and latency - one search should usually be enough.
 const MAX_TOOL_ROUNDS: usize = 2;
+
+/// Status updates that can be sent during message processing.
+#[derive(Debug, Clone)]
+pub enum StatusUpdate {
+    /// Processing has started.
+    Processing,
+    /// A tool is being executed (e.g., "Searching for current information...").
+    ToolExecuting {
+        /// Name of the tool being executed.
+        tool_name: String,
+        /// Human-readable description of what's happening.
+        description: String,
+    },
+    /// Tool execution completed.
+    ToolComplete {
+        /// Name of the tool that completed.
+        tool_name: String,
+    },
+}
+
+/// Type alias for the async status callback.
+pub type StatusCallback = Box<
+    dyn Fn(StatusUpdate) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync,
+>;
 
 /// A brain implementation that uses OpenSecret SDK for AI processing.
 ///
@@ -137,6 +163,34 @@ impl MapleBrain {
         self.history.clear_all().await;
     }
 
+    /// Process a message with status updates via callback.
+    ///
+    /// This is like [`Brain::process`] but allows you to receive status updates
+    /// during processing, such as when a tool search is being performed.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let callback = |status| {
+    ///     Box::pin(async move {
+    ///         match status {
+    ///             StatusUpdate::ToolExecuting { description, .. } => {
+    ///                 println!("Status: {}", description);
+    ///             }
+    ///             _ => {}
+    ///         }
+    ///     })
+    /// };
+    /// let response = brain.process_with_status(message, Box::new(callback)).await?;
+    /// ```
+    pub async fn process_with_status(
+        &self,
+        message: InboundMessage,
+        status_callback: StatusCallback,
+    ) -> Result<OutboundMessage, BrainError> {
+        self.process_internal(message, Some(status_callback)).await
+    }
+
     /// Build the messages array for a chat completion request.
     async fn build_messages(&self, sender: &str, user_text: &str) -> Vec<ChatMessage> {
         let mut messages = Vec::new();
@@ -242,67 +296,6 @@ impl MapleBrain {
         })
     }
 
-    /// Execute tool calls and return the results as ChatMessages.
-    /// Note: OpenAI-compatible APIs expect tool_call_id at the top level,
-    /// but OpenSecret's ChatMessage doesn't support this. We work around
-    /// this by including the tool_call_id in the content.
-    async fn execute_tool_calls(&self, tool_calls: &[ToolCall]) -> Vec<ChatMessage> {
-        let executor = match &self.tool_executor {
-            Some(e) => e,
-            None => return vec![],
-        };
-
-        let mut results = Vec::new();
-
-        for call in tool_calls {
-            let request = match ToolRequest::from_call(
-                call.id.clone(),
-                call.function.name.clone(),
-                &call.function.arguments,
-            ) {
-                Ok(r) => r,
-                Err(e) => {
-                    warn!("Failed to parse tool arguments: {}", e);
-                    results.push(ChatMessage {
-                        role: "tool".to_string(),
-                        content: serde_json::Value::String(format!(
-                            "Error: Invalid arguments - {}",
-                            e
-                        )),
-                        tool_calls: None,
-                    });
-                    continue;
-                }
-            };
-
-            info!(
-                "Executing tool '{}' with sanitized query",
-                request.name
-            );
-            debug!("Tool request: {:?}", request);
-
-            let result = executor.execute(request).await;
-
-            info!(
-                "Tool '{}' completed (success: {})",
-                call.function.name, result.success
-            );
-
-            // Add tool result as a message
-            // Include tool_call_id in the content since ChatMessage doesn't have it as a field
-            results.push(ChatMessage {
-                role: "tool".to_string(),
-                content: serde_json::json!({
-                    "tool_call_id": result.tool_call_id,
-                    "result": result.content
-                }),
-                tool_calls: None,
-            });
-        }
-
-        results
-    }
-
     /// Make a streaming chat completion request and collect the response.
     async fn complete_chat(
         &self,
@@ -378,9 +371,28 @@ impl MapleBrain {
             }
         }
 
+        // Log what we received for debugging
+        debug!(
+            "Stream complete - finish_reason: {:?}, text_len: {}, tool_calls: {}",
+            finish_reason,
+            response_text.len(),
+            tool_calls.len()
+        );
+
         // Return tool calls if that was the finish reason
         let has_tool_calls =
             finish_reason.as_deref() == Some("tool_calls") && !tool_calls.is_empty();
+
+        // Also check for "tool_use" which some APIs use
+        let has_tool_calls = has_tool_calls
+            || (finish_reason.as_deref() == Some("tool_use") && !tool_calls.is_empty());
+
+        if !tool_calls.is_empty() {
+            debug!(
+                "Tool calls collected: {:?}",
+                tool_calls.iter().map(|c| &c.function.name).collect::<Vec<_>>()
+            );
+        }
 
         Ok((
             response_text,
@@ -393,16 +405,27 @@ impl MapleBrain {
     }
 }
 
-#[async_trait]
-impl Brain for MapleBrain {
-    async fn process(&self, message: InboundMessage) -> Result<OutboundMessage, BrainError> {
+impl MapleBrain {
+    /// Internal process implementation that supports optional status callbacks.
+    async fn process_internal(
+        &self,
+        message: InboundMessage,
+        status_callback: Option<StatusCallback>,
+    ) -> Result<OutboundMessage, BrainError> {
         let sender = &message.sender;
         let user_text = &message.text;
         let has_images = message.has_images();
 
+        // Use group_id for group conversations, sender for direct messages
+        let history_key = message
+            .group_id
+            .as_ref()
+            .map(|g| format!("group:{}", g))
+            .unwrap_or_else(|| sender.clone());
+
         debug!(
-            "Processing message from {}: {} (images: {})",
-            sender, user_text, has_images
+            "Processing message from {}: {} (images: {}, history_key: {})",
+            sender, user_text, has_images, history_key
         );
 
         // Choose model and build messages based on whether we have images
@@ -439,7 +462,7 @@ impl Brain for MapleBrain {
             (self.config.vision_model.clone(), msgs)
         } else {
             // Use text model with conversation history
-            let msgs = self.build_messages(sender, user_text).await;
+            let msgs = self.build_messages(&history_key, user_text).await;
             (self.config.model.clone(), msgs)
         };
 
@@ -482,8 +505,10 @@ impl Brain for MapleBrain {
                         tool_calls: Some(calls.clone()),
                     });
 
-                    // Execute tools and add results
-                    let results = self.execute_tool_calls(&calls).await;
+                    // Execute tools with status callback
+                    let results = self
+                        .execute_tool_calls_with_status(&calls, status_callback.as_ref())
+                        .await;
                     messages.extend(results);
 
                     // Update request for next round
@@ -523,12 +548,101 @@ impl Brain for MapleBrain {
         // Add to conversation history (for text messages only)
         if !has_images {
             self.history
-                .add_exchange(sender, user_text, &response_text)
+                .add_exchange(&history_key, user_text, &response_text)
                 .await;
         }
 
         // Return the outbound message
         Ok(OutboundMessage::reply_to(&message, response_text))
+    }
+
+    /// Execute tool calls with optional status callback.
+    async fn execute_tool_calls_with_status(
+        &self,
+        tool_calls: &[ToolCall],
+        status_callback: Option<&StatusCallback>,
+    ) -> Vec<ChatMessage> {
+        let executor = match &self.tool_executor {
+            Some(e) => e,
+            None => return vec![],
+        };
+
+        let mut results = Vec::new();
+
+        for call in tool_calls {
+            let request = match ToolRequest::from_call(
+                call.id.clone(),
+                call.function.name.clone(),
+                &call.function.arguments,
+            ) {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("Failed to parse tool arguments: {}", e);
+                    results.push(ChatMessage {
+                        role: "tool".to_string(),
+                        content: serde_json::Value::String(format!(
+                            "Error: Invalid arguments - {}",
+                            e
+                        )),
+                        tool_calls: None,
+                    });
+                    continue;
+                }
+            };
+
+            // Notify via callback that tool execution is starting
+            if let Some(callback) = status_callback {
+                let description = match request.name.as_str() {
+                    "realtime_search" => "Searching for current information...".to_string(),
+                    _ => format!("Executing {}...", request.name),
+                };
+                callback(StatusUpdate::ToolExecuting {
+                    tool_name: request.name.clone(),
+                    description,
+                })
+                .await;
+            }
+
+            info!(
+                "Executing tool '{}' with sanitized query",
+                request.name
+            );
+            debug!("Tool request: {:?}", request);
+
+            let result = executor.execute(request.clone()).await;
+
+            info!(
+                "Tool '{}' completed (success: {})",
+                call.function.name, result.success
+            );
+
+            // Notify via callback that tool execution completed
+            if let Some(callback) = status_callback {
+                callback(StatusUpdate::ToolComplete {
+                    tool_name: request.name.clone(),
+                })
+                .await;
+            }
+
+            // Add tool result as a message
+            results.push(ChatMessage {
+                role: "tool".to_string(),
+                content: serde_json::json!({
+                    "tool_call_id": result.tool_call_id,
+                    "result": result.content
+                }),
+                tool_calls: None,
+            });
+        }
+
+        results
+    }
+}
+
+#[async_trait]
+impl Brain for MapleBrain {
+    async fn process(&self, message: InboundMessage) -> Result<OutboundMessage, BrainError> {
+        self.process_internal(message, None).await
     }
 
     fn name(&self) -> &str {

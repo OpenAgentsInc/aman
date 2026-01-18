@@ -23,7 +23,7 @@ mod config;
 mod history;
 mod tools;
 
-pub use brain::MapleBrain;
+pub use brain::{MapleBrain, StatusCallback, StatusUpdate};
 pub use config::MapleBrainConfig;
 pub use tools::{ToolDefinition, ToolExecutor, ToolRequest, ToolResult};
 

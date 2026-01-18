@@ -9,6 +9,7 @@ local/
 *.db
 
 # Build output
+bin/*
 build/*
 !build/.gitkeep
 
