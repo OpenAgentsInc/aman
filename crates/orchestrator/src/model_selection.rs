@@ -39,6 +39,33 @@ impl Default for MapleModels {
 }
 
 impl MapleModels {
+    /// Available model aliases and their canonical names.
+    pub fn available_models() -> &'static [(&'static str, &'static str)] {
+        &[
+            ("llama", "llama-3.3-70b"),
+            ("deepseek", "deepseek-r1-0528"),
+            ("qwen", "qwen2-5-72b"),
+            ("mistral", "mistral-small-3-1-24b"),
+            ("gpt-oss", "gpt-oss-120b"),
+        ]
+    }
+
+    /// Validate and normalize a model alias to canonical name.
+    pub fn normalize_model(input: &str) -> Option<&'static str> {
+        Self::available_models()
+            .iter()
+            .find(|(alias, _)| alias.eq_ignore_ascii_case(input))
+            .map(|(_, canonical)| *canonical)
+    }
+
+    /// Get the list of available model aliases for display.
+    pub fn model_aliases() -> Vec<&'static str> {
+        Self::available_models()
+            .iter()
+            .map(|(alias, _)| *alias)
+            .collect()
+    }
+
     /// Select the best model for a given task hint.
     pub fn select(&self, task_hint: TaskHint) -> &str {
         match task_hint {
@@ -259,5 +286,32 @@ mod tests {
         assert_eq!(selector.select_maple(TaskHint::Coding), "deepseek-r1-0528");
         assert_eq!(selector.select_grok(TaskHint::Coding), "grok-3");
         assert_eq!(selector.maple_vision(), "qwen3-vl-30b");
+    }
+
+    #[test]
+    fn test_normalize_model() {
+        // Valid aliases
+        assert_eq!(MapleModels::normalize_model("llama"), Some("llama-3.3-70b"));
+        assert_eq!(MapleModels::normalize_model("LLAMA"), Some("llama-3.3-70b"));
+        assert_eq!(MapleModels::normalize_model("deepseek"), Some("deepseek-r1-0528"));
+        assert_eq!(MapleModels::normalize_model("DeepSeek"), Some("deepseek-r1-0528"));
+        assert_eq!(MapleModels::normalize_model("qwen"), Some("qwen2-5-72b"));
+        assert_eq!(MapleModels::normalize_model("mistral"), Some("mistral-small-3-1-24b"));
+        assert_eq!(MapleModels::normalize_model("gpt-oss"), Some("gpt-oss-120b"));
+
+        // Invalid aliases
+        assert_eq!(MapleModels::normalize_model("unknown"), None);
+        assert_eq!(MapleModels::normalize_model("gpt-4"), None);
+        assert_eq!(MapleModels::normalize_model(""), None);
+    }
+
+    #[test]
+    fn test_model_aliases() {
+        let aliases = MapleModels::model_aliases();
+        assert!(aliases.contains(&"llama"));
+        assert!(aliases.contains(&"deepseek"));
+        assert!(aliases.contains(&"qwen"));
+        assert!(aliases.contains(&"mistral"));
+        assert!(aliases.contains(&"gpt-oss"));
     }
 }

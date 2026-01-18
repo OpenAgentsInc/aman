@@ -79,6 +79,7 @@ mod model_selection;
 mod memory;
 mod orchestrator;
 mod preferences;
+mod profile;
 mod router;
 mod sender;
 
@@ -91,6 +92,7 @@ pub use model_selection::{GrokModels, MapleModels, ModelSelector};
 pub use memory::{MemorySettings, MemoryStore, RetentionPolicy, SummaryPolicy};
 pub use orchestrator::{Orchestrator, HELP_TEXT};
 pub use preferences::{AgentIndicator, PreferenceStore};
+pub use profile::{ProfileError, ProfileStore};
 pub use router::{load_router_prompt, Router, DEFAULT_ROUTER_PROMPT_FILE, DEFAULT_ROUTER_SYSTEM_PROMPT};
 pub use sender::{LoggingSender, MessageSender, NoOpSender};
 

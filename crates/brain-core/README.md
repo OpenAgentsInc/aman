@@ -23,6 +23,7 @@ Defines the shared `Brain` trait, `ToolExecutor` trait, and common types used by
 - `ToolRequestMeta` - Optional sender/group metadata for tools
 - `RoutingInfo` - Sensitivity/task hint/model override metadata for routing (plus memory provenance)
 - `Sensitivity` / `TaskHint` - Router hints for privacy + model selection
+- `TextStyle` - Response formatting hints (Plain, Markdown, Code)
 - `ConversationHistory` - Per-sender conversation history with automatic trimming
 - `HistoryMessage` - Individual message in conversation history
 - `hash_prompt` - Prompt fingerprint helper for reproducibility

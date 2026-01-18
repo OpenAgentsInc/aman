@@ -155,10 +155,13 @@ mod reconnect_config_tests {
     #[test]
     fn test_reconnect_config_default() {
         let config = ReconnectConfig::default();
-        assert!(config.max_retries.is_none());
+        // Default now has circuit breaker at 100 retries for safety
+        assert_eq!(config.max_retries, Some(100));
         assert_eq!(config.initial_delay, Duration::from_millis(500));
         assert_eq!(config.max_delay, Duration::from_secs(30));
         assert_eq!(config.backoff_multiplier, 2.0);
+        // Also has read timeout
+        assert_eq!(config.read_timeout, Duration::from_secs(120));
     }
 
     #[test]
@@ -177,8 +180,19 @@ mod reconnect_config_tests {
     }
 
     #[test]
-    fn test_should_retry_infinite() {
+    fn test_should_retry_default() {
+        // Default config has circuit breaker at 100 retries
         let config = ReconnectConfig::default();
+        assert!(config.should_retry(0));
+        assert!(config.should_retry(99));
+        assert!(!config.should_retry(100));
+        assert!(!config.should_retry(1000));
+    }
+
+    #[test]
+    fn test_should_retry_infinite() {
+        // Explicit infinite retries for when needed
+        let config = ReconnectConfig::default().with_infinite_retries();
         assert!(config.should_retry(0));
         assert!(config.should_retry(100));
         assert!(config.should_retry(1000));

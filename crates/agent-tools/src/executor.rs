@@ -5,11 +5,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use brain_core::{ToolExecutor, ToolRequest, ToolRequestMeta, ToolResult};
+use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 
-use crate::{ToolRegistry, ToolOutput};
+use crate::{ToolOutput, ToolRegistry};
+
+/// Default maximum entries in the rate limit cache before LRU eviction.
+const DEFAULT_MAX_RATE_LIMIT_ENTRIES: usize = 10000;
+
+/// Default maximum entries in the result cache before LRU eviction.
+const DEFAULT_MAX_CACHE_ENTRIES: usize = 5000;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RateLimit {
@@ -37,6 +44,10 @@ pub struct ToolPolicy {
     pub timeout: Option<Duration>,
     pub cache_ttl: Option<Duration>,
     pub format_results_as_json: bool,
+    /// Maximum entries in the rate limit cache before LRU eviction.
+    pub max_rate_limit_entries: usize,
+    /// Maximum entries in the result cache before LRU eviction.
+    pub max_cache_entries: usize,
 }
 
 impl Default for ToolPolicy {
@@ -51,6 +62,8 @@ impl Default for ToolPolicy {
             timeout: None,
             cache_ttl: None,
             format_results_as_json: false,
+            max_rate_limit_entries: DEFAULT_MAX_RATE_LIMIT_ENTRIES,
+            max_cache_entries: DEFAULT_MAX_CACHE_ENTRIES,
         }
     }
 }
@@ -143,8 +156,10 @@ struct CacheEntry {
 pub struct RegistryToolExecutor {
     registry: Arc<ToolRegistry>,
     policy: ToolPolicy,
-    rate_limits: Mutex<HashMap<String, RateLimitState>>,
-    cache: Mutex<HashMap<String, CacheEntry>>,
+    /// Rate limit state with LRU eviction (IndexMap preserves insertion order).
+    rate_limits: Mutex<IndexMap<String, RateLimitState>>,
+    /// Result cache with LRU eviction (IndexMap preserves insertion order).
+    cache: Mutex<IndexMap<String, CacheEntry>>,
 }
 
 impl RegistryToolExecutor {
@@ -156,8 +171,8 @@ impl RegistryToolExecutor {
         Self {
             registry: Arc::new(registry),
             policy,
-            rate_limits: Mutex::new(HashMap::new()),
-            cache: Mutex::new(HashMap::new()),
+            rate_limits: Mutex::new(IndexMap::new()),
+            cache: Mutex::new(IndexMap::new()),
         }
     }
 
@@ -165,8 +180,8 @@ impl RegistryToolExecutor {
         Self {
             registry,
             policy,
-            rate_limits: Mutex::new(HashMap::new()),
-            cache: Mutex::new(HashMap::new()),
+            rate_limits: Mutex::new(IndexMap::new()),
+            cache: Mutex::new(IndexMap::new()),
         }
     }
 
@@ -244,10 +259,21 @@ impl RegistryToolExecutor {
 
         let key = Self::rate_limit_key(tool, metadata);
         let mut state = self.rate_limits.lock().await;
-        let entry = state.entry(key).or_insert(RateLimitState {
-            window_start: Instant::now(),
-            count: 0,
-        });
+
+        // Move to end if exists (LRU behavior)
+        let entry = if let Some(existing) = state.shift_remove(&key) {
+            state.insert(key.clone(), existing);
+            state.get_mut(&key).unwrap()
+        } else {
+            state.insert(
+                key.clone(),
+                RateLimitState {
+                    window_start: Instant::now(),
+                    count: 0,
+                },
+            );
+            state.get_mut(&key).unwrap()
+        };
 
         let now = Instant::now();
         if now.duration_since(entry.window_start) >= limit.window {
@@ -260,6 +286,12 @@ impl RegistryToolExecutor {
         }
 
         entry.count += 1;
+
+        // LRU eviction: remove oldest entries if we exceed max
+        while state.len() > self.policy.max_rate_limit_entries {
+            state.shift_remove_index(0);
+        }
+
         Ok(())
     }
 
@@ -286,17 +318,23 @@ impl RegistryToolExecutor {
         let ttl = self.policy.cache_ttl?;
         let key = Self::cache_key(tool, args);
         let mut cache = self.cache.lock().await;
-        let entry = cache.get(&key)?;
-        if entry.inserted_at.elapsed() > ttl {
-            cache.remove(&key);
-            return None;
-        }
 
-        Some(if entry.success {
-            ToolResult::success("cached", entry.content.clone())
-        } else {
-            ToolResult::error("cached", entry.content.clone())
-        })
+        // Move to end if exists (LRU behavior) and check expiry
+        if let Some(entry) = cache.shift_remove(&key) {
+            if entry.inserted_at.elapsed() > ttl {
+                // Expired, don't re-insert
+                return None;
+            }
+            // Re-insert at end (LRU)
+            let result = if entry.success {
+                ToolResult::success("cached", entry.content.clone())
+            } else {
+                ToolResult::error("cached", entry.content.clone())
+            };
+            cache.insert(key, entry);
+            return Some(result);
+        }
+        None
     }
 
     async fn store_cache(
@@ -310,6 +348,9 @@ impl RegistryToolExecutor {
         }
         let key = Self::cache_key(tool, args);
         let mut cache = self.cache.lock().await;
+
+        // Remove if exists to update position (LRU)
+        cache.shift_remove(&key);
         cache.insert(
             key,
             CacheEntry {
@@ -318,6 +359,11 @@ impl RegistryToolExecutor {
                 content: output.content.clone(),
             },
         );
+
+        // LRU eviction: remove oldest entries if we exceed max
+        while cache.len() > self.policy.max_cache_entries {
+            cache.shift_remove_index(0);
+        }
     }
 
     fn format_result(&self, tool: &str, output: &ToolOutput) -> String {

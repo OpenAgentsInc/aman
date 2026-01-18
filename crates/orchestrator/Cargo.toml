@@ -11,6 +11,7 @@ maple-brain = { path = "../maple-brain" }
 grok-brain = { path = "../grok-brain" }
 agent-tools = { path = "../agent-tools" }
 database = { path = "../database" }
+proton-proxy = { path = "../proton-proxy" }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

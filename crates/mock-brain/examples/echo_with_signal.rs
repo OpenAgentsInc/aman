@@ -54,7 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Send a message to the bot's number to test.");
     println!("Press Ctrl+C to stop.\n");
 
-    let mut stream = subscribe(&client);
+    let mut stream = subscribe(&client)?;
 
     while let Some(result) = stream.next().await {
         match result {

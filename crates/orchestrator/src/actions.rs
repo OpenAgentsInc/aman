@@ -31,6 +31,8 @@ pub enum PrivacyChoice {
     Sanitize,
     /// Private: Keep PII and use privacy mode (Maple TEE).
     Private,
+    /// FastUncensored: Keep PII and use fast mode (Grok) - user accepts risk.
+    FastUncensored,
     /// Cancel: Don't process the message.
     Cancel,
 }
@@ -40,9 +42,10 @@ impl PrivacyChoice {
     pub fn from_input(input: &str) -> Option<Self> {
         let input = input.trim().to_lowercase();
         match input.as_str() {
-            "1" | "sanitize" | "sanitise" | "remove" | "fast" => Some(Self::Sanitize),
+            "1" | "sanitize" | "sanitise" | "remove" => Some(Self::Sanitize),
             "2" | "private" | "privacy" | "secure" | "maple" => Some(Self::Private),
-            "3" | "cancel" | "stop" | "nevermind" | "never mind" | "no" => Some(Self::Cancel),
+            "3" | "fast" | "uncensored" | "grok" | "speed" => Some(Self::FastUncensored),
+            "4" | "cancel" | "stop" | "nevermind" | "never mind" | "no" => Some(Self::Cancel),
             _ => None,
         }
     }
@@ -52,6 +55,7 @@ impl PrivacyChoice {
         match self {
             Self::Sanitize => "sanitize and use fast mode",
             Self::Private => "keep private and use secure mode",
+            Self::FastUncensored => "use fast mode with full data (accepts risk)",
             Self::Cancel => "cancel the request",
         }
     }
@@ -173,6 +177,13 @@ impl RoutingPlan {
             .any(|a| matches!(a, OrchestratorAction::Maple { .. }))
     }
 
+    /// Check if the plan contains a Maple model action.
+    pub fn has_maple_model(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::MapleModel { .. }))
+    }
+
     /// Check if the plan contains a set preference action.
     pub fn has_set_preference(&self) -> bool {
         self.actions
@@ -204,6 +215,34 @@ impl RoutingPlan {
         self.actions
             .iter()
             .any(|a| matches!(a, OrchestratorAction::PrivacyChoiceResponse { .. }))
+    }
+
+    /// Check if the plan contains a send_email action.
+    pub fn has_send_email(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::SendEmail { .. }))
+    }
+
+    /// Check if the plan contains a view_profile action.
+    pub fn has_view_profile(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::ViewProfile))
+    }
+
+    /// Check if the plan contains an update_profile action.
+    pub fn has_update_profile(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::UpdateProfile { .. }))
+    }
+
+    /// Check if the plan contains a clear_profile action.
+    pub fn has_clear_profile(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::ClearProfile))
     }
 }
 
@@ -264,6 +303,17 @@ pub enum OrchestratorAction {
         task_hint: TaskHint,
     },
 
+    /// Route to Maple with a specific model (one-time use).
+    MapleModel {
+        /// The user's query to send to Maple.
+        query: String,
+        /// The specific model alias to use (e.g., "deepseek", "llama").
+        model: String,
+        /// Task hint for fallback if model is invalid.
+        #[serde(default)]
+        task_hint: TaskHint,
+    },
+
     /// Set user preference for which agent to use.
     SetPreference {
         /// The preference to set.
@@ -314,6 +364,33 @@ pub enum OrchestratorAction {
         /// The user's choice: "sanitize", "private", or "cancel".
         choice: PrivacyChoice,
     },
+
+    /// Send attachments to an email address via proton-proxy.
+    SendEmail {
+        /// Recipient email address.
+        recipient: String,
+        /// Optional subject line (defaults to "Attachment from Signal").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subject: Option<String>,
+        /// Optional body text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        body: Option<String>,
+    },
+
+    /// View user's profile settings.
+    ViewProfile,
+
+    /// Update a profile setting.
+    UpdateProfile {
+        /// Field to update: "default_model", "email", or "bolt12_offer".
+        field: String,
+        /// New value (None to clear the field).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+    },
+
+    /// Clear all profile settings.
+    ClearProfile,
 }
 
 impl OrchestratorAction {
@@ -411,6 +488,24 @@ impl OrchestratorAction {
         }
     }
 
+    /// Create a Maple action with a specific model.
+    pub fn maple_model(query: impl Into<String>, model: impl Into<String>) -> Self {
+        Self::MapleModel {
+            query: query.into(),
+            model: model.into(),
+            task_hint: TaskHint::default(),
+        }
+    }
+
+    /// Create a Maple action with a specific model and task hint.
+    pub fn maple_model_with_hint(query: impl Into<String>, model: impl Into<String>, task_hint: TaskHint) -> Self {
+        Self::MapleModel {
+            query: query.into(),
+            model: model.into(),
+            task_hint,
+        }
+    }
+
     /// Create a set preference action.
     pub fn set_preference(preference: impl Into<String>) -> Self {
         Self::SetPreference {
@@ -467,6 +562,58 @@ impl OrchestratorAction {
         Self::PrivacyChoiceResponse { choice }
     }
 
+    /// Create a send_email action.
+    pub fn send_email(recipient: impl Into<String>) -> Self {
+        Self::SendEmail {
+            recipient: recipient.into(),
+            subject: None,
+            body: None,
+        }
+    }
+
+    /// Create a send_email action with a subject.
+    pub fn send_email_with_subject(
+        recipient: impl Into<String>,
+        subject: impl Into<String>,
+    ) -> Self {
+        Self::SendEmail {
+            recipient: recipient.into(),
+            subject: Some(subject.into()),
+            body: None,
+        }
+    }
+
+    /// Create a send_email action with subject and body.
+    pub fn send_email_full(
+        recipient: impl Into<String>,
+        subject: impl Into<String>,
+        body: impl Into<String>,
+    ) -> Self {
+        Self::SendEmail {
+            recipient: recipient.into(),
+            subject: Some(subject.into()),
+            body: Some(body.into()),
+        }
+    }
+
+    /// Create a view_profile action.
+    pub fn view_profile() -> Self {
+        Self::ViewProfile
+    }
+
+    /// Create an update_profile action.
+    pub fn update_profile(field: impl Into<String>, value: Option<String>) -> Self {
+        Self::UpdateProfile {
+            field: field.into(),
+            value,
+        }
+    }
+
+    /// Create a clear_profile action.
+    pub fn clear_profile() -> Self {
+        Self::ClearProfile
+    }
+
     /// Get a human-readable description of this action.
     pub fn description(&self) -> String {
         match self {
@@ -494,6 +641,9 @@ impl OrchestratorAction {
             Self::Maple { query, task_hint } => {
                 format!("Direct Maple ({:?}): {}", task_hint, query)
             }
+            Self::MapleModel { query, model, task_hint } => {
+                format!("Maple with model '{}' ({:?}): {}", model, task_hint, query)
+            }
             Self::SetPreference { preference } => format!("Set preference: {}", preference),
             Self::Skip { reason } => format!("Skip: {}", reason),
             Self::Ignore => "Ignore (accidental message)".to_string(),
@@ -506,6 +656,18 @@ impl OrchestratorAction {
             Self::PrivacyChoiceResponse { choice } => {
                 format!("Privacy choice response: {}", choice.description())
             }
+            Self::SendEmail {
+                recipient, subject, ..
+            } => match subject {
+                Some(s) => format!("Send email to {} ({})", recipient, s),
+                None => format!("Send email to {}", recipient),
+            },
+            Self::ViewProfile => "View profile settings".to_string(),
+            Self::UpdateProfile { field, value } => match value {
+                Some(v) => format!("Update profile: {} = {}", field, v),
+                None => format!("Clear profile field: {}", field),
+            },
+            Self::ClearProfile => "Clear all profile settings".to_string(),
         }
     }
 
@@ -515,6 +677,7 @@ impl OrchestratorAction {
             Self::Respond { task_hint, .. } => Some(*task_hint),
             Self::Grok { task_hint, .. } => Some(*task_hint),
             Self::Maple { task_hint, .. } => Some(*task_hint),
+            Self::MapleModel { task_hint, .. } => Some(*task_hint),
             Self::AskPrivacyChoice { task_hint, .. } => Some(*task_hint),
             _ => None,
         }
@@ -1041,7 +1204,7 @@ mod tests {
         assert_eq!(PrivacyChoice::from_input("1"), Some(PrivacyChoice::Sanitize));
         assert_eq!(PrivacyChoice::from_input("sanitize"), Some(PrivacyChoice::Sanitize));
         assert_eq!(PrivacyChoice::from_input("SANITIZE"), Some(PrivacyChoice::Sanitize));
-        assert_eq!(PrivacyChoice::from_input("fast"), Some(PrivacyChoice::Sanitize));
+        assert_eq!(PrivacyChoice::from_input("remove"), Some(PrivacyChoice::Sanitize));
 
         // Private options
         assert_eq!(PrivacyChoice::from_input("2"), Some(PrivacyChoice::Private));
@@ -1049,15 +1212,21 @@ mod tests {
         assert_eq!(PrivacyChoice::from_input("secure"), Some(PrivacyChoice::Private));
         assert_eq!(PrivacyChoice::from_input("maple"), Some(PrivacyChoice::Private));
 
+        // FastUncensored options
+        assert_eq!(PrivacyChoice::from_input("3"), Some(PrivacyChoice::FastUncensored));
+        assert_eq!(PrivacyChoice::from_input("fast"), Some(PrivacyChoice::FastUncensored));
+        assert_eq!(PrivacyChoice::from_input("uncensored"), Some(PrivacyChoice::FastUncensored));
+        assert_eq!(PrivacyChoice::from_input("grok"), Some(PrivacyChoice::FastUncensored));
+
         // Cancel options
-        assert_eq!(PrivacyChoice::from_input("3"), Some(PrivacyChoice::Cancel));
+        assert_eq!(PrivacyChoice::from_input("4"), Some(PrivacyChoice::Cancel));
         assert_eq!(PrivacyChoice::from_input("cancel"), Some(PrivacyChoice::Cancel));
         assert_eq!(PrivacyChoice::from_input("no"), Some(PrivacyChoice::Cancel));
         assert_eq!(PrivacyChoice::from_input("nevermind"), Some(PrivacyChoice::Cancel));
 
         // Invalid
         assert_eq!(PrivacyChoice::from_input("hello"), None);
-        assert_eq!(PrivacyChoice::from_input("4"), None);
+        assert_eq!(PrivacyChoice::from_input("5"), None);
     }
 
     #[test]
@@ -1094,8 +1263,8 @@ mod tests {
 
     #[test]
     fn test_all_privacy_choices_parse() {
-        let choices = ["sanitize", "private", "cancel"];
-        let expected = [PrivacyChoice::Sanitize, PrivacyChoice::Private, PrivacyChoice::Cancel];
+        let choices = ["sanitize", "private", "fast_uncensored", "cancel"];
+        let expected = [PrivacyChoice::Sanitize, PrivacyChoice::Private, PrivacyChoice::FastUncensored, PrivacyChoice::Cancel];
 
         for (choice_str, expected_choice) in choices.iter().zip(expected.iter()) {
             let json = format!(
@@ -1110,5 +1279,133 @@ mod tests {
                 panic!("Expected PrivacyChoiceResponse action");
             }
         }
+    }
+
+    #[test]
+    fn test_parse_send_email() {
+        let json = r#"{"actions": [{"type": "send_email", "recipient": "test@example.com"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_send_email());
+
+        if let OrchestratorAction::SendEmail {
+            recipient,
+            subject,
+            body,
+        } = &plan.actions[0]
+        {
+            assert_eq!(recipient, "test@example.com");
+            assert!(subject.is_none());
+            assert!(body.is_none());
+        } else {
+            panic!("Expected SendEmail action");
+        }
+    }
+
+    #[test]
+    fn test_parse_send_email_with_subject() {
+        let json = r#"{"actions": [{"type": "send_email", "recipient": "test@example.com", "subject": "Meeting notes"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_send_email());
+
+        if let OrchestratorAction::SendEmail {
+            recipient,
+            subject,
+            body,
+        } = &plan.actions[0]
+        {
+            assert_eq!(recipient, "test@example.com");
+            assert_eq!(subject.as_deref(), Some("Meeting notes"));
+            assert!(body.is_none());
+        } else {
+            panic!("Expected SendEmail action");
+        }
+    }
+
+    #[test]
+    fn test_parse_send_email_full() {
+        let json = r#"{"actions": [{"type": "send_email", "recipient": "test@example.com", "subject": "Test", "body": "Hello world"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_send_email());
+
+        if let OrchestratorAction::SendEmail {
+            recipient,
+            subject,
+            body,
+        } = &plan.actions[0]
+        {
+            assert_eq!(recipient, "test@example.com");
+            assert_eq!(subject.as_deref(), Some("Test"));
+            assert_eq!(body.as_deref(), Some("Hello world"));
+        } else {
+            panic!("Expected SendEmail action");
+        }
+    }
+
+    #[test]
+    fn test_send_email_helper() {
+        let action = OrchestratorAction::send_email("alice@proton.me");
+
+        if let OrchestratorAction::SendEmail {
+            recipient,
+            subject,
+            body,
+        } = action
+        {
+            assert_eq!(recipient, "alice@proton.me");
+            assert!(subject.is_none());
+            assert!(body.is_none());
+        } else {
+            panic!("Expected SendEmail action");
+        }
+    }
+
+    #[test]
+    fn test_send_email_with_subject_helper() {
+        let action = OrchestratorAction::send_email_with_subject("alice@proton.me", "Hello");
+
+        if let OrchestratorAction::SendEmail {
+            recipient,
+            subject,
+            body,
+        } = action
+        {
+            assert_eq!(recipient, "alice@proton.me");
+            assert_eq!(subject.as_deref(), Some("Hello"));
+            assert!(body.is_none());
+        } else {
+            panic!("Expected SendEmail action");
+        }
+    }
+
+    #[test]
+    fn test_send_email_full_helper() {
+        let action = OrchestratorAction::send_email_full("alice@proton.me", "Hello", "Message body");
+
+        if let OrchestratorAction::SendEmail {
+            recipient,
+            subject,
+            body,
+        } = action
+        {
+            assert_eq!(recipient, "alice@proton.me");
+            assert_eq!(subject.as_deref(), Some("Hello"));
+            assert_eq!(body.as_deref(), Some("Message body"));
+        } else {
+            panic!("Expected SendEmail action");
+        }
+    }
+
+    #[test]
+    fn test_send_email_description() {
+        let action = OrchestratorAction::send_email("test@example.com");
+        let desc = action.description();
+        assert!(desc.contains("Send email to"));
+        assert!(desc.contains("test@example.com"));
+
+        let action_with_subject = OrchestratorAction::send_email_with_subject("test@example.com", "Important");
+        let desc2 = action_with_subject.description();
+        assert!(desc2.contains("Send email to"));
+        assert!(desc2.contains("test@example.com"));
+        assert!(desc2.contains("Important"));
     }
 }

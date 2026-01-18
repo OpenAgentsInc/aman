@@ -189,10 +189,13 @@ main() {
     echo "Starting orchestrated_bot..."
     echo "  Log level: $RUST_LOG"
     echo "  Binary: $BIN_DIR/$BINARY_NAME"
+    echo "  Working dir: $PROJECT_ROOT"
     echo ""
     echo "Press Ctrl+C to stop."
     echo "---"
 
+    # Run from project root so prompt files (SYSTEM_PROMPT.md, ROUTER_PROMPT.md) are found
+    cd "$PROJECT_ROOT"
     exec "$BIN_DIR/$BINARY_NAME"
 }
 

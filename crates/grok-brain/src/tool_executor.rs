@@ -41,12 +41,18 @@ pub struct GrokToolExecutor {
     config: GrokBrainConfig,
 }
 
+/// Default HTTP timeout for API requests (60 seconds).
+const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 60;
+
 impl GrokToolExecutor {
     /// Create a new GrokToolExecutor with the given configuration.
     pub fn new(config: GrokBrainConfig) -> Result<Self, BrainError> {
-        let client = Client::builder().build().map_err(|e| {
-            BrainError::Configuration(format!("Failed to create HTTP client: {}", e))
-        })?;
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(DEFAULT_HTTP_TIMEOUT_SECS))
+            .build()
+            .map_err(|e| {
+                BrainError::Configuration(format!("Failed to create HTTP client: {}", e))
+            })?;
 
         info!(
             "GrokToolExecutor initialized with model: {}, x_search: {}, web_search: {}",

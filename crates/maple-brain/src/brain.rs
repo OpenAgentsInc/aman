@@ -207,9 +207,10 @@ impl MapleBrain {
         let summary = recent
             .iter()
             .map(|msg| {
-                // Truncate long messages
+                // Truncate long messages safely (handles multi-byte UTF-8)
                 if msg.len() > 50 {
-                    format!("{}...", &msg[..47])
+                    let truncated: String = msg.chars().take(47).collect();
+                    format!("{}...", truncated)
                 } else {
                     msg.clone()
                 }

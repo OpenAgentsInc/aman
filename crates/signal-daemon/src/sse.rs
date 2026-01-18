@@ -15,10 +15,19 @@ use crate::error::DaemonError;
 use crate::types::{Envelope, ReceiveEvent};
 use crate::SignalClient;
 
+/// Default SSE read timeout in seconds.
+/// SSE connections should receive keep-alive pings; if no data arrives within
+/// this window, the connection is considered stale.
+const DEFAULT_SSE_READ_TIMEOUT_SECS: u64 = 120;
+
+/// Default maximum reconnection attempts before giving up.
+/// Provides a reasonable circuit breaker to prevent infinite retries.
+const DEFAULT_MAX_RETRIES: u32 = 100;
+
 /// Configuration for automatic reconnection.
 #[derive(Debug, Clone)]
 pub struct ReconnectConfig {
-    /// Maximum number of retries (None = infinite).
+    /// Maximum number of retries (None = infinite, but defaults to 100 for safety).
     pub max_retries: Option<u32>,
     /// Initial delay before first retry.
     pub initial_delay: Duration,
@@ -26,15 +35,20 @@ pub struct ReconnectConfig {
     pub max_delay: Duration,
     /// Backoff multiplier for each retry.
     pub backoff_multiplier: f64,
+    /// Read timeout for SSE connections. If no data is received within this
+    /// duration, the connection is considered dead and will be reconnected.
+    pub read_timeout: Duration,
 }
 
 impl Default for ReconnectConfig {
     fn default() -> Self {
         Self {
-            max_retries: None,
+            // Default to 100 retries as a circuit breaker (about 50 minutes with max backoff)
+            max_retries: Some(DEFAULT_MAX_RETRIES),
             initial_delay: Duration::from_millis(500),
             max_delay: Duration::from_secs(30),
             backoff_multiplier: 2.0,
+            read_timeout: Duration::from_secs(DEFAULT_SSE_READ_TIMEOUT_SECS),
         }
     }
 }
@@ -52,6 +66,18 @@ impl ReconnectConfig {
             max_retries: Some(0),
             ..Default::default()
         }
+    }
+
+    /// Set the read timeout for SSE connections.
+    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
+        self.read_timeout = timeout;
+        self
+    }
+
+    /// Create a config with infinite retries (use with caution).
+    pub fn with_infinite_retries(mut self) -> Self {
+        self.max_retries = None;
+        self
     }
 
     /// Calculate delay for a given attempt number.
@@ -108,7 +134,7 @@ impl MessageStream {
         config: DaemonConfig,
         reconnect_config: ReconnectConfig,
     ) -> Result<Self, DaemonError> {
-        let event_source = Self::create_event_source(&config)?;
+        let event_source = Self::create_event_source(&config, reconnect_config.read_timeout)?;
 
         Ok(Self {
             event_source,
@@ -121,13 +147,21 @@ impl MessageStream {
     }
 
     /// Create a new EventSource connection to the SSE endpoint.
-    fn create_event_source(config: &DaemonConfig) -> Result<EventSource, DaemonError> {
+    fn create_event_source(
+        config: &DaemonConfig,
+        read_timeout: Duration,
+    ) -> Result<EventSource, DaemonError> {
         let url = config.events_url();
-        info!("Creating SSE connection to {}", url);
+        info!(
+            "Creating SSE connection to {} (read timeout: {:?})",
+            url, read_timeout
+        );
 
-        // Create a separate HTTP client for SSE without timeout
-        // SSE connections are long-lived and should not timeout
+        // Create a separate HTTP client for SSE with read timeout.
+        // This prevents thread starvation if the daemon becomes unresponsive.
+        // The read_timeout should be longer than the keep-alive interval.
         let sse_client = reqwest::Client::builder()
+            .read_timeout(read_timeout)
             .build()
             .map_err(|e| DaemonError::Connection(format!("Failed to build SSE client: {}", e)))?;
 
@@ -156,7 +190,10 @@ impl Stream for MessageStream {
                         match delay.as_mut().poll(cx) {
                             Poll::Ready(()) => {
                                 // Delay complete, attempt reconnection
-                                match Self::create_event_source(&self.config) {
+                                match Self::create_event_source(
+                                    &self.config,
+                                    self.reconnect_config.read_timeout,
+                                ) {
                                     Ok(new_source) => {
                                         self.reconnect_attempts += 1;
                                         info!(
@@ -296,8 +333,9 @@ impl Stream for MessageStream {
 
 /// Create a message stream from a SignalClient.
 ///
-/// This uses the default reconnection configuration which retries indefinitely
-/// with exponential backoff.
+/// This uses the default reconnection configuration which retries up to 100 times
+/// with exponential backoff. For infinite retries, use `subscribe_with_reconnect`
+/// with `ReconnectConfig::default().with_infinite_retries()`.
 pub fn subscribe(client: &SignalClient) -> Result<MessageStream, DaemonError> {
     MessageStream::new(client)
 }
@@ -317,10 +355,15 @@ mod tests {
     #[test]
     fn test_reconnect_config_default() {
         let config = ReconnectConfig::default();
-        assert!(config.max_retries.is_none());
+        // Default now has circuit breaker at 100 retries
+        assert_eq!(config.max_retries, Some(DEFAULT_MAX_RETRIES));
         assert_eq!(config.initial_delay, Duration::from_millis(500));
         assert_eq!(config.max_delay, Duration::from_secs(30));
         assert_eq!(config.backoff_multiplier, 2.0);
+        assert_eq!(
+            config.read_timeout,
+            Duration::from_secs(DEFAULT_SSE_READ_TIMEOUT_SECS)
+        );
     }
 
     #[test]
@@ -339,7 +382,14 @@ mod tests {
 
     #[test]
     fn test_reconnect_config_should_retry() {
-        let infinite_config = ReconnectConfig::default();
+        // Default config has circuit breaker at 100 retries
+        let default_config = ReconnectConfig::default();
+        assert!(default_config.should_retry(0));
+        assert!(default_config.should_retry(99));
+        assert!(!default_config.should_retry(100));
+
+        // Infinite retries for when needed
+        let infinite_config = ReconnectConfig::default().with_infinite_retries();
         assert!(infinite_config.should_retry(0));
         assert!(infinite_config.should_retry(100));
         assert!(infinite_config.should_retry(1000));

@@ -11,6 +11,7 @@ use brain_core::{
 use database::Database;
 use grok_brain::{GrokBrain, GrokBrainConfig, GrokToolExecutor};
 use maple_brain::{MapleBrain, MapleBrainConfig};
+use proton_proxy::{ProtonClient, ProtonConfig};
 use serde_json::{json, Value};
 use agent_tools::ToolRegistry;
 use tracing::{debug, info, warn};
@@ -23,6 +24,7 @@ use crate::formatting::format_with_footer;
 use crate::memory::{MemorySettings, MemoryStore};
 use crate::model_selection::ModelSelector;
 use crate::preferences::{AgentIndicator, PreferenceStore};
+use crate::profile::ProfileStore;
 use crate::router::Router;
 use crate::sender::MessageSender;
 
@@ -39,6 +41,13 @@ Commands:
 • "grok: <query>" - One-time direct query to Grok
 • "maple: <query>" - One-time direct query to Maple
 • "forget our chat" - Clear conversation history
+
+Profile Settings:
+• "show my settings" - View your profile
+• "set my email to X" - Update your email
+• "set my default model to X" - Set preferred AI model
+• "clear my email" - Remove a setting
+• "delete my profile" - Clear all settings
 
 I automatically detect sensitive topics (health, finances, personal) and route them securely. General queries use fast mode for better real-time info.
 
@@ -81,6 +90,10 @@ pub struct Orchestrator<S: MessageSender> {
     model_selector: ModelSelector,
     /// Tool registry for executing tools.
     tool_registry: ToolRegistry,
+    /// Email client for sending attachments (optional).
+    email_client: Option<ProtonClient>,
+    /// User profile store for personal settings.
+    profile: ProfileStore,
 }
 
 impl<S: MessageSender> Orchestrator<S> {
@@ -107,6 +120,8 @@ impl<S: MessageSender> Orchestrator<S> {
             memory: None,
             model_selector: ModelSelector::default(),
             tool_registry,
+            email_client: None,
+            profile: ProfileStore::new(),
         }
     }
 
@@ -134,6 +149,8 @@ impl<S: MessageSender> Orchestrator<S> {
             memory: None,
             model_selector: ModelSelector::default(),
             tool_registry,
+            email_client: None,
+            profile: ProfileStore::new(),
         }
     }
 
@@ -170,7 +187,10 @@ impl<S: MessageSender> Orchestrator<S> {
         // Create model selector from environment
         let model_selector = ModelSelector::from_env();
 
-        let (preferences, memory) = Self::load_persistence_from_env().await?;
+        let (preferences, memory, profile) = Self::load_persistence_from_env().await?;
+
+        // Try to initialize email client from environment
+        let email_client = Self::load_email_client_from_env();
 
         let maple_brain = Arc::new(maple_brain);
         let mut tool_registry = agent_tools::default_registry();
@@ -187,6 +207,8 @@ impl<S: MessageSender> Orchestrator<S> {
             memory,
             model_selector,
             tool_registry,
+            email_client,
+            profile,
         })
     }
 
@@ -210,7 +232,10 @@ impl<S: MessageSender> Orchestrator<S> {
         let brain: Arc<dyn Brain> = maple_brain.clone();
         tool_registry.set_brain(brain);
 
-        let (preferences, memory) = Self::load_persistence_from_env().await?;
+        let (preferences, memory, profile) = Self::load_persistence_from_env().await?;
+
+        // Try to initialize email client from environment
+        let email_client = Self::load_email_client_from_env();
 
         Ok(Self {
             router,
@@ -222,6 +247,8 @@ impl<S: MessageSender> Orchestrator<S> {
             memory,
             model_selector: ModelSelector::from_env(),
             tool_registry,
+            email_client,
+            profile,
         })
     }
 
@@ -456,6 +483,12 @@ impl<S: MessageSender> Orchestrator<S> {
                         .await;
                 }
 
+                OrchestratorAction::MapleModel { query, model, task_hint } => {
+                    return self
+                        .execute_maple_with_model(message, query, model, &context, *task_hint, history_key)
+                        .await;
+                }
+
                 OrchestratorAction::SetPreference { preference } => {
                     return self
                         .execute_set_preference(message, preference, history_key)
@@ -511,6 +544,30 @@ impl<S: MessageSender> Orchestrator<S> {
                     return self
                         .execute_privacy_choice_response(message, *choice, history_key)
                         .await;
+                }
+
+                OrchestratorAction::SendEmail {
+                    recipient,
+                    subject,
+                    body,
+                } => {
+                    return self
+                        .execute_send_email(message, recipient, subject.as_deref(), body.as_deref())
+                        .await;
+                }
+
+                OrchestratorAction::ViewProfile => {
+                    return self.execute_view_profile(message).await;
+                }
+
+                OrchestratorAction::UpdateProfile { field, value } => {
+                    return self
+                        .execute_update_profile(message, field, value.as_deref())
+                        .await;
+                }
+
+                OrchestratorAction::ClearProfile => {
+                    return self.execute_clear_profile(message).await;
                 }
             }
         }
@@ -886,6 +943,65 @@ impl<S: MessageSender> Orchestrator<S> {
         Ok(response)
     }
 
+    /// Execute a Maple query with a specific model (one-time use).
+    async fn execute_maple_with_model(
+        &self,
+        message: &InboundMessage,
+        query: &str,
+        model_alias: &str,
+        context: &Context,
+        task_hint: TaskHint,
+        history_key: &str,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        use crate::model_selection::MapleModels;
+
+        let effective_task_hint = Self::resolve_task_hint(message, task_hint);
+
+        // Validate and normalize the model alias
+        let selected_model = match MapleModels::normalize_model(model_alias) {
+            Some(canonical) => canonical.to_string(),
+            None => {
+                // Invalid model - return a helpful error message
+                let available = MapleModels::model_aliases().join(", ");
+                let error_msg = format!(
+                    "Unknown model '{}'. Available models: {}",
+                    model_alias, available
+                );
+                warn!("{}", error_msg);
+                return Ok(OutboundMessage::reply_to(message, error_msg));
+            }
+        };
+
+        info!(
+            "Maple query with model (alias: {}, model: {}, task_hint: {:?}): {}",
+            model_alias, selected_model, effective_task_hint, query
+        );
+
+        // Create a modified message with the extracted query
+        let mut modified = message.clone();
+        modified.text = query.to_string();
+
+        // Augment with context if any
+        let mut augmented = context.augment_message(&modified);
+        self.attach_routing_info(
+            &mut augmented,
+            None,
+            effective_task_hint,
+            Some(selected_model.clone()),
+            false,
+        );
+
+        // Process through Maple
+        // Note: Currently using the default model configured in the brain.
+        // TODO: Add per-request model override support for dynamic model selection.
+        let response = self.maple_brain.process(augmented).await?;
+
+        self.record_exchange(history_key, query, &response.text).await;
+
+        info!("Maple with model '{}' response: {} chars", selected_model, response.text.len());
+        Ok(response)
+    }
+
     /// Execute a set preference action.
     async fn execute_set_preference(
         &self,
@@ -938,8 +1054,9 @@ impl<S: MessageSender> Orchestrator<S> {
              How would you like me to handle it?\n\n\
              1. Sanitize - Remove personal details and use fast mode\n\
              2. Private - Keep as-is and use secure enclave\n\
-             3. Cancel - Don't process this message\n\n\
-             Reply with 1, 2, or 3 (or: sanitize, private, cancel)",
+             3. Fast - Keep as-is and use fast mode (data sent to external service)\n\
+             4. Cancel - Don't process this message\n\n\
+             Reply with 1, 2, 3, or 4",
             pii_list
         );
 
@@ -948,32 +1065,185 @@ impl<S: MessageSender> Orchestrator<S> {
     }
 
     /// Execute a privacy choice response - handle user's choice for PII handling.
+    ///
+    /// SECURITY NOTE: Sanitization is not yet implemented. Only FastUncensored and
+    /// Cancel are currently functional. Private and Sanitize return error messages
+    /// to avoid misleading users about data handling.
     async fn execute_privacy_choice_response(
         &self,
         message: &InboundMessage,
         choice: PrivacyChoice,
         history_key: &str,
     ) -> Result<OutboundMessage, OrchestratorError> {
-
         info!("Processing privacy choice: {:?}", choice);
         self.record_privacy_choice(history_key, choice, message).await;
 
-        match choice {
-            PrivacyChoice::Sanitize => {
-                // TODO: Implement actual PII sanitization using the sanitize tool
-                // For now, just acknowledge and process normally with Grok
-                let response_text = "Got it! I'll process your request with fast mode. \
-                                     (Note: Full PII sanitization coming soon)";
-                Ok(OutboundMessage::reply_to(message, response_text))
-            }
-            PrivacyChoice::Private => {
-                // Process with Maple (privacy mode)
-                let response_text = "Processing your request securely in the private enclave.";
-                Ok(OutboundMessage::reply_to(message, response_text))
-            }
+        let response_text = match choice {
             PrivacyChoice::Cancel => {
-                let response_text = "Request cancelled. Your message was not processed.";
+                "Request cancelled. Your message was not processed."
+            }
+            PrivacyChoice::FastUncensored => {
+                "Processing with fast mode. Note: Your data will be sent to an external AI service."
+            }
+            PrivacyChoice::Sanitize | PrivacyChoice::Private => {
+                // SECURITY: Sanitization is not yet implemented. Return an honest error.
+                "Sorry, the privacy choice feature is temporarily unavailable. \
+                 Your message was not processed to protect your privacy. \
+                 Please try again later, use option 3 (Fast) if you accept the risk, \
+                 or rephrase your request without sensitive information."
+            }
+        };
+        Ok(OutboundMessage::reply_to(message, response_text))
+    }
+
+    /// Execute a send_email action - send attachments to email via proton-proxy.
+    async fn execute_send_email(
+        &self,
+        message: &InboundMessage,
+        recipient: &str,
+        subject: Option<&str>,
+        body: Option<&str>,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        // Validate email address
+        if !is_valid_email(recipient) {
+            let error_msg = format!("Invalid email address: {}", recipient);
+            warn!("{}", error_msg);
+            return Ok(OutboundMessage::reply_to(message, error_msg));
+        }
+
+        // Check if email client is configured
+        let client = match &self.email_client {
+            Some(c) => c,
+            None => {
+                let error_msg = "Email sending is not configured. Please set up proton-proxy.";
+                warn!("{}", error_msg);
+                return Ok(OutboundMessage::reply_to(message, error_msg));
+            }
+        };
+
+        // Check if there are attachments to send
+        if message.attachments.is_empty() {
+            let error_msg = "No attachments to send. Please include a file with your message.";
+            return Ok(OutboundMessage::reply_to(message, error_msg));
+        }
+
+        // Build the email
+        let subject = subject.unwrap_or("Attachment from Signal");
+        let body_text = body.unwrap_or("Please find the attached file(s).");
+
+        let mut email = proton_proxy::Email::new(recipient, subject, body_text);
+
+        // Add each attachment
+        let mut attachment_count = 0;
+        for att in &message.attachments {
+            if let Some(ref file_path) = att.file_path {
+                match proton_proxy::Attachment::from_file(file_path) {
+                    Ok(email_att) => {
+                        email.attach(email_att);
+                        attachment_count += 1;
+                    }
+                    Err(e) => {
+                        warn!("Failed to load attachment {}: {}", file_path, e);
+                    }
+                }
+            }
+        }
+
+        if attachment_count == 0 {
+            let error_msg = "Could not load any attachments. Files may be unavailable.";
+            return Ok(OutboundMessage::reply_to(message, error_msg));
+        }
+
+        // Send the email
+        match client.send(&email).await {
+            Ok(()) => {
+                let response = format!("Sent {} attachment(s) to {}", attachment_count, recipient);
+                info!("{}", response);
+                Ok(OutboundMessage::reply_to(message, response))
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to send email: {}", e);
+                warn!("{}", error_msg);
+                Ok(OutboundMessage::reply_to(message, error_msg))
+            }
+        }
+    }
+
+    /// Execute a view_profile action - show user's profile settings.
+    async fn execute_view_profile(
+        &self,
+        message: &InboundMessage,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        info!("Viewing profile for {}", message.sender);
+
+        let profile = self.profile.get(&message.sender).await;
+        let response_text = ProfileStore::format_profile(profile.as_ref());
+
+        Ok(OutboundMessage::reply_to(message, response_text))
+    }
+
+    /// Execute an update_profile action - update a profile field.
+    async fn execute_update_profile(
+        &self,
+        message: &InboundMessage,
+        field_name: &str,
+        value: Option<&str>,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        // Parse the field name
+        let field = match ProfileStore::parse_field(field_name) {
+            Ok(f) => f,
+            Err(e) => {
+                let error_msg = e.to_string();
+                warn!("Invalid profile field: {}", error_msg);
+                return Ok(OutboundMessage::reply_to(message, error_msg));
+            }
+        };
+
+        // Log the action (field name only, not values for privacy)
+        info!(
+            "Updating profile field {:?} for {} (has value: {})",
+            field,
+            message.sender,
+            value.is_some()
+        );
+
+        // Attempt the update
+        match self.profile.update_field(&message.sender, field, value).await {
+            Ok(()) => {
+                let response_text = match value {
+                    Some(_) => format!("Updated your {}.", field.display_name()),
+                    None => format!("Cleared your {}.", field.display_name()),
+                };
                 Ok(OutboundMessage::reply_to(message, response_text))
+            }
+            Err(e) => {
+                let error_msg = e.to_string();
+                warn!("Profile update failed: {}", error_msg);
+                Ok(OutboundMessage::reply_to(message, error_msg))
+            }
+        }
+    }
+
+    /// Execute a clear_profile action - delete all profile settings.
+    async fn execute_clear_profile(
+        &self,
+        message: &InboundMessage,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        info!("Clearing profile for {}", message.sender);
+
+        match self.profile.delete(&message.sender).await {
+            Ok(true) => Ok(OutboundMessage::reply_to(
+                message,
+                "All your profile settings have been deleted.",
+            )),
+            Ok(false) => Ok(OutboundMessage::reply_to(
+                message,
+                "You don't have any profile settings to delete.",
+            )),
+            Err(e) => {
+                let error_msg = format!("Failed to delete profile: {}", e);
+                warn!("{}", error_msg);
+                Ok(OutboundMessage::reply_to(message, error_msg))
             }
         }
     }
@@ -1019,27 +1289,11 @@ impl<S: MessageSender> Orchestrator<S> {
         }
     }
 
-    async fn record_privacy_choice(
-        &self,
-        history_key: &str,
-        choice: PrivacyChoice,
-        message: &InboundMessage,
-    ) {
-        let label = match choice {
-            PrivacyChoice::Sanitize => "sanitize",
-            PrivacyChoice::Private => "private",
-            PrivacyChoice::Cancel => "cancel",
-        };
-        let content = format!("choice={}", label);
-        self.record_tool_history(history_key, "privacy_choice", true, &content, message)
-            .await;
-    }
-
     async fn load_persistence_from_env(
-    ) -> Result<(PreferenceStore, Option<MemoryStore>), OrchestratorError> {
+    ) -> Result<(PreferenceStore, Option<MemoryStore>, ProfileStore), OrchestratorError> {
         let sqlite_path = match env::var("SQLITE_PATH") {
             Ok(path) => path,
-            Err(_) => return Ok((PreferenceStore::new(), None)),
+            Err(_) => return Ok((PreferenceStore::new(), None, ProfileStore::new())),
         };
 
         let sqlite_url = sqlite_url_from_path(&sqlite_path);
@@ -1053,10 +1307,9 @@ impl<S: MessageSender> Orchestrator<S> {
 
         let preferences = PreferenceStore::with_database(database.clone());
         let settings = MemorySettings::from_env();
-        let memory = MemoryStore::new(database, settings);
-        let _ = memory.spawn_compaction_task();
+        let memory = Some(MemoryStore::new(database, settings));
 
-        Ok((preferences, Some(memory)))
+        Ok((preferences, memory))
     }
 
     /// Get the sender.
@@ -1098,6 +1351,11 @@ impl<S: MessageSender> Orchestrator<S> {
     pub fn tool_registry_mut(&mut self) -> &mut ToolRegistry {
         &mut self.tool_registry
     }
+
+    /// Get the profile store.
+    pub fn profile(&self) -> &ProfileStore {
+        &self.profile
+    }
 }
 
 fn sqlite_url_from_path(path: &str) -> String {
@@ -1106,6 +1364,22 @@ fn sqlite_url_from_path(path: &str) -> String {
     } else {
         format!("sqlite:{}?mode=rwc", path)
     }
+}
+
+/// Basic email address validation.
+fn is_valid_email(email: &str) -> bool {
+    let email = email.trim();
+    if email.is_empty() || email.len() > 254 {
+        return false;
+    }
+    // Must have exactly one @, with content on both sides
+    let parts: Vec<&str> = email.split('@').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let (local, domain) = (parts[0], parts[1]);
+    // Basic checks
+    !local.is_empty() && !domain.is_empty() && domain.contains('.')
 }
 
 #[cfg(test)]
@@ -1158,5 +1432,25 @@ mod tests {
 
         let hint = Orchestrator::<NoOpSender>::resolve_task_hint(&message, TaskHint::General);
         assert_eq!(hint, TaskHint::Vision);
+    }
+
+    #[test]
+    fn test_is_valid_email() {
+        // Valid emails
+        assert!(is_valid_email("user@example.com"));
+        assert!(is_valid_email("user.name@example.com"));
+        assert!(is_valid_email("user@sub.example.com"));
+        assert!(is_valid_email("user+tag@example.com"));
+        assert!(is_valid_email("  user@example.com  ")); // trimmed
+
+        // Invalid emails
+        assert!(!is_valid_email(""));
+        assert!(!is_valid_email("   "));
+        assert!(!is_valid_email("user"));
+        assert!(!is_valid_email("user@"));
+        assert!(!is_valid_email("@example.com"));
+        assert!(!is_valid_email("user@example")); // no TLD
+        assert!(!is_valid_email("user@@example.com")); // double @
+        assert!(!is_valid_email("user@example@other.com")); // multiple @
     }
 }

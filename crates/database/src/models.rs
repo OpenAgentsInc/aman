@@ -89,3 +89,20 @@ pub struct ClearContextEvent {
     /// Creation timestamp.
     pub created_at: String,
 }
+
+/// User profile settings (personal to the user, not shared with groups).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
+pub struct UserProfile {
+    /// Sender ID (phone number or identifier).
+    pub sender_id: String,
+    /// Default model preference (e.g., "llama", "grok-4-1-fast").
+    pub default_model: Option<String>,
+    /// User's email address.
+    pub email: Option<String>,
+    /// Lightning Bolt 12 offer for payments.
+    pub bolt12_offer: Option<String>,
+    /// When the profile was created.
+    pub created_at: String,
+    /// When the profile was last updated.
+    pub updated_at: String,
+}

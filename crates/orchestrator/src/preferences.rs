@@ -131,9 +131,9 @@ impl PreferenceStore {
                 false
             }
             UserPreference::Default => {
-                // Use Grok only for insensitive content
-                // Sensitive and uncertain go to Maple
-                matches!(sensitivity, Sensitivity::Insensitive)
+                // Use Grok for insensitive and uncertain content
+                // Only explicitly sensitive goes to Maple
+                !matches!(sensitivity, Sensitivity::Sensitive)
             }
         }
     }
@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn test_resolve_agent_default() {
-        // Default: Grok for insensitive, Maple for sensitive/uncertain
+        // Default: Grok for insensitive and uncertain, Maple only for sensitive
         assert!(PreferenceStore::resolve_agent(
             UserPreference::Default,
             Sensitivity::Insensitive
@@ -219,7 +219,7 @@ mod tests {
             UserPreference::Default,
             Sensitivity::Sensitive
         ));
-        assert!(!PreferenceStore::resolve_agent(
+        assert!(PreferenceStore::resolve_agent(
             UserPreference::Default,
             Sensitivity::Uncertain
         ));

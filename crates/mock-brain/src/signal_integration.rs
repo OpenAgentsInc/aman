@@ -36,11 +36,37 @@ pub trait EnvelopeExt {
     fn to_inbound_message_with_config(&self, config: &DaemonConfig) -> Option<InboundMessage>;
 }
 
+/// Validate an attachment ID to prevent path traversal attacks.
+/// Returns None if the ID contains path traversal sequences.
+fn validate_attachment_id(id: &str) -> Option<&str> {
+    // Check for path traversal attempts
+    if id.contains("..") || id.contains('/') || id.contains('\\') {
+        return None;
+    }
+
+    // Also check for absolute paths (shouldn't happen but be safe)
+    if id.starts_with('/') || id.starts_with('\\') {
+        return None;
+    }
+
+    // Check for null bytes (path injection)
+    if id.contains('\0') {
+        return None;
+    }
+
+    Some(id)
+}
+
 /// Convert a signal-daemon Attachment to an InboundAttachment.
 fn convert_attachment(att: &Attachment, attachments_dir: Option<&Path>) -> InboundAttachment {
     // Resolve full path if attachments_dir is provided and id exists
+    // Validate attachment ID to prevent path traversal
     let file_path = match (attachments_dir, &att.id) {
-        (Some(dir), Some(id)) => Some(dir.join(id).to_string_lossy().to_string()),
+        (Some(dir), Some(id)) => {
+            // Validate the attachment ID to prevent path traversal
+            validate_attachment_id(id)
+                .map(|safe_id| dir.join(safe_id).to_string_lossy().to_string())
+        }
         _ => att.id.clone(),
     };
 
@@ -310,6 +336,7 @@ mod tests {
             recipient: "group123".to_string(),
             text: "Hello group".to_string(),
             is_group: true,
+            styles: Vec::new(),
         };
         assert!(group.recipient_number().is_none());
         assert_eq!(group.group_id(), Some("group123"));
@@ -348,5 +375,65 @@ mod tests {
             inbound_with_config.attachments[0].file_path,
             Some("/tmp/test-signal-cli/attachments/abc123.jpeg".to_string())
         );
+    }
+
+    #[test]
+    fn test_validate_attachment_id_safe() {
+        // Valid IDs should pass
+        assert_eq!(validate_attachment_id("abc123.jpeg"), Some("abc123.jpeg"));
+        assert_eq!(validate_attachment_id("file.png"), Some("file.png"));
+        assert_eq!(validate_attachment_id("a1b2c3d4e5"), Some("a1b2c3d4e5"));
+    }
+
+    #[test]
+    fn test_validate_attachment_id_path_traversal() {
+        // Path traversal attempts should fail
+        assert_eq!(validate_attachment_id("../etc/passwd"), None);
+        assert_eq!(validate_attachment_id("..\\windows\\system32"), None);
+        assert_eq!(validate_attachment_id("foo/../bar"), None);
+        assert_eq!(validate_attachment_id(".."), None);
+    }
+
+    #[test]
+    fn test_validate_attachment_id_absolute_path() {
+        // Absolute paths should fail
+        assert_eq!(validate_attachment_id("/etc/passwd"), None);
+        assert_eq!(validate_attachment_id("\\windows\\system32"), None);
+    }
+
+    #[test]
+    fn test_validate_attachment_id_slashes() {
+        // Forward slashes should fail (could be path components)
+        assert_eq!(validate_attachment_id("foo/bar"), None);
+        assert_eq!(validate_attachment_id("foo\\bar"), None);
+    }
+
+    #[test]
+    fn test_path_traversal_blocked_in_conversion() {
+        // Test that path traversal is blocked when converting attachments
+        let envelope = Envelope {
+            source: "+15551234567".to_string(),
+            source_number: "+15551234567".to_string(),
+            timestamp: 1234567890,
+            data_message: Some(DataMessage {
+                message: Some("Check this out!".to_string()),
+                attachments: vec![Attachment {
+                    content_type: "image/jpeg".to_string(),
+                    filename: Some("photo.jpg".to_string()),
+                    id: Some("../../../etc/passwd".to_string()), // Path traversal attempt
+                    size: Some(12345),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let config = DaemonConfig::new("http://localhost:8080")
+            .with_data_dir("/tmp/test-signal-cli");
+        let inbound = envelope.to_inbound_message_with_config(&config).unwrap();
+
+        // The file_path should be None because the ID was invalid
+        assert_eq!(inbound.attachments[0].file_path, None);
     }
 }

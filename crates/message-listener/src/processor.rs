@@ -1,18 +1,24 @@
 //! Message processor that connects signal-daemon to a Brain implementation.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use brain_core::{Brain, BrainError, TextStyle};
-use signal_daemon::types::TextStyleParam;
 use futures::StreamExt;
 use mock_brain::EnvelopeExt;
+use signal_daemon::types::TextStyleParam;
 use signal_daemon::{DaemonError, Envelope, SignalClient};
 use thiserror::Error;
+use tokio::sync::Semaphore;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
 /// Default timeout for brain processing (60 seconds).
 const DEFAULT_BRAIN_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Default maximum concurrent message processing.
+/// This prevents resource exhaustion from message floods.
+const DEFAULT_MAX_CONCURRENT: usize = 10;
 
 /// Configuration for the message processor.
 #[derive(Debug, Clone)]
@@ -37,6 +43,11 @@ pub struct ProcessorConfig {
     /// Whether to process messages that have attachments but no text.
     /// Default: true (process attachment-only messages).
     pub process_attachment_only: bool,
+
+    /// Maximum number of messages that can be processed concurrently.
+    /// This prevents resource exhaustion from message floods.
+    /// Default: 10.
+    pub max_concurrent: usize,
 }
 
 impl Default for ProcessorConfig {
@@ -48,6 +59,7 @@ impl Default for ProcessorConfig {
             send_typing_indicators: false,
             brain_timeout: DEFAULT_BRAIN_TIMEOUT,
             process_attachment_only: true,
+            max_concurrent: DEFAULT_MAX_CONCURRENT,
         }
     }
 }
@@ -102,15 +114,19 @@ pub struct MessageProcessor<B: Brain> {
     client: SignalClient,
     brain: B,
     config: ProcessorConfig,
+    /// Semaphore for limiting concurrent message processing.
+    semaphore: Arc<Semaphore>,
 }
 
 impl<B: Brain> MessageProcessor<B> {
     /// Create a new message processor.
     pub fn new(client: SignalClient, brain: B, config: ProcessorConfig) -> Self {
+        let semaphore = Arc::new(Semaphore::new(config.max_concurrent));
         Self {
             client,
             brain,
             config,
+            semaphore,
         }
     }
 
@@ -293,14 +309,27 @@ impl<B: Brain> MessageProcessor<B> {
     /// Run the processor, handling messages until the stream ends or an error occurs.
     ///
     /// This method consumes self and runs indefinitely.
+    /// Messages are rate-limited by the configured max_concurrent setting.
     pub async fn run(self) -> Result<(), ProcessorError> {
-        info!("Starting message processor with brain: {}", self.brain.name());
+        info!(
+            "Starting message processor with brain: {} (max concurrent: {})",
+            self.brain.name(),
+            self.config.max_concurrent
+        );
 
         let mut stream = signal_daemon::subscribe(&self.client)?;
 
         while let Some(result) = stream.next().await {
             match result {
                 Ok(envelope) => {
+                    // Rate limiting: acquire permit before processing
+                    // This blocks if we're at capacity, providing backpressure
+                    let _permit = self.semaphore.acquire().await.map_err(|_| {
+                        ProcessorError::Daemon(DaemonError::Connection(
+                            "Semaphore closed unexpectedly".to_string(),
+                        ))
+                    })?;
+
                     let result = self.process_envelope(&envelope).await;
                     match result {
                         ProcessResult::Responded { sender, response, .. } => {
@@ -314,6 +343,7 @@ impl<B: Brain> MessageProcessor<B> {
                             warn!("Error processing message: {}", e);
                         }
                     }
+                    // Permit is automatically released when _permit goes out of scope
                 }
                 Err(e) => {
                     error!("Stream error: {}", e);
@@ -329,17 +359,29 @@ impl<B: Brain> MessageProcessor<B> {
     /// Run the processor with a callback for each processed message.
     ///
     /// The callback receives each ProcessResult, allowing for custom handling.
+    /// Messages are rate-limited by the configured max_concurrent setting.
     pub async fn run_with_callback<F>(self, mut callback: F) -> Result<(), ProcessorError>
     where
         F: FnMut(ProcessResult) + Send,
     {
-        info!("Starting message processor with brain: {}", self.brain.name());
+        info!(
+            "Starting message processor with brain: {} (max concurrent: {})",
+            self.brain.name(),
+            self.config.max_concurrent
+        );
 
         let mut stream = signal_daemon::subscribe(&self.client)?;
 
         while let Some(result) = stream.next().await {
             match result {
                 Ok(envelope) => {
+                    // Rate limiting: acquire permit before processing
+                    let _permit = self.semaphore.acquire().await.map_err(|_| {
+                        ProcessorError::Daemon(DaemonError::Connection(
+                            "Semaphore closed unexpectedly".to_string(),
+                        ))
+                    })?;
+
                     let result = self.process_envelope(&envelope).await;
                     callback(result);
                 }
@@ -382,8 +424,9 @@ impl<B: Brain> MessageProcessor<B> {
         S: std::future::Future<Output = ()> + Send,
     {
         info!(
-            "Starting message processor with brain: {} (graceful shutdown enabled)",
-            self.brain.name()
+            "Starting message processor with brain: {} (graceful shutdown enabled, max concurrent: {})",
+            self.brain.name(),
+            self.config.max_concurrent
         );
 
         let mut stream = signal_daemon::subscribe(&self.client)?;
@@ -408,6 +451,17 @@ impl<B: Brain> MessageProcessor<B> {
                 result = stream.next() => {
                     match result {
                         Some(Ok(envelope)) => {
+                            // Rate limiting: acquire permit before processing
+                            let _permit = match self.semaphore.acquire().await {
+                                Ok(permit) => permit,
+                                Err(_) => {
+                                    error!("Semaphore closed unexpectedly");
+                                    return Err(ProcessorError::Daemon(DaemonError::Connection(
+                                        "Semaphore closed unexpectedly".to_string(),
+                                    )));
+                                }
+                            };
+
                             let result = self.process_envelope(&envelope).await;
                             match result {
                                 ProcessResult::Responded { sender, response, .. } => {

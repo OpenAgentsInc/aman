@@ -145,9 +145,13 @@ let version = client.version().await?;
 // Check connection state (non-blocking)
 let connected = client.is_connected();
 
-// Background health monitoring
+// Background health monitoring with graceful shutdown
 use std::time::Duration;
-let handle = client.start_health_monitor(Duration::from_secs(30));
+let (handle, shutdown_tx) = client.start_health_monitor(Duration::from_secs(30));
+
+// Later, to stop the monitor:
+let _ = shutdown_tx.send(());
+handle.await;
 ```
 
 ## Types Reference

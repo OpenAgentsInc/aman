@@ -230,39 +230,70 @@ impl SignalClient {
     }
 
     /// Start a background health monitor that periodically checks the daemon.
-    pub fn start_health_monitor(&self, interval: Duration) -> JoinHandle<()> {
+    ///
+    /// Returns a tuple of (JoinHandle, shutdown_sender). Call `shutdown_sender.send(())`
+    /// or drop the sender to stop the health monitor gracefully.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let (handle, shutdown) = client.start_health_monitor(Duration::from_secs(30));
+    ///
+    /// // Later, to stop the monitor:
+    /// let _ = shutdown.send(());
+    /// handle.await;
+    /// ```
+    pub fn start_health_monitor(
+        &self,
+        interval: Duration,
+    ) -> (JoinHandle<()>, tokio::sync::oneshot::Sender<()>) {
         let client = self.clone();
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut consecutive_failures = 0u32;
 
             loop {
-                tokio::time::sleep(interval).await;
+                tokio::select! {
+                    biased;
 
-                match client.health_check().await {
-                    Ok(true) => {
-                        if consecutive_failures > 0 {
-                            info!("Daemon connection restored");
+                    // Check for shutdown signal first
+                    _ = &mut shutdown_rx => {
+                        info!("Health monitor received shutdown signal");
+                        break;
+                    }
+
+                    // Then perform health check after interval
+                    () = tokio::time::sleep(interval) => {
+                        match client.health_check().await {
+                            Ok(true) => {
+                                if consecutive_failures > 0 {
+                                    info!("Daemon connection restored");
+                                }
+                                consecutive_failures = 0;
+                            }
+                            Ok(false) => {
+                                consecutive_failures += 1;
+                                warn!(
+                                    "Health check returned not OK (failures: {})",
+                                    consecutive_failures
+                                );
+                            }
+                            Err(e) => {
+                                consecutive_failures += 1;
+                                error!(
+                                    "Health check failed: {} (failures: {})",
+                                    e, consecutive_failures
+                                );
+                            }
                         }
-                        consecutive_failures = 0;
-                    }
-                    Ok(false) => {
-                        consecutive_failures += 1;
-                        warn!(
-                            "Health check returned not OK (failures: {})",
-                            consecutive_failures
-                        );
-                    }
-                    Err(e) => {
-                        consecutive_failures += 1;
-                        error!(
-                            "Health check failed: {} (failures: {})",
-                            e, consecutive_failures
-                        );
                     }
                 }
             }
-        })
+            info!("Health monitor stopped");
+        });
+
+        (handle, shutdown_tx)
     }
 
     /// Get the configuration.

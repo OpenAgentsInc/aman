@@ -1,10 +1,13 @@
 //! Conversation history management.
 //!
 //! This module provides per-sender conversation history tracking with
-//! automatic turn-based trimming.
+//! automatic turn-based trimming and LRU eviction to prevent memory exhaustion.
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use tokio::sync::RwLock;
+
+/// Default maximum number of senders to track before LRU eviction.
+const DEFAULT_MAX_SENDERS: usize = 10000;
 
 /// A single message in the conversation history.
 #[derive(Debug, Clone)]
@@ -41,10 +44,14 @@ impl HistoryMessage {
     }
 }
 
-/// Per-sender conversation history.
+/// Per-sender conversation history with LRU eviction.
 ///
 /// Maintains separate conversation histories for each sender (or group),
 /// with automatic trimming to a configurable maximum number of turns.
+///
+/// To prevent memory exhaustion from attackers sending messages from many
+/// unique senders, this struct also limits the total number of tracked
+/// senders and evicts the least recently used senders when the limit is reached.
 ///
 /// # Example
 ///
@@ -62,65 +69,94 @@ impl HistoryMessage {
 ///     assert_eq!(messages.len(), 4); // 2 turns = 4 messages
 /// }
 /// ```
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ConversationHistory {
     /// Map from sender ID to their message history.
-    histories: RwLock<HashMap<String, Vec<HistoryMessage>>>,
-    /// Optional system messages per sender (not counted toward max turns).
-    system_messages: RwLock<HashMap<String, HistoryMessage>>,
-    /// Maximum number of turns (user + assistant pairs) to keep.
+    /// Uses IndexMap to maintain insertion order for LRU eviction.
+    histories: RwLock<IndexMap<String, Vec<HistoryMessage>>>,
+    /// Maximum number of turns (user + assistant pairs) to keep per sender.
     max_turns: usize,
+    /// Maximum number of senders to track before LRU eviction.
+    max_senders: usize,
+}
+
+impl Default for ConversationHistory {
+    fn default() -> Self {
+        Self::new(10)
+    }
 }
 
 impl ConversationHistory {
     /// Create a new conversation history with the given max turns.
+    ///
+    /// Uses the default max senders limit (10,000).
     pub fn new(max_turns: usize) -> Self {
+        Self::with_limits(max_turns, DEFAULT_MAX_SENDERS)
+    }
+
+    /// Create a new conversation history with custom limits.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_turns` - Maximum number of turns (user + assistant pairs) per sender
+    /// * `max_senders` - Maximum number of senders to track before LRU eviction
+    pub fn with_limits(max_turns: usize, max_senders: usize) -> Self {
         Self {
-            histories: RwLock::new(HashMap::new()),
-            system_messages: RwLock::new(HashMap::new()),
+            histories: RwLock::new(IndexMap::new()),
             max_turns,
+            max_senders,
         }
     }
 
     /// Get the conversation history for a sender.
+    ///
+    /// This marks the sender as recently used for LRU purposes.
     pub async fn get(&self, sender: &str) -> Vec<HistoryMessage> {
-        let histories = self.histories.read().await;
-        let system_messages = self.system_messages.read().await;
+        let mut histories = self.histories.write().await;
 
-        let mut messages = Vec::new();
-        if let Some(system_message) = system_messages.get(sender) {
-            messages.push(system_message.clone());
+        // Move to end to mark as recently used (LRU behavior)
+        if let Some(entry) = histories.shift_remove(sender) {
+            let result = entry.clone();
+            histories.insert(sender.to_string(), entry);
+            result
+        } else {
+            Vec::new()
         }
-        if let Some(history) = histories.get(sender) {
-            messages.extend(history.clone());
-        }
-        messages
     }
 
     /// Add a user message and assistant response to the history.
+    ///
+    /// This also performs LRU eviction if the sender limit is exceeded.
     pub async fn add_exchange(&self, sender: &str, user_msg: &str, assistant_msg: &str) {
         let mut histories = self.histories.write().await;
-        let history = histories.entry(sender.to_string()).or_default();
+
+        // Remove and re-insert to move to end (mark as recently used)
+        let history = histories.shift_remove(sender).unwrap_or_default();
+        let mut history = history;
 
         history.push(HistoryMessage::user(user_msg));
         history.push(HistoryMessage::assistant(assistant_msg));
 
         // Trim to max turns (each turn is 2 messages)
-        trim_history(history, self.max_turns);
-    }
+        let max_messages = self.max_turns * 2;
+        if history.len() > max_messages {
+            let to_remove = history.len() - max_messages;
+            history.drain(0..to_remove);
+        }
 
-    /// Set or replace the system message for a sender (not counted toward max turns).
-    pub async fn set_system_message(&self, sender: &str, content: impl Into<String>) {
-        let mut system_messages = self.system_messages.write().await;
-        system_messages.insert(sender.to_string(), HistoryMessage::system(content));
+        histories.insert(sender.to_string(), history);
+
+        // LRU eviction: remove oldest entries if we exceed max_senders
+        while histories.len() > self.max_senders {
+            // shift_remove removes the first (oldest) entry
+            histories.shift_remove_index(0);
+        }
     }
 
     /// Clear history for a specific sender.
     pub async fn clear(&self, sender: &str) {
         let mut histories = self.histories.write().await;
-        histories.remove(sender);
-        let mut system_messages = self.system_messages.write().await;
-        system_messages.remove(sender);
+        histories.shift_remove(sender);
     }
 
     /// Clear all conversation histories.
@@ -137,6 +173,12 @@ fn trim_history(history: &mut Vec<HistoryMessage>, max_turns: usize) {
     if history.len() > max_messages {
         let to_remove = history.len() - max_messages;
         history.drain(0..to_remove);
+    }
+
+    /// Get the current number of tracked senders.
+    pub async fn sender_count(&self) -> usize {
+        let histories = self.histories.read().await;
+        histories.len()
     }
 }
 
@@ -224,17 +266,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_system_message_in_history() {
-        let history = ConversationHistory::new(2);
+    async fn test_lru_eviction() {
+        // Create history with max 3 senders
+        let history = ConversationHistory::with_limits(5, 3);
 
-        history
-            .set_system_message("+1234", "Memory prompt")
-            .await;
-        history.add_exchange("+1234", "Hello", "Hi").await;
+        // Add 4 senders
+        history.add_exchange("+1111", "Hello", "Hi!").await;
+        history.add_exchange("+2222", "Hello", "Hi!").await;
+        history.add_exchange("+3333", "Hello", "Hi!").await;
+        history.add_exchange("+4444", "Hello", "Hi!").await;
 
-        let messages = history.get("+1234").await;
-        assert_eq!(messages.len(), 3);
-        assert_eq!(messages[0].role, "system");
-        assert_eq!(messages[0].content, "Memory prompt");
+        // Should have evicted +1111 (oldest)
+        assert_eq!(history.sender_count().await, 3);
+        let oldest = history.get("+1111").await;
+        assert!(oldest.is_empty(), "Oldest sender should have been evicted");
+
+        // +2222, +3333, +4444 should still exist
+        assert!(!history.get("+2222").await.is_empty());
+        assert!(!history.get("+3333").await.is_empty());
+        assert!(!history.get("+4444").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_lru_access_order() {
+        // Create history with max 3 senders
+        let history = ConversationHistory::with_limits(5, 3);
+
+        // Add 3 senders
+        history.add_exchange("+1111", "Hello", "Hi!").await;
+        history.add_exchange("+2222", "Hello", "Hi!").await;
+        history.add_exchange("+3333", "Hello", "Hi!").await;
+
+        // Access +1111 to make it recently used
+        let _ = history.get("+1111").await;
+
+        // Add a 4th sender - should evict +2222 (now oldest)
+        history.add_exchange("+4444", "Hello", "Hi!").await;
+
+        // +2222 should be evicted
+        assert!(history.get("+2222").await.is_empty());
+
+        // +1111, +3333, +4444 should still exist
+        assert!(!history.get("+1111").await.is_empty());
+        assert!(!history.get("+3333").await.is_empty());
+        assert!(!history.get("+4444").await.is_empty());
     }
 }

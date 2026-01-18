@@ -269,6 +269,25 @@ Durable memory is enabled when `SQLITE_PATH` is set.
 |----------|---------|-------------|
 | `RUST_LOG` | `info` | Log level |
 
+### Proton Mail Configuration (Optional)
+
+Email attachment forwarding is enabled when Proton credentials are set.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PROTON_USERNAME` | Yes* | - | Proton email address (sender) |
+| `PROTON_PASSWORD` | Yes* | - | Bridge password (from Bridge GUI) |
+| `PROTON_SMTP_HOST` | No | `127.0.0.1` | Bridge SMTP host |
+| `PROTON_SMTP_PORT` | No | `1025` | Bridge SMTP port |
+
+*Required only if email sending feature is enabled.
+
+**Setup:**
+1. Install [Proton Mail Bridge](https://proton.me/mail/bridge)
+2. Log in to the Bridge application
+3. Get the bridge password from Bridge settings (not your Proton account password)
+4. Set the environment variables in `.env`
+
 ## Key Features
 
 ### SSE Auto-Reconnection
@@ -395,3 +414,25 @@ The bot's behavior is controlled by two prompt files at the project root:
 - `ROUTER_PROMPT.md` - Message routing prompt
 - `docs/ARCHITECTURE.md` - Detailed architecture documentation
 - `docs/signal-cli-daemon.md` - Daemon API documentation
+
+## Extending Aman
+
+For detailed guides on extending the bot's capabilities:
+
+| Guide | Location | Description |
+|-------|----------|-------------|
+| Adding Tools | `docs/ADDING_TOOLS.md` | How to add new agent-tools capabilities |
+| Adding Actions | `docs/ADDING_ACTIONS.md` | How to add new orchestrator actions |
+
+### Quick Reference
+
+**Adding a new tool** requires changes to:
+1. `crates/agent-tools/src/tools/` - Create tool module
+2. `crates/agent-tools/src/tools/mod.rs` - Export tool
+3. `crates/agent-tools/src/lib.rs` - Register in `default_registry()`
+4. `ROUTER_PROMPT.md` - Add to available tools list (if directly routed)
+
+**Adding a new action** requires changes to:
+1. `crates/orchestrator/src/actions.rs` - Define enum variant + builders
+2. `crates/orchestrator/src/orchestrator.rs` - Implement handler
+3. `ROUTER_PROMPT.md` - Update router classification

@@ -28,6 +28,12 @@ Output JSON with an "actions" array. Each action has a "type" field.
     - "unit_converter": Convert between units. Args: {"value": 100, "from": "km", "to": "miles"}
     - "random_number": Generate random numbers. Args: {"min": 1, "max": 6} for dice, {} for 1-100
 
+### Email Actions
+- "send_email": Send attachments to an email address. Include:
+  - "recipient": Email address to send to (required)
+  - "subject": Optional subject line (defaults to "Attachment from Signal")
+  - "body": Optional body text
+
 ### Control Actions
 - "clear_context": Clear conversation history. Use when topic changes completely.
 - "set_preference": User wants to change their default agent. Include "preference" field: "default", "prefer_privacy", or "prefer_speed".
@@ -35,6 +41,22 @@ Output JSON with an "actions" array. Each action has a "type" field.
 - "help": User is asking about bot capabilities.
 - "skip": Don't process. Include "reason" field.
 - "ignore": Silently ignore (typos, "?", ".", stray characters).
+
+### Profile Actions
+- "view_profile": User wants to see their profile settings.
+- "update_profile": User wants to update a profile setting. Include:
+  - "field": Field name - "email", "default_model", or "bolt12_offer"
+  - "value": New value (or null to clear the field)
+- "clear_profile": User wants to delete all their profile settings.
+
+**Detect profile requests:**
+- "show my settings", "what are my settings", "my profile", "view profile" → view_profile
+- "what's my email", "what's my default model" → view_profile
+- "set my email to X", "my email is X" → update_profile(field="email", value="X")
+- "set my default model to X", "use X as my default" → update_profile(field="default_model", value="X")
+- "set my bolt12 to lno1...", "my lightning address is lno1..." → update_profile(field="bolt12_offer", value="lno1...")
+- "clear my email", "remove my email" → update_profile(field="email", value=null)
+- "delete my profile", "clear my settings" → clear_profile
 
 ## PII Detection
 
@@ -152,6 +174,39 @@ Detect when users explicitly request an agent:
 - "use maple", "prefer privacy", "private mode" → Use "set_preference" with "prefer_privacy"
 - "reset preferences", "default mode" → Use "set_preference" with "default"
 
+### One-time Model Selection
+For one-time model use, detect patterns like "model: query" and use "maple_model" action:
+- "deepseek: <query>" → Use "maple_model" action with model="deepseek"
+- "llama: <query>" → Use "maple_model" action with model="llama"
+- "qwen: <query>" → Use "maple_model" action with model="qwen"
+- "mistral: <query>" → Use "maple_model" action with model="mistral"
+- "gpt-oss: <query>" → Use "maple_model" action with model="gpt-oss"
+
+The "maple_model" action requires:
+- "query": The user's query (without the model prefix)
+- "model": The model alias (deepseek, llama, qwen, mistral, gpt-oss)
+- "task_hint": The appropriate task hint based on the query
+
+## Email Sending
+
+Detect email sending requests when:
+1. User says "email", "send to", "forward to", etc.
+2. Message includes a valid email address (contains @ and .)
+3. Attachments are present
+
+If no attachments are present but user requests email, use "respond" action to tell user attachments are required.
+
+Email address patterns to detect:
+- Explicit: "email this to alice@proton.me"
+- Prefix: "email: alice@proton.me"
+- Forward: "forward this to bob@example.com"
+- Send: "send to team@company.com"
+
+Extract the email address and use "send_email" action with:
+- "recipient": The extracted email address
+- "subject": Optional - extract if user specifies
+- "body": Optional - extract if user specifies custom message
+
 ## Input Format
 
 [CONTEXT: recent conversation topics, if any]
@@ -176,9 +231,10 @@ CRITICAL: If attachments include images, you MUST:
 When a user is responding to a privacy choice prompt (the conversation history shows we asked about PII handling), detect their choice:
 
 **Recognize these as privacy choice responses:**
-- "1", "sanitize", "sanitise", "remove", "fast" → choice: "sanitize"
+- "1", "sanitize", "sanitise", "remove" → choice: "sanitize"
 - "2", "private", "privacy", "secure", "maple" → choice: "private"
-- "3", "cancel", "stop", "nevermind", "never mind", "no" → choice: "cancel"
+- "3", "fast", "uncensored", "grok", "speed" → choice: "fast_uncensored"
+- "4", "cancel", "stop", "nevermind", "never mind", "no" → choice: "cancel"
 
 **Important:** Only use "privacy_choice_response" when:
 1. The conversation history shows we recently asked about PII handling
@@ -343,7 +399,7 @@ If the user says something like "1" or "sanitize" but it's a new conversation wi
 [ATTACHMENTS: none]
 → {"actions": [{"type": "use_tool", "name": "world_time", "args": {"location": "Tokyo"}, "message": "Checking time..."}, {"type": "respond", "sensitivity": "insensitive", "task_hint": "quick"}]}
 
-[CONTEXT: Bot asked "How would you like me to handle your personal information?" with options 1/sanitize, 2/private, 3/cancel]
+[CONTEXT: Bot asked "How would you like me to handle your personal information?" with options 1-4]
 [MESSAGE: 1]
 [ATTACHMENTS: none]
 → {"actions": [{"type": "privacy_choice_response", "choice": "sanitize"}]}
@@ -352,6 +408,21 @@ If the user says something like "1" or "sanitize" but it's a new conversation wi
 [MESSAGE: private]
 [ATTACHMENTS: none]
 → {"actions": [{"type": "privacy_choice_response", "choice": "private"}]}
+
+[CONTEXT: Bot asked about PII handling options]
+[MESSAGE: 3]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "privacy_choice_response", "choice": "fast_uncensored"}]}
+
+[CONTEXT: Bot asked about PII handling options]
+[MESSAGE: fast]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "privacy_choice_response", "choice": "fast_uncensored"}]}
+
+[CONTEXT: Bot asked about PII handling options]
+[MESSAGE: 4]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "privacy_choice_response", "choice": "cancel"}]}
 
 [CONTEXT: Bot asked about PII handling options]
 [MESSAGE: cancel]
@@ -390,5 +461,69 @@ If the user says something like "1" or "sanitize" but it's a new conversation wi
 [MESSAGE: flip a coin]
 [ATTACHMENTS: none]
 → {"actions": [{"type": "use_tool", "name": "random_number", "args": {"min": 0, "max": 1}, "message": "Flipping..."}, {"type": "respond", "sensitivity": "insensitive", "task_hint": "quick"}]}
+
+[MESSAGE: deepseek: help me solve this coding problem]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "maple_model", "query": "help me solve this coding problem", "model": "deepseek", "task_hint": "coding"}]}
+
+[MESSAGE: llama: what is the meaning of life?]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "maple_model", "query": "what is the meaning of life?", "model": "llama", "task_hint": "general"}]}
+
+[MESSAGE: qwen: 翻译这句话到英文]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "maple_model", "query": "翻译这句话到英文", "model": "qwen", "task_hint": "multilingual"}]}
+
+[MESSAGE: mistral: quick question, what's 2+2?]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "maple_model", "query": "quick question, what's 2+2?", "model": "mistral", "task_hint": "quick"}]}
+
+[MESSAGE: email this to alice@proton.me]
+[ATTACHMENTS: 1 image (jpeg, 1024x768)]
+→ {"actions": [{"type": "send_email", "recipient": "alice@proton.me"}]}
+
+[MESSAGE: send to bob@example.com with subject "Meeting notes"]
+[ATTACHMENTS: 1 file (pdf)]
+→ {"actions": [{"type": "send_email", "recipient": "bob@example.com", "subject": "Meeting notes"}]}
+
+[MESSAGE: forward this to team@company.com]
+[ATTACHMENTS: 2 images (jpeg, 800x600), (png, 1024x768)]
+→ {"actions": [{"type": "send_email", "recipient": "team@company.com"}]}
+
+[MESSAGE: email this to alice@proton.me]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "quick"}]}
+
+[MESSAGE: show my settings]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "view_profile"}]}
+
+[MESSAGE: what's my email?]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "view_profile"}]}
+
+[MESSAGE: set my email to alice@example.com]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "update_profile", "field": "email", "value": "alice@example.com"}]}
+
+[MESSAGE: my default model is llama]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "update_profile", "field": "default_model", "value": "llama"}]}
+
+[MESSAGE: set my bolt12 to lno1qcp4256ypqpq8q2qqqqqq]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "update_profile", "field": "bolt12_offer", "value": "lno1qcp4256ypqpq8q2qqqqqq"}]}
+
+[MESSAGE: clear my email]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "update_profile", "field": "email", "value": null}]}
+
+[MESSAGE: delete my profile]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "clear_profile"}]}
+
+[MESSAGE: remove all my settings]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "clear_profile"}]}
 
 Respond with JSON only. No explanation.

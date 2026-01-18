@@ -8,6 +8,8 @@ SQLite persistence layer for Aman using async SQLx.
 - Built-in migrations
 - CRUD operations for Users, Topics, and Notification subscriptions
 - Durable memory tables for preferences, summaries, tool history, and clear-context events
+- User profiles with validated fields (nickname, country, etc.)
+- Input validation for user-provided data
 
 ## Schema
 
@@ -143,6 +145,17 @@ async fn main() -> database::Result<()> {
 |----------|-------------|
 | `clear_context_event::insert_event(pool, history_key, sender_id)` | Record clear context event |
 | `clear_context_event::list_events(pool, history_key, limit)` | List recent clear context events |
+
+### User profiles
+
+| Function | Description |
+|----------|-------------|
+| `user_profile::get_profile(pool, user_id)` | Get user's profile |
+| `user_profile::set_field(pool, user_id, field, value)` | Set a profile field |
+| `user_profile::delete_field(pool, user_id, field)` | Delete a profile field |
+| `user_profile::delete_profile(pool, user_id)` | Delete entire profile |
+
+Profile fields: `nickname`, `country`, `language`, `timezone`, `birthday`, `bio`
 
 ## Default Topics
 

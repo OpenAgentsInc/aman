@@ -38,12 +38,16 @@ pub mod clear_context_event;
 pub mod notification;
 pub mod topic;
 pub mod user;
+pub mod user_profile;
+pub mod validation;
 
 pub use error::{DatabaseError, Result};
 pub use models::{
     ClearContextEvent, ConversationSummary, Notification, Preference, ToolHistoryEntry, Topic,
-    User,
+    User, UserProfile,
 };
+pub use user_profile::ProfileField;
+pub use validation::ValidationError;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
@@ -73,17 +77,31 @@ impl Database {
     /// # Ok(())
     /// # }
     /// ```
+    /// Default pool size for database connections.
+    /// Set high enough to handle concurrent message processing with memory operations.
+    const DEFAULT_POOL_SIZE: u32 = 20;
+
     pub async fn connect(url: &str) -> Result<Self> {
+        Self::connect_with_pool_size(url, Self::DEFAULT_POOL_SIZE).await
+    }
+
+    /// Connect to a SQLite database with a custom pool size.
+    pub async fn connect_with_pool_size(url: &str, pool_size: u32) -> Result<Self> {
         let options = SqliteConnectOptions::from_str(url)?
             .create_if_missing(true)
             .foreign_keys(true);
 
         let pool = SqlitePoolOptions::new()
-            .max_connections(5)
+            .max_connections(pool_size)
+            .acquire_timeout(std::time::Duration::from_secs(30))
             .connect_with(options)
             .await?;
 
-        tracing::info!("Connected to database: {}", url);
+        tracing::info!(
+            "Connected to database: {} (pool size: {})",
+            url,
+            pool_size
+        );
 
         Ok(Self { pool })
     }
