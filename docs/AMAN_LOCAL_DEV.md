@@ -224,6 +224,11 @@ export AMAN_KB_PATH="./knowledge"
 cargo run -p api
 ```
 
+Optional headers:
+
+- `X-Aman-User`: stable sender ID for memory and OpenRouter `user` attribution
+- `X-Aman-Group`: optional group ID for orchestrator memory scoping
+
 To proxy the API to OpenRouter instead of echo/orchestrator:
 
 ```bash

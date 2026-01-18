@@ -278,7 +278,11 @@ If PII is detected, the router can request an explicit privacy choice before res
 ### OpenAI-compatible API flow (current)
 
 1. Web UI or client -> `api` service.
-2. `api` returns OpenAI-style chat completions (stubbed echo).
+2. `api` selects a mode (`echo`, `orchestrator`, or `openrouter`) via `AMAN_API_MODE`.
+3. Optional headers `X-Aman-User` / `X-Aman-Group` scope memory in orchestrator mode;
+   `X-Aman-User` is forwarded as the OpenRouter `user` identifier in openrouter mode.
+4. If `AMAN_KB_PATH` or `NOSTR_DB_PATH` is set, the API injects a KB snippet into the system context.
+5. `api` returns OpenAI-style chat completions (streaming or non-streaming).
 
 ### Admin web flow
 
@@ -548,7 +552,7 @@ AccessPolicy content:
 - **Broadcaster**: component that sends outbound Signal messages.
 - **signal-cli daemon**: signal-cli process exposing HTTP/SSE and JSON-RPC.
 - **signal-daemon**: Rust client for the signal-cli daemon.
-- **api**: OpenAI-compatible inference gateway (chat completions).
+- **api**: OpenAI-compatible inference gateway (echo/orchestrator/OpenRouter + KB injection).
 - **database**: SQLite persistence crate for users, topics, and notifications.
 - **nostr-persistence**: crate that publishes and indexes Nostr metadata into SQLite.
 - **ingester**: chunks documents and publishes/indexes Nostr events.

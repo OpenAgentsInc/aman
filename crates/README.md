@@ -18,7 +18,7 @@ with configuration and usage details.
 | `orchestrator` | Message routing, action planning, and tool orchestration |
 | `agent-tools` | Tool registry, built-in tools, and ToolExecutor adapter with policy controls |
 | `database` | SQLite persistence (users/topics/notifications + preferences/summaries/tool history) |
-| `api` | OpenAI-compatible chat API (local inference gateway) |
+| `api` | OpenAI-compatible chat API (echo/orchestrator/OpenRouter with KB injection) |
 | `ingester` | Document chunking and Nostr publishing/indexing |
 | `nostr-persistence` | Nostr publisher/indexer for durable doc/chunk metadata |
 | `admin-web` | Admin dashboard and broadcast UI |

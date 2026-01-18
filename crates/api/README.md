@@ -6,7 +6,8 @@ OpenAI-compatible API gateway for local Aman inference.
 
 - Serve `/v1/chat/completions` (OpenAI-style).
 - Serve `/v1/models` (model list).
-- Return stubbed echo responses by default, or run the full orchestrator when enabled.
+- Support echo (default), orchestrator-backed inference, or OpenRouter proxying.
+- Optionally inject a KB snippet from `AMAN_KB_PATH` or `NOSTR_DB_PATH`.
 
 ## Run
 
@@ -65,3 +66,7 @@ Required env vars:
 
 If `AMAN_KB_PATH` is set and a match is found, the API injects a system message with
 the KB snippet before sending the request to OpenRouter.
+
+Optional headers:
+
+- `X-Aman-User`: forwarded as the OpenRouter `user` identifier (stable end-user ID)
