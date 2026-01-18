@@ -5,6 +5,12 @@
 # Usage: ./scripts/copy-project-context.sh
 #
 
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec /bin/bash "$0" "$@"
+fi
+
+set +o posix
+
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
