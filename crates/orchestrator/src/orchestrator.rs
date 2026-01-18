@@ -11,7 +11,7 @@ use brain_core::{
 use database::Database;
 use grok_brain::{GrokBrain, GrokBrainConfig, GrokToolExecutor};
 use maple_brain::{MapleBrain, MapleBrainConfig};
-use proton_proxy::{ProtonClient, ProtonConfig};
+use chrono::Utc;
 use serde_json::{json, Value};
 use agent_tools::ToolRegistry;
 use tracing::{debug, info, warn};
@@ -62,6 +62,15 @@ struct MemoryContext {
     source: Option<String>,
 }
 
+/// Email client wrapper that holds both the client and dropbox address.
+/// All emails are sent to the dropbox_address (admin's inbox).
+struct EmailClient {
+    /// The underlying Proton SMTP client.
+    client: proton_proxy::ProtonClient,
+    /// The dropbox address (PROTON_USERNAME) - where all attachments are sent.
+    dropbox_address: String,
+}
+
 /// Main orchestrator that coordinates message processing.
 ///
 /// The orchestrator:
@@ -92,7 +101,7 @@ pub struct Orchestrator<S: MessageSender> {
     /// Tool registry for executing tools.
     tool_registry: ToolRegistry,
     /// Email client for sending attachments (optional).
-    email_client: Option<ProtonClient>,
+    email_client: Option<EmailClient>,
     /// User profile store for personal settings.
     profile: ProfileStore,
 }
@@ -547,13 +556,9 @@ impl<S: MessageSender> Orchestrator<S> {
                         .await;
                 }
 
-                OrchestratorAction::SendEmail {
-                    recipient,
-                    subject,
-                    body,
-                } => {
+                OrchestratorAction::SendEmail { subject, body } => {
                     return self
-                        .execute_send_email(message, recipient, subject.as_deref(), body.as_deref())
+                        .execute_send_email(message, subject.as_deref(), body.as_deref())
                         .await;
                 }
 
@@ -1097,26 +1102,22 @@ impl<S: MessageSender> Orchestrator<S> {
         Ok(OutboundMessage::reply_to(message, response_text))
     }
 
-    /// Execute a send_email action - send attachments to email via proton-proxy.
+    /// Execute a send_email action - send attachments to admin dropbox via proton-proxy.
+    ///
+    /// Design: Email action is a **dropbox** for collecting attachments from Signal users
+    /// into the admin's Proton inbox (PROTON_USERNAME). Users cannot specify arbitrary
+    /// recipients for security/privacy.
     async fn execute_send_email(
         &self,
         message: &InboundMessage,
-        recipient: &str,
         subject: Option<&str>,
         body: Option<&str>,
     ) -> Result<OutboundMessage, OrchestratorError> {
-        // Validate email address
-        if !is_valid_email(recipient) {
-            let error_msg = format!("Invalid email address: {}", recipient);
-            warn!("{}", error_msg);
-            return Ok(OutboundMessage::reply_to(message, error_msg));
-        }
-
         // Check if email client is configured
-        let client = match &self.email_client {
+        let email_client = match &self.email_client {
             Some(c) => c,
             None => {
-                let error_msg = "Email sending is not configured. Please set up proton-proxy.";
+                let error_msg = "Email sending is not configured.";
                 warn!("{}", error_msg);
                 return Ok(OutboundMessage::reply_to(message, error_msg));
             }
@@ -1128,42 +1129,113 @@ impl<S: MessageSender> Orchestrator<S> {
             return Ok(OutboundMessage::reply_to(message, error_msg));
         }
 
-        // Build the email
-        let subject = subject.unwrap_or("Attachment from Signal");
-        let body_text = body.unwrap_or("Please find the attached file(s).");
+        // Build subject with sender info for admin identification
+        let default_subject = format!("Signal attachment from {}", message.sender);
+        let subject = subject.unwrap_or(&default_subject);
 
-        let mut email = proton_proxy::Email::new(recipient, subject, body_text);
+        // Build body with sender context
+        let timestamp = Utc::now().format("%Y-%m-%d %H:%M UTC");
+        let original_text = if message.text.is_empty() {
+            "(attachment only)"
+        } else {
+            &message.text
+        };
+        let default_body = format!(
+            "Attachment submitted via Signal\n\nFrom: {}\nTime: {}\nOriginal message: {}",
+            message.sender, timestamp, original_text
+        );
+        let body_text = body.unwrap_or(&default_body);
 
-        // Add each attachment
-        let mut attachment_count = 0;
+        // ALWAYS send to dropbox address (admin inbox)
+        let mut email =
+            proton_proxy::Email::new(&email_client.dropbox_address, subject, body_text);
+
+        // Track successes and failures
+        let mut sent_count = 0;
+        let mut failed_files: Vec<String> = vec![];
+        let total_count = message.attachments.len();
+
         for att in &message.attachments {
             if let Some(ref file_path) = att.file_path {
-                match proton_proxy::Attachment::from_file(file_path) {
+                // Use Signal's content_type if available, otherwise let from_file() detect it
+                let result = if !att.content_type.is_empty() {
+                    // Read file data and use Signal's content type
+                    match std::fs::read(file_path) {
+                        Ok(data) => {
+                            let filename = att
+                                .filename
+                                .clone()
+                                .or_else(|| {
+                                    std::path::Path::new(file_path)
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .map(String::from)
+                                })
+                                .unwrap_or_else(|| "attachment".to_string());
+                            Ok(proton_proxy::Attachment::new(
+                                filename,
+                                &att.content_type,
+                                data,
+                            ))
+                        }
+                        Err(e) => Err(e.to_string()),
+                    }
+                } else {
+                    // Let from_file() detect MIME type from extension
+                    proton_proxy::Attachment::from_file(file_path).map_err(|e| e.to_string())
+                };
+
+                match result {
                     Ok(email_att) => {
                         email.attach(email_att);
-                        attachment_count += 1;
+                        sent_count += 1;
                     }
                     Err(e) => {
+                        // Get a human-readable filename for error reporting
+                        let filename = att.filename.as_deref().unwrap_or_else(|| {
+                            file_path.rsplit('/').next().unwrap_or("unknown")
+                        });
+                        failed_files.push(filename.to_string());
                         warn!("Failed to load attachment {}: {}", file_path, e);
                     }
                 }
+            } else {
+                // Attachment has no file path
+                let filename = att.filename.as_deref().unwrap_or("unknown");
+                failed_files.push(format!("{} (no file)", filename));
             }
         }
 
-        if attachment_count == 0 {
-            let error_msg = "Could not load any attachments. Files may be unavailable.";
+        if sent_count == 0 {
+            let error_msg = if failed_files.is_empty() {
+                "No attachments to send.".to_string()
+            } else {
+                format!(
+                    "Could not load any attachments. Failed: {}",
+                    failed_files.join(", ")
+                )
+            };
             return Ok(OutboundMessage::reply_to(message, error_msg));
         }
 
-        // Send the email
-        match client.send(&email).await {
+        // Send to dropbox
+        match email_client.client.send(&email).await {
             Ok(()) => {
-                let response = format!("Sent {} attachment(s) to {}", attachment_count, recipient);
-                info!("{}", response);
+                let response = if failed_files.is_empty() {
+                    format!("Submitted {} attachment(s) to inbox.", sent_count)
+                } else {
+                    format!(
+                        "Submitted {} of {} attachment(s). Failed: {}",
+                        sent_count,
+                        total_count,
+                        failed_files.join(", ")
+                    )
+                };
+                info!("{} (from {})", response, message.sender);
                 Ok(OutboundMessage::reply_to(message, response))
             }
             Err(e) => {
-                let error_msg = format!("Failed to send email: {}", e);
+                let error_msg = format!("Failed to submit: {}", e);
                 warn!("{}", error_msg);
                 Ok(OutboundMessage::reply_to(message, error_msg))
             }
@@ -1315,6 +1387,34 @@ impl<S: MessageSender> Orchestrator<S> {
         Ok((preferences, memory, profile))
     }
 
+    /// Try to create an email client from environment variables.
+    /// Returns None if not configured (missing PROTON_USERNAME/PROTON_PASSWORD).
+    fn load_email_client_from_env() -> Option<EmailClient> {
+        match proton_proxy::ProtonConfig::from_env() {
+            Ok(config) => {
+                // Save the dropbox address before moving config
+                let dropbox_address = config.username.clone();
+                match proton_proxy::ProtonClient::new(config) {
+                    Ok(client) => {
+                        info!("Email client initialized (dropbox: {})", dropbox_address);
+                        Some(EmailClient {
+                            client,
+                            dropbox_address,
+                        })
+                    }
+                    Err(e) => {
+                        warn!("Failed to create email client: {}", e);
+                        None
+                    }
+                }
+            }
+            Err(_) => {
+                debug!("Email client not configured (missing PROTON_USERNAME/PROTON_PASSWORD)");
+                None
+            }
+        }
+    }
+
     /// Get the sender.
     pub fn sender(&self) -> &S {
         &self.sender
@@ -1369,22 +1469,6 @@ fn sqlite_url_from_path(path: &str) -> String {
     }
 }
 
-/// Basic email address validation.
-fn is_valid_email(email: &str) -> bool {
-    let email = email.trim();
-    if email.is_empty() || email.len() > 254 {
-        return false;
-    }
-    // Must have exactly one @, with content on both sides
-    let parts: Vec<&str> = email.split('@').collect();
-    if parts.len() != 2 {
-        return false;
-    }
-    let (local, domain) = (parts[0], parts[1]);
-    // Basic checks
-    !local.is_empty() && !domain.is_empty() && domain.contains('.')
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1435,25 +1519,5 @@ mod tests {
 
         let hint = Orchestrator::<NoOpSender>::resolve_task_hint(&message, TaskHint::General);
         assert_eq!(hint, TaskHint::Vision);
-    }
-
-    #[test]
-    fn test_is_valid_email() {
-        // Valid emails
-        assert!(is_valid_email("user@example.com"));
-        assert!(is_valid_email("user.name@example.com"));
-        assert!(is_valid_email("user@sub.example.com"));
-        assert!(is_valid_email("user+tag@example.com"));
-        assert!(is_valid_email("  user@example.com  ")); // trimmed
-
-        // Invalid emails
-        assert!(!is_valid_email(""));
-        assert!(!is_valid_email("   "));
-        assert!(!is_valid_email("user"));
-        assert!(!is_valid_email("user@"));
-        assert!(!is_valid_email("@example.com"));
-        assert!(!is_valid_email("user@example")); // no TLD
-        assert!(!is_valid_email("user@@example.com")); // double @
-        assert!(!is_valid_email("user@example@other.com")); // multiple @
     }
 }

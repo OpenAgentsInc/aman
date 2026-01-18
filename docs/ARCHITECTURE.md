@@ -1,5 +1,203 @@
 # Aman Signal MVP Architecture
 
+## Table of Contents
+
+- [Overview](#overview)
+- [System Architecture](#system-architecture)
+- [Message Flow](#message-flow)
+- [Crate Dependency Graph](#crate-dependency-graph)
+- [Quick Start](#quick-start)
+- [Goal](#goal)
+- [Components](#components)
+- [Data Model](#data-model-mvp-intent)
+- [State Machine](#state-machine-onboarding--subscriptions)
+- [Flows](#flows)
+- [Reliability](#reliability)
+- [Configuration](#configuration)
+- [Privacy Architecture](#privacy-architecture)
+- [Safety Posture](#safety-posture)
+- [Future Architecture](#future-architecture-rag-and-nostr)
+- [Glossary](#glossary)
+- [Security Notes](#security-notes)
+
+---
+
+## Overview
+
+Aman is a Signal-native chatbot that provides AI-powered conversations with privacy-preserving routing and optional regional alerts for activists and human-rights defenders.
+
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              SIGNAL LAYER                                    │
+│  ┌─────────────────┐     ┌─────────────────────────────────────────────┐   │
+│  │   Signal App    │◀───▶│            signal-cli daemon                │   │
+│  │  (User's Phone) │     │  (JSON-RPC + SSE on HTTP_ADDR:8080)         │   │
+│  └─────────────────┘     └────────────────────┬────────────────────────┘   │
+└───────────────────────────────────────────────│─────────────────────────────┘
+                                                │
+                                                ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           TRANSPORT LAYER                                    │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        signal-daemon                                 │   │
+│  │  SignalClient (HTTP) + DaemonProcess (JAR spawn) + SSE Stream       │   │
+│  │  Auto-reconnection • Styled text • Multi-account support            │   │
+│  └────────────────────────────────────┬────────────────────────────────┘   │
+│                                       │                                     │
+│  ┌────────────────────────────────────┼────────────────────────────────┐   │
+│  │              message-listener      │         broadcaster            │   │
+│  │  (inbound messages + attachments)  │    (outbound + chunking)       │   │
+│  └────────────────────────────────────┴────────────────────────────────┘   │
+└───────────────────────────────────────│─────────────────────────────────────┘
+                                        │
+                                        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          ORCHESTRATION LAYER                                 │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                          orchestrator                                │   │
+│  │                                                                      │   │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐  │   │
+│  │  │   Router    │───▶│RoutingPlan │───▶│   Action Executor       │  │   │
+│  │  │(maple TEE)  │    │  (actions)  │    │ (search,tool,respond..) │  │   │
+│  │  └─────────────┘    └─────────────┘    └─────────────────────────┘  │   │
+│  │                                                                      │   │
+│  │  Sensitivity routing • User preferences • Task hints • Memory       │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                        │                                     │
+│  ┌─────────────────────────────────────┴───────────────────────────────┐   │
+│  │                        agent-tools                                   │   │
+│  │  Calculator • Weather • WebFetch • Dictionary • WorldTime           │   │
+│  │  BitcoinPrice • CryptoPrice • CurrencyConverter • RandomNumber      │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└───────────────────────────────────────│─────────────────────────────────────┘
+                                        │
+                                        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             BRAIN LAYER                                      │
+│                                                                              │
+│  ┌──────────────────────────────┐     ┌──────────────────────────────┐     │
+│  │         maple-brain          │     │         grok-brain           │     │
+│  │      (OpenSecret TEE)        │◀────│        (xAI Grok)            │     │
+│  │                              │     │                              │     │
+│  │  • Privacy-first processing  │     │  • Real-time search          │     │
+│  │  • Vision support            │     │  • Web + X/Twitter search    │     │
+│  │  • Tool calling              │     │  • Fast responses            │     │
+│  │  • Attestation handshake     │     │  • GrokToolExecutor          │     │
+│  └──────────────────────────────┘     └──────────────────────────────┘     │
+│                    │                               │                        │
+│                    └───────────────┬───────────────┘                        │
+│                                    ▼                                        │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                          brain-core                                   │  │
+│  │  Brain trait • ToolExecutor • ConversationHistory • Message types    │  │
+│  │  MemorySnapshot • MemoryStore • TextStyle • RoutingInfo              │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           PERSISTENCE LAYER                                  │
+│                                                                              │
+│  ┌──────────────────────────────┐     ┌──────────────────────────────┐     │
+│  │          database            │     │     nostr-persistence        │     │
+│  │        (SQLite/SQLx)         │     │    (Nostr events + relay)    │     │
+│  │                              │     │                              │     │
+│  │  • Users, topics, subs       │     │  • DocManifest events        │     │
+│  │  • Preferences               │     │  • ChunkRef events           │     │
+│  │  • Conversation summaries    │     │  • AccessPolicy events       │     │
+│  │  • Tool history              │     │  • Encrypted payloads        │     │
+│  └──────────────────────────────┘     └──────────────────────────────┘     │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Message Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         INBOUND MESSAGE FLOW                                 │
+│                                                                              │
+│  Signal App ──▶ signal-cli daemon ──▶ SSE Stream ──▶ message-listener       │
+│                                                              │               │
+│                                                              ▼               │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                        ORCHESTRATOR PIPELINE                           │  │
+│  │                                                                        │  │
+│  │  1. Start typing indicator                                             │  │
+│  │  2. Load durable memory (summary, tool history, clear-context)        │  │
+│  │  3. Router classifies message (in Maple TEE):                         │  │
+│  │     • Sensitivity: sensitive / insensitive / uncertain                │  │
+│  │     • Task hint: general / coding / math / creative / vision / quick  │  │
+│  │     • PII detection: name, phone, email, ssn, card, address, etc.     │  │
+│  │  4. Execute action plan:                                               │  │
+│  │     • search      → Grok real-time search                             │  │
+│  │     • use_tool    → agent-tools (calculator, weather, etc.)           │  │
+│  │     • respond     → Generate response via Maple or Grok               │  │
+│  │     • clear_ctx   → Clear conversation history                        │  │
+│  │     • set_pref    → Update user preference                            │  │
+│  │  5. Format response with markdown-to-Signal styles                    │  │
+│  │  6. Stop typing indicator                                              │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                              │                               │
+│                                              ▼                               │
+│  broadcaster ──▶ signal-daemon ──▶ signal-cli daemon ──▶ Signal App         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Crate Dependency Graph
+
+```
+                              ┌─────────────────┐
+                              │   brain-core    │
+                              │  (traits+types) │
+                              └────────┬────────┘
+                    ┌─────────────────┼─────────────────┐
+                    │                 │                 │
+                    ▼                 ▼                 ▼
+           ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+           │  maple-brain │  │  grok-brain  │  │  mock-brain  │
+           └──────┬───────┘  └──────┬───────┘  └──────────────┘
+                  │                 │
+                  └────────┬────────┘
+                           │
+                           ▼
+              ┌────────────────────────┐     ┌─────────────┐
+              │      orchestrator      │────▶│ agent-tools │
+              └───────────┬────────────┘     └─────────────┘
+                          │
+          ┌───────────────┼───────────────┐
+          │               │               │
+          ▼               ▼               ▼
+┌─────────────────┐ ┌──────────┐ ┌────────────────────┐
+│ message-listener│ │ database │ │ nostr-persistence  │
+└────────┬────────┘ └──────────┘ └────────────────────┘
+         │
+         ▼
+┌─────────────────┐     ┌─────────────────┐
+│  signal-daemon  │◀────│   broadcaster   │
+└─────────────────┘     └─────────────────┘
+```
+
+## Quick Start
+
+To understand the architecture, start with these key concepts:
+
+1. **Signal as the UI**: Users interact via Signal messenger; there's no web UI for chat (yet)
+2. **Two-brain system**: Maple (privacy-first TEE) and Grok (fast search) work together
+3. **Privacy routing**: Sensitive messages always stay in Maple; insensitive can use Grok
+4. **Tool augmentation**: Built-in tools (weather, calculator, etc.) extend capabilities
+5. **Durable memory**: SQLite stores conversation summaries and preferences across restarts
+
+**Key entry points for developers:**
+- Message processing starts in `message-listener` → `orchestrator`
+- Brain implementations live in `maple-brain` and `grok-brain`
+- All shared types are in `brain-core`
+- Run `./scripts/dev.sh --build` to start the bot
+
+---
+
 ## Goal
 
 - Signal-native messaging experience.
@@ -609,3 +807,15 @@ AccessPolicy content:
   Protect this path with strict permissions and backups.
 - Signal is end-to-end encrypted to the server; the server is the endpoint.
   Treat it as a trusted boundary and minimize stored data.
+
+---
+
+## See Also
+
+- [Main README](../README.md) - Project overview and quick start
+- [CLAUDE.md](../CLAUDE.md) - Developer guidance and environment setup
+- [Crates Index](../crates/README.md) - Overview of all Rust crates
+- [Adding Tools](ADDING_TOOLS.md) - How to add new agent-tools capabilities
+- [Adding Actions](ADDING_ACTIONS.md) - How to add new orchestrator actions
+- [signal-cli Daemon](signal-cli-daemon.md) - Daemon API documentation
+- [ROADMAP.md](../ROADMAP.md) - Planned features and phases

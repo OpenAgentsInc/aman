@@ -28,11 +28,11 @@ Output JSON with an "actions" array. Each action has a "type" field.
     - "unit_converter": Convert between units. Args: {"value": 100, "from": "km", "to": "miles"}
     - "random_number": Generate random numbers. Args: {"min": 1, "max": 6} for dice, {} for 1-100
 
-### Email Actions
-- "send_email": Send attachments to an email address. Include:
-  - "recipient": Email address to send to (required)
-  - "subject": Optional subject line (defaults to "Attachment from Signal")
+### Email/Dropbox Actions
+- "send_email": Submit attachments to the admin inbox (dropbox). Include:
+  - "subject": Optional subject line (defaults to "Signal attachment from <sender>")
   - "body": Optional body text
+  Note: Attachments are always sent to the admin's configured inbox, not to arbitrary recipients.
 
 ### Control Actions
 - "clear_context": Clear conversation history. Use when topic changes completely.
@@ -187,25 +187,27 @@ The "maple_model" action requires:
 - "model": The model alias (deepseek, llama, qwen, mistral, gpt-oss)
 - "task_hint": The appropriate task hint based on the query
 
-## Email Sending
+## Email/Dropbox
 
-Detect email sending requests when:
-1. User says "email", "send to", "forward to", etc.
-2. Message includes a valid email address (contains @ and .)
-3. Attachments are present
+Detect attachment submission requests when:
+1. User says "email", "submit", "forward to inbox", "send this", etc.
+2. Attachments are present
 
-If no attachments are present but user requests email, use "respond" action to tell user attachments are required.
+If no attachments are present but user requests email/submit, use "respond" action to tell user attachments are required.
 
-Email address patterns to detect:
-- Explicit: "email this to alice@proton.me"
-- Prefix: "email: alice@proton.me"
-- Forward: "forward this to bob@example.com"
-- Send: "send to team@company.com"
+Trigger patterns:
+- "email this"
+- "submit this"
+- "submit this attachment"
+- "send this to email"
+- "forward to inbox"
+- Any attachment + email-related words
 
-Extract the email address and use "send_email" action with:
-- "recipient": The extracted email address
-- "subject": Optional - extract if user specifies
+Use "send_email" action with:
+- "subject": Optional - extract if user specifies custom subject
 - "body": Optional - extract if user specifies custom message
+
+Note: The recipient is always the admin's configured inbox. Users cannot specify arbitrary email recipients.
 
 ## Input Format
 
@@ -478,19 +480,23 @@ If the user says something like "1" or "sanitize" but it's a new conversation wi
 [ATTACHMENTS: none]
 → {"actions": [{"type": "maple_model", "query": "quick question, what's 2+2?", "model": "mistral", "task_hint": "quick"}]}
 
-[MESSAGE: email this to alice@proton.me]
+[MESSAGE: email this]
 [ATTACHMENTS: 1 image (jpeg, 1024x768)]
-→ {"actions": [{"type": "send_email", "recipient": "alice@proton.me"}]}
+→ {"actions": [{"type": "send_email"}]}
 
-[MESSAGE: send to bob@example.com with subject "Meeting notes"]
+[MESSAGE: submit this with subject "Meeting notes"]
 [ATTACHMENTS: 1 file (pdf)]
-→ {"actions": [{"type": "send_email", "recipient": "bob@example.com", "subject": "Meeting notes"}]}
+→ {"actions": [{"type": "send_email", "subject": "Meeting notes"}]}
 
-[MESSAGE: forward this to team@company.com]
+[MESSAGE: forward to inbox]
 [ATTACHMENTS: 2 images (jpeg, 800x600), (png, 1024x768)]
-→ {"actions": [{"type": "send_email", "recipient": "team@company.com"}]}
+→ {"actions": [{"type": "send_email"}]}
 
-[MESSAGE: email this to alice@proton.me]
+[MESSAGE: submit this attachment]
+[ATTACHMENTS: 1 image (png, 800x600)]
+→ {"actions": [{"type": "send_email"}]}
+
+[MESSAGE: email this]
 [ATTACHMENTS: none]
 → {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "quick"}]}
 

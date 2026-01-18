@@ -365,11 +365,10 @@ pub enum OrchestratorAction {
         choice: PrivacyChoice,
     },
 
-    /// Send attachments to an email address via proton-proxy.
+    /// Send attachments to the admin dropbox via proton-proxy.
+    /// Recipient is always PROTON_USERNAME (configured admin inbox).
     SendEmail {
-        /// Recipient email address.
-        recipient: String,
-        /// Optional subject line (defaults to "Attachment from Signal").
+        /// Optional subject line (defaults to "Signal attachment from <sender>").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         subject: Option<String>,
         /// Optional body text.
@@ -562,35 +561,25 @@ impl OrchestratorAction {
         Self::PrivacyChoiceResponse { choice }
     }
 
-    /// Create a send_email action.
-    pub fn send_email(recipient: impl Into<String>) -> Self {
+    /// Create a send_email action (sends to admin dropbox).
+    pub fn send_email() -> Self {
         Self::SendEmail {
-            recipient: recipient.into(),
             subject: None,
             body: None,
         }
     }
 
     /// Create a send_email action with a subject.
-    pub fn send_email_with_subject(
-        recipient: impl Into<String>,
-        subject: impl Into<String>,
-    ) -> Self {
+    pub fn send_email_with_subject(subject: impl Into<String>) -> Self {
         Self::SendEmail {
-            recipient: recipient.into(),
             subject: Some(subject.into()),
             body: None,
         }
     }
 
     /// Create a send_email action with subject and body.
-    pub fn send_email_full(
-        recipient: impl Into<String>,
-        subject: impl Into<String>,
-        body: impl Into<String>,
-    ) -> Self {
+    pub fn send_email_full(subject: impl Into<String>, body: impl Into<String>) -> Self {
         Self::SendEmail {
-            recipient: recipient.into(),
             subject: Some(subject.into()),
             body: Some(body.into()),
         }
@@ -656,11 +645,9 @@ impl OrchestratorAction {
             Self::PrivacyChoiceResponse { choice } => {
                 format!("Privacy choice response: {}", choice.description())
             }
-            Self::SendEmail {
-                recipient, subject, ..
-            } => match subject {
-                Some(s) => format!("Send email to {} ({})", recipient, s),
-                None => format!("Send email to {}", recipient),
+            Self::SendEmail { subject, .. } => match subject {
+                Some(s) => format!("Submit to inbox ({})", s),
+                None => "Submit to inbox".to_string(),
             },
             Self::ViewProfile => "View profile settings".to_string(),
             Self::UpdateProfile { field, value } => match value {
@@ -1283,17 +1270,11 @@ mod tests {
 
     #[test]
     fn test_parse_send_email() {
-        let json = r#"{"actions": [{"type": "send_email", "recipient": "test@example.com"}]}"#;
+        let json = r#"{"actions": [{"type": "send_email"}]}"#;
         let plan: RoutingPlan = serde_json::from_str(json).unwrap();
         assert!(plan.has_send_email());
 
-        if let OrchestratorAction::SendEmail {
-            recipient,
-            subject,
-            body,
-        } = &plan.actions[0]
-        {
-            assert_eq!(recipient, "test@example.com");
+        if let OrchestratorAction::SendEmail { subject, body } = &plan.actions[0] {
             assert!(subject.is_none());
             assert!(body.is_none());
         } else {
@@ -1303,17 +1284,11 @@ mod tests {
 
     #[test]
     fn test_parse_send_email_with_subject() {
-        let json = r#"{"actions": [{"type": "send_email", "recipient": "test@example.com", "subject": "Meeting notes"}]}"#;
+        let json = r#"{"actions": [{"type": "send_email", "subject": "Meeting notes"}]}"#;
         let plan: RoutingPlan = serde_json::from_str(json).unwrap();
         assert!(plan.has_send_email());
 
-        if let OrchestratorAction::SendEmail {
-            recipient,
-            subject,
-            body,
-        } = &plan.actions[0]
-        {
-            assert_eq!(recipient, "test@example.com");
+        if let OrchestratorAction::SendEmail { subject, body } = &plan.actions[0] {
             assert_eq!(subject.as_deref(), Some("Meeting notes"));
             assert!(body.is_none());
         } else {
@@ -1323,17 +1298,11 @@ mod tests {
 
     #[test]
     fn test_parse_send_email_full() {
-        let json = r#"{"actions": [{"type": "send_email", "recipient": "test@example.com", "subject": "Test", "body": "Hello world"}]}"#;
+        let json = r#"{"actions": [{"type": "send_email", "subject": "Test", "body": "Hello world"}]}"#;
         let plan: RoutingPlan = serde_json::from_str(json).unwrap();
         assert!(plan.has_send_email());
 
-        if let OrchestratorAction::SendEmail {
-            recipient,
-            subject,
-            body,
-        } = &plan.actions[0]
-        {
-            assert_eq!(recipient, "test@example.com");
+        if let OrchestratorAction::SendEmail { subject, body } = &plan.actions[0] {
             assert_eq!(subject.as_deref(), Some("Test"));
             assert_eq!(body.as_deref(), Some("Hello world"));
         } else {
@@ -1343,15 +1312,9 @@ mod tests {
 
     #[test]
     fn test_send_email_helper() {
-        let action = OrchestratorAction::send_email("alice@proton.me");
+        let action = OrchestratorAction::send_email();
 
-        if let OrchestratorAction::SendEmail {
-            recipient,
-            subject,
-            body,
-        } = action
-        {
-            assert_eq!(recipient, "alice@proton.me");
+        if let OrchestratorAction::SendEmail { subject, body } = action {
             assert!(subject.is_none());
             assert!(body.is_none());
         } else {
@@ -1361,15 +1324,9 @@ mod tests {
 
     #[test]
     fn test_send_email_with_subject_helper() {
-        let action = OrchestratorAction::send_email_with_subject("alice@proton.me", "Hello");
+        let action = OrchestratorAction::send_email_with_subject("Hello");
 
-        if let OrchestratorAction::SendEmail {
-            recipient,
-            subject,
-            body,
-        } = action
-        {
-            assert_eq!(recipient, "alice@proton.me");
+        if let OrchestratorAction::SendEmail { subject, body } = action {
             assert_eq!(subject.as_deref(), Some("Hello"));
             assert!(body.is_none());
         } else {
@@ -1379,15 +1336,9 @@ mod tests {
 
     #[test]
     fn test_send_email_full_helper() {
-        let action = OrchestratorAction::send_email_full("alice@proton.me", "Hello", "Message body");
+        let action = OrchestratorAction::send_email_full("Hello", "Message body");
 
-        if let OrchestratorAction::SendEmail {
-            recipient,
-            subject,
-            body,
-        } = action
-        {
-            assert_eq!(recipient, "alice@proton.me");
+        if let OrchestratorAction::SendEmail { subject, body } = action {
             assert_eq!(subject.as_deref(), Some("Hello"));
             assert_eq!(body.as_deref(), Some("Message body"));
         } else {
@@ -1397,15 +1348,13 @@ mod tests {
 
     #[test]
     fn test_send_email_description() {
-        let action = OrchestratorAction::send_email("test@example.com");
+        let action = OrchestratorAction::send_email();
         let desc = action.description();
-        assert!(desc.contains("Send email to"));
-        assert!(desc.contains("test@example.com"));
+        assert!(desc.contains("Submit to inbox"));
 
-        let action_with_subject = OrchestratorAction::send_email_with_subject("test@example.com", "Important");
+        let action_with_subject = OrchestratorAction::send_email_with_subject("Important");
         let desc2 = action_with_subject.description();
-        assert!(desc2.contains("Send email to"));
-        assert!(desc2.contains("test@example.com"));
+        assert!(desc2.contains("Submit to inbox"));
         assert!(desc2.contains("Important"));
     }
 }
