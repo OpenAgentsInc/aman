@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build router
     let app = routes::router()
-        .nest_service("/static", ServeDir::new("static"))
+        .nest_service("/static", ServeDir::new("crates/admin-web/static"))
         .with_state(state);
 
     // Start server
