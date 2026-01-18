@@ -15,6 +15,7 @@ persistence and rehydration.
 - `agent-tools` ships a tool registry plus a ToolExecutor adapter with allowlists, rate limits, timeouts, and caching.
 - Tool surface now includes unit conversion, random numbers, and a Maple-backed PII sanitize tool.
 - SQLite persistence now covers preferences, rolling summaries, tool history, and clear-context events (when configured).
+- `brain-core` now defines MemorySnapshot/MemoryStore + memory prompt formatter; orchestrator hydrates memory snapshots into prompts.
 - Orchestrator can detect PII, prompt for privacy choices, and format responses with metadata footers.
 - `agent-brain` implements onboarding and subscription routing; ships `agent_brain_bot` and `region_event_send`.
 - `regional_event_listener` exists as a documented subsystem; intake wiring is still pending.
@@ -63,23 +64,23 @@ Goal: move beyond in-memory context and align memory across Maple/Grok.
 - Retention policy config (per-sender TTL + global caps).
 - Shared history keys across direct and group messages.
 
-## Phase 4 - Brain memory contract + shared context framing (next)
+## Phase 4 - Brain memory contract + shared context framing (complete)
 
 Goal: give Maple/Grok a consistent memory contract with explicit safety gates.
 
-- Add `brain-core::MemoryStore` + `MemorySnapshot` types (summaries, tool history, clear-context).
-- Define a standard memory prompt format (short, stable, attribution-friendly).
-- Add memory policy inputs (max tokens, TTL, PII handling, per-sender overrides).
-- Hydrate per-sender memory into Maple/Grok on cold start (summary-first, history-last).
-- Wire `clear_context` events through memory snapshots and brain history resets.
+- Added `brain-core::MemoryStore` + `MemorySnapshot` types (summaries, tool history, clear-context).
+- Defined a standard memory prompt format (short, stable, attribution-friendly).
+- Added memory policy inputs (max tokens, TTL, PII handling, per-sender overrides).
+- Hydrated per-sender memory into Maple/Grok on cold start (summary-first, history-last).
+- Wired `clear_context` events through memory snapshots and prompt gating.
 
-## Phase 5 - Brain memory hydration + durability wiring
+## Phase 5 - Brain memory hydration + durability wiring (next)
 
 Goal: actually use durable memory in live brain calls, not just in the orchestrator.
 
-- Map SQLite summaries + tool history into brain prompts with strict size budgets.
-- Implement per-request memory hydration for Maple/Grok with configurable templates.
-- Add memory compaction jobs (summary rollups, tool history pruning, clear-context honoring).
+- Seed Maple/Grok internal histories from MemorySnapshot on startup (system + memory blocks).
+- Add per-request memory templates + size budgets at the brain level (not just orchestrator).
+- Schedule memory compaction jobs (summary rollups, tool history pruning, clear-context honoring).
 - Include privacy-choice outcomes in memory (sanitized vs private).
 - Track memory provenance in routing metadata for audits.
 

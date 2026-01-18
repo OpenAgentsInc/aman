@@ -15,6 +15,7 @@ The orchestrator coordinates message processing between signal-daemon, maple-bra
 7. Maintains typing indicators throughout processing
 8. Formats responses with markdown-to-Signal styles and metadata footers
 9. Persists preferences, summaries, and tool history in SQLite (when configured)
+10. Hydrates durable memory snapshots into prompts with policy controls
 
 ## Architecture
 
@@ -56,6 +57,8 @@ Signal Message
 - `MemoryStore` - SQLite-backed rolling summaries and tool history
 - `MemorySettings` - Summary + retention tuning for durable memory
 - `RetentionPolicy` / `SummaryPolicy` - Memory retention and formatting controls
+- `MemorySnapshot` - Durable memory payload used for prompt hydration
+- `MemoryPromptPolicy` - Memory prompt formatting and PII policy controls
 - `ModelSelector` - Selects optimal model based on task hint
 - `MapleModels` / `GrokModels` - Model configurations per provider
 - `AgentIndicator` - Response prefix indicator (Privacy, Speed)
@@ -144,6 +147,26 @@ Durable memory is enabled when `SQLITE_PATH` is set. Tune summary and retention 
 | `AMAN_MEMORY_MAX_TOOL_HISTORY` | `10000` | Max tool history rows (0 disables) |
 | `AMAN_MEMORY_MAX_TOOL_HISTORY_PER_KEY` | `200` | Max tool rows per sender/group (0 disables) |
 | `AMAN_MEMORY_MAX_CLEAR_EVENTS` | `5000` | Max clear-context rows (0 disables) |
+
+Memory prompt policy (optional):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AMAN_MEMORY_PROMPT_MAX_CHARS` | `1800` | Max characters for the injected memory prompt (0 disables) |
+| `AMAN_MEMORY_PROMPT_MAX_TOKENS` | - | Approximate token cap (converted to chars, 4 chars/token) |
+| `AMAN_MEMORY_PROMPT_MAX_SUMMARY_CHARS` | `1000` | Max summary characters included in the prompt |
+| `AMAN_MEMORY_PROMPT_MAX_TOOL_ENTRIES` | `3` | Max tool history entries included |
+| `AMAN_MEMORY_PROMPT_MAX_TOOL_ENTRY_CHARS` | `280` | Max characters per tool entry |
+| `AMAN_MEMORY_PROMPT_MAX_CLEAR_EVENTS` | `2` | Max clear-context events included |
+| `AMAN_MEMORY_PROMPT_INCLUDE_SUMMARY` | `true` | Include summary section in memory prompt |
+| `AMAN_MEMORY_PROMPT_INCLUDE_TOOL_HISTORY` | `true` | Include tool history section |
+| `AMAN_MEMORY_PROMPT_INCLUDE_CLEAR_CONTEXT` | `true` | Include clear-context section |
+| `AMAN_MEMORY_PROMPT_PII_POLICY` | `allow` | PII handling policy (`allow`, `redact`, `skip`) |
+| `AMAN_MEMORY_PROMPT_OVERRIDES` | - | JSON map of per-history overrides |
+
+When enabled, the orchestrator injects a standardized memory block (summary first, tool history
+after) ahead of search/tool context. Maple receives the block only when its in-memory history
+is empty; Grok always receives it to preserve durable context.
 
 ## Actions
 

@@ -48,6 +48,7 @@
   - Defines attachments metadata (`InboundAttachment`) for inbound processing.
   - Provides `TextStyle` ranges and `OutboundMessage.styles` for formatted replies.
   - Provides `ConversationHistory` for per-sender message history with auto-trimming.
+  - Defines MemorySnapshot/MemoryStore contract and memory prompt formatter.
   - Exposes routing metadata and prompt hashing helpers for reproducibility.
 - `maple-brain` (crate: `crates/maple-brain`)
   - OpenSecret-based Brain implementation with attestation handshake, per-sender history, and vision support.
@@ -66,6 +67,7 @@
   - Maintains typing indicators and sends interim status messages.
   - Formats responses with markdown-to-Signal styles and metadata footers.
   - Persists preferences, rolling summaries, and tool history in SQLite (when configured).
+  - Hydrates durable memory snapshots into prompts with policy controls.
 - `agent-tools` (crate: `crates/agent-tools`)
   - Tool registry and implementations for orchestrator-level capabilities.
   - Built-in tools: calculator, weather, web fetch + summarize, dictionary, world time, bitcoin price, crypto price, currency converter, unit converter, random number, sanitize.
@@ -132,6 +134,12 @@ Durable memory tables used by the orchestrator:
 - `ConversationSummary` (history_key, summary, message_count, updated_at)
 - `ToolHistoryEntry` (history_key, tool_name, success, content, sender_id, group_id, created_at)
 - `ClearContextEvent` (history_key, sender_id, created_at)
+
+The orchestrator builds a `MemorySnapshot` from these tables (summary + tool history + clear-context
+events) and injects a standardized memory block into prompts. Clear-context events gate summaries
+and tool history so old context is not rehydrated after a reset.
+Maple receives the memory block only when its in-memory history is empty; Grok always receives it
+to preserve durable context.
 
 ### RegionEvent
 
@@ -324,6 +332,17 @@ Environment variables (names may be implementation-specific):
 - `AMAN_MEMORY_MAX_TOOL_HISTORY`: max tool history rows (0 disables).
 - `AMAN_MEMORY_MAX_TOOL_HISTORY_PER_KEY`: max tool rows per sender/group (0 disables).
 - `AMAN_MEMORY_MAX_CLEAR_EVENTS`: max clear-context rows (0 disables).
+- `AMAN_MEMORY_PROMPT_MAX_CHARS`: max characters for injected memory prompt (0 disables).
+- `AMAN_MEMORY_PROMPT_MAX_TOKENS`: approximate token cap for memory prompt (converted to chars).
+- `AMAN_MEMORY_PROMPT_MAX_SUMMARY_CHARS`: max summary chars included in memory prompt.
+- `AMAN_MEMORY_PROMPT_MAX_TOOL_ENTRIES`: max tool history entries included.
+- `AMAN_MEMORY_PROMPT_MAX_TOOL_ENTRY_CHARS`: max characters per tool entry.
+- `AMAN_MEMORY_PROMPT_MAX_CLEAR_EVENTS`: max clear-context events included.
+- `AMAN_MEMORY_PROMPT_INCLUDE_SUMMARY`: include summary section in memory prompt.
+- `AMAN_MEMORY_PROMPT_INCLUDE_TOOL_HISTORY`: include tool history section.
+- `AMAN_MEMORY_PROMPT_INCLUDE_CLEAR_CONTEXT`: include clear-context section.
+- `AMAN_MEMORY_PROMPT_PII_POLICY`: PII handling (`allow`, `redact`, `skip`).
+- `AMAN_MEMORY_PROMPT_OVERRIDES`: JSON map of per-history prompt policy overrides.
 - `AMAN_DEFAULT_LANGUAGE`: default language label for new contacts.
 - `SIGNAL_DAEMON_URL`: base URL for signal-cli daemon (optional override).
 - `SIGNAL_DAEMON_ACCOUNT`: account selector for daemon multi-account mode (optional).
@@ -570,6 +589,8 @@ AccessPolicy content:
 - **ModelSelector**: component that chooses optimal model based on task hints (general, coding, math, creative, multilingual, quick, vision, about_bot).
 - **PreferenceStore**: per-user storage for agent preferences (prefer_speed, prefer_privacy, default).
 - **ConversationHistory**: per-sender message history with auto-trimming (in brain-core).
+- **MemorySnapshot**: durable memory payload (summary, tool history, clear-context events).
+- **MemoryPromptPolicy**: controls how memory is formatted and injected into prompts.
 - **DocManifest**: planned event describing a document and its chunks.
 - **Chunk**: planned unit of text for retrieval and citations.
 - **Embedding artifact**: planned vector or reference for retrieval.

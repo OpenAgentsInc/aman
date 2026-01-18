@@ -58,7 +58,8 @@ Optional modes:
 - MapleBrain can optionally call `realtime_search` via a `ToolExecutor` (e.g., Grok)
   for privacy-preserving real-time lookups.
   When `SQLITE_PATH` is set, the orchestrator persists preferences, rolling summaries,
-  tool history, and clear-context events for routing context and audit.
+  tool history, and clear-context events, then hydrates memory snapshots into prompts
+  with policy controls.
 
 For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 

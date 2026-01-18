@@ -1,11 +1,18 @@
 //! Durable memory helpers for the orchestrator.
 
+use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
 
+use async_trait::async_trait;
+use brain_core::{
+    MemoryClearEvent, MemoryError, MemoryPiiPolicy, MemoryPromptPolicy, MemorySnapshot,
+    MemoryToolEntry,
+};
 use database::{
     clear_context_event, conversation_summary, tool_history, ConversationSummary, Database,
 };
+use serde::Deserialize;
 
 /// Summary formatting policy.
 #[derive(Debug, Clone)]
@@ -51,12 +58,60 @@ impl Default for RetentionPolicy {
     }
 }
 
+/// Per-history overrides for memory prompt formatting.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct MemoryPromptOverrides {
+    pub max_chars: Option<usize>,
+    pub max_summary_chars: Option<usize>,
+    pub max_tool_entries: Option<usize>,
+    pub max_tool_entry_chars: Option<usize>,
+    pub max_clear_events: Option<usize>,
+    pub include_summary: Option<bool>,
+    pub include_tool_history: Option<bool>,
+    pub include_clear_context: Option<bool>,
+    pub pii_policy: Option<MemoryPiiPolicy>,
+}
+
+impl MemoryPromptOverrides {
+    fn apply_to(&self, policy: &mut MemoryPromptPolicy) {
+        if let Some(value) = self.max_chars {
+            policy.max_chars = value;
+        }
+        if let Some(value) = self.max_summary_chars {
+            policy.max_summary_chars = value;
+        }
+        if let Some(value) = self.max_tool_entries {
+            policy.max_tool_entries = value;
+        }
+        if let Some(value) = self.max_tool_entry_chars {
+            policy.max_tool_entry_chars = value;
+        }
+        if let Some(value) = self.max_clear_events {
+            policy.max_clear_events = value;
+        }
+        if let Some(value) = self.include_summary {
+            policy.include_summary = value;
+        }
+        if let Some(value) = self.include_tool_history {
+            policy.include_tool_history = value;
+        }
+        if let Some(value) = self.include_clear_context {
+            policy.include_clear_context = value;
+        }
+        if let Some(value) = self.pii_policy {
+            policy.pii_policy = value;
+        }
+    }
+}
+
 /// Memory settings for summaries and tool history.
 #[derive(Debug, Clone)]
 pub struct MemorySettings {
     pub summary: SummaryPolicy,
     pub retention: RetentionPolicy,
     pub tool_output_max_chars: usize,
+    pub prompt_policy: MemoryPromptPolicy,
+    pub prompt_overrides: HashMap<String, MemoryPromptOverrides>,
 }
 
 impl Default for MemorySettings {
@@ -65,6 +120,8 @@ impl Default for MemorySettings {
             summary: SummaryPolicy::default(),
             retention: RetentionPolicy::default(),
             tool_output_max_chars: 2000,
+            prompt_policy: MemoryPromptPolicy::default(),
+            prompt_overrides: HashMap::new(),
         }
     }
 }
@@ -85,6 +142,44 @@ impl MemorySettings {
         }
         if let Some(value) = env_usize("AMAN_MEMORY_TOOL_OUTPUT_MAX_CHARS") {
             settings.tool_output_max_chars = value;
+        }
+
+        if let Some(value) = env_usize("AMAN_MEMORY_PROMPT_MAX_CHARS") {
+            settings.prompt_policy.max_chars = value;
+        } else if let Some(value) = env_usize("AMAN_MEMORY_PROMPT_MAX_TOKENS") {
+            settings.prompt_policy.max_chars = value.saturating_mul(4);
+        }
+        if let Some(value) = env_usize("AMAN_MEMORY_PROMPT_MAX_SUMMARY_CHARS") {
+            settings.prompt_policy.max_summary_chars = value;
+        }
+        if let Some(value) = env_usize("AMAN_MEMORY_PROMPT_MAX_TOOL_ENTRIES") {
+            settings.prompt_policy.max_tool_entries = value;
+        }
+        if let Some(value) = env_usize("AMAN_MEMORY_PROMPT_MAX_TOOL_ENTRY_CHARS") {
+            settings.prompt_policy.max_tool_entry_chars = value;
+        }
+        if let Some(value) = env_usize("AMAN_MEMORY_PROMPT_MAX_CLEAR_EVENTS") {
+            settings.prompt_policy.max_clear_events = value;
+        }
+        if let Some(value) = env_bool("AMAN_MEMORY_PROMPT_INCLUDE_SUMMARY") {
+            settings.prompt_policy.include_summary = value;
+        }
+        if let Some(value) = env_bool("AMAN_MEMORY_PROMPT_INCLUDE_TOOL_HISTORY") {
+            settings.prompt_policy.include_tool_history = value;
+        }
+        if let Some(value) = env_bool("AMAN_MEMORY_PROMPT_INCLUDE_CLEAR_CONTEXT") {
+            settings.prompt_policy.include_clear_context = value;
+        }
+        if let Some(value) = env::var("AMAN_MEMORY_PROMPT_PII_POLICY").ok() {
+            if let Some(policy) = parse_pii_policy(&value) {
+                settings.prompt_policy.pii_policy = policy;
+            }
+        }
+        if let Ok(value) = env::var("AMAN_MEMORY_PROMPT_OVERRIDES") {
+            if let Ok(map) = serde_json::from_str::<HashMap<String, MemoryPromptOverrides>>(&value)
+            {
+                settings.prompt_overrides = map;
+            }
         }
 
         if let Some(days) = env_u64("AMAN_MEMORY_SUMMARY_TTL_DAYS") {
@@ -112,6 +207,14 @@ impl MemorySettings {
 
         settings
     }
+
+    pub fn prompt_policy_for(&self, history_key: &str) -> MemoryPromptPolicy {
+        let mut policy = self.prompt_policy.clone();
+        if let Some(override_policy) = self.prompt_overrides.get(history_key) {
+            override_policy.apply_to(&mut policy);
+        }
+        policy
+    }
 }
 
 /// Durable memory store backed by SQLite.
@@ -130,12 +233,89 @@ impl MemoryStore {
         &self.settings
     }
 
+    pub fn prompt_policy_for(&self, history_key: &str) -> MemoryPromptPolicy {
+        self.settings.prompt_policy_for(history_key)
+    }
+
     pub async fn get_summary(&self, history_key: &str) -> Option<String> {
         let record = conversation_summary::get_summary(self.database.pool(), history_key)
             .await
             .ok()
             .flatten();
         record.map(|row| row.summary)
+    }
+
+    pub async fn snapshot_with_policy(
+        &self,
+        history_key: &str,
+        policy: &MemoryPromptPolicy,
+    ) -> database::Result<MemorySnapshot> {
+        let summary_row = conversation_summary::get_summary(self.database.pool(), history_key)
+            .await?
+            .map(|row| row);
+
+        let clear_limit = if policy.max_clear_events == 0 {
+            1
+        } else {
+            policy.max_clear_events
+        };
+        let clear_events = clear_context_event::list_events(
+            self.database.pool(),
+            history_key,
+            clear_limit as i64,
+        )
+        .await?;
+        let latest_clear_at = clear_events.first().map(|event| event.created_at.clone());
+
+        let (summary, summary_updated_at) = match (summary_row.as_ref(), latest_clear_at.as_ref()) {
+            (Some(row), Some(clear_at)) if row.updated_at <= *clear_at => (None, None),
+            (Some(row), _) => (Some(row.summary.clone()), Some(row.updated_at.clone())),
+            (None, _) => (None, None),
+        };
+
+        let mut tool_history = Vec::new();
+        if policy.include_tool_history && policy.max_tool_entries > 0 {
+            let entries = tool_history::list_tool_history(
+                self.database.pool(),
+                history_key,
+                policy.max_tool_entries as i64,
+            )
+            .await?;
+            tool_history = entries
+                .into_iter()
+                .filter(|entry| {
+                    latest_clear_at
+                        .as_ref()
+                        .map(|clear_at| entry.created_at > *clear_at)
+                        .unwrap_or(true)
+                })
+                .map(|entry| MemoryToolEntry {
+                    tool: entry.tool_name,
+                    success: entry.success,
+                    content: entry.content,
+                    created_at: Some(entry.created_at),
+                })
+                .collect();
+        }
+
+        let clear_context_events = if policy.include_clear_context && policy.max_clear_events > 0 {
+            clear_events
+                .into_iter()
+                .map(|entry| MemoryClearEvent {
+                    created_at: Some(entry.created_at),
+                    sender_id: entry.sender_id,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        Ok(MemorySnapshot {
+            summary,
+            summary_updated_at,
+            tool_history,
+            clear_context_events,
+        })
     }
 
     pub async fn record_exchange(
@@ -274,8 +454,27 @@ impl MemoryStore {
     }
 }
 
+#[async_trait]
+impl brain_core::MemoryStore for MemoryStore {
+    async fn snapshot(&self, history_key: &str) -> Result<MemorySnapshot, MemoryError> {
+        let policy = self.prompt_policy_for(history_key);
+        self.snapshot_with_policy(history_key, &policy)
+            .await
+            .map_err(|err| MemoryError::Store(err.to_string()))
+    }
+}
+
 fn env_usize(key: &str) -> Option<usize> {
     env::var(key).ok()?.parse().ok()
+}
+
+fn env_bool(key: &str) -> Option<bool> {
+    let value = env::var(key).ok()?;
+    match value.to_lowercase().as_str() {
+        "true" | "1" | "yes" | "y" => Some(true),
+        "false" | "0" | "no" | "n" => Some(false),
+        _ => None,
+    }
 }
 
 fn env_u64(key: &str) -> Option<u64> {
@@ -292,6 +491,15 @@ fn days_to_duration(days: u64) -> Option<Duration> {
 
 fn cap_from_env(value: usize) -> Option<usize> {
     if value == 0 { None } else { Some(value) }
+}
+
+fn parse_pii_policy(value: &str) -> Option<MemoryPiiPolicy> {
+    match value.trim().to_lowercase().as_str() {
+        "allow" => Some(MemoryPiiPolicy::Allow),
+        "redact" => Some(MemoryPiiPolicy::Redact),
+        "skip" => Some(MemoryPiiPolicy::Skip),
+        _ => None,
+    }
 }
 
 fn collapse_lines(text: &str) -> String {

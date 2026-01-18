@@ -10,6 +10,7 @@ Defines the shared `Brain` trait, `ToolExecutor` trait, and common types used by
 
 - `Brain` - Async `process()` method for message handling + metadata methods
 - `ToolExecutor` - Interface for executing external tools (e.g., real-time search)
+- `MemoryStore` - Interface for loading durable memory snapshots
 
 ### Types
 
@@ -25,6 +26,10 @@ Defines the shared `Brain` trait, `ToolExecutor` trait, and common types used by
 - `ConversationHistory` - Per-sender conversation history with automatic trimming
 - `HistoryMessage` - Individual message in conversation history
 - `hash_prompt` - Prompt fingerprint helper for reproducibility
+- `MemorySnapshot` - Durable memory payload (summary, tool history, clear-context events)
+- `MemoryToolEntry` / `MemoryClearEvent` - Memory entry types
+- `MemoryPromptPolicy` / `MemoryPiiPolicy` - Prompt formatting policy knobs
+- `format_memory_prompt` - Stable memory prompt formatter
 
 ## Usage
 
@@ -99,12 +104,30 @@ impl ToolExecutor for MyToolExecutor {
 }
 ```
 
+### Memory Prompt Formatting
+
+```rust
+use brain_core::{format_memory_prompt, MemoryPromptPolicy, MemorySnapshot};
+
+let snapshot = MemorySnapshot {
+    summary: Some("U: Asked about outages\nA: Suggested VPN checks".to_string()),
+    summary_updated_at: Some("2025-01-01 12:00:00".to_string()),
+    tool_history: Vec::new(),
+    clear_context_events: Vec::new(),
+};
+
+let policy = MemoryPromptPolicy::default();
+let prompt = format_memory_prompt(&snapshot, &policy);
+assert!(prompt.is_some());
+```
+
 ## Notes
 
 - This crate has no I/O; it is purely types + trait definitions
 - Attachments are represented as metadata and file paths from signal-cli
 - Tool executors receive sanitized queries crafted by the brain (privacy boundary)
 - ConversationHistory uses `tokio::sync::RwLock` for thread-safe access
+- Memory prompt formatting is deterministic to support audits and reproducibility
 
 ## Security Notes
 

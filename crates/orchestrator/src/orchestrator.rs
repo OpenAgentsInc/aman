@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 
-use brain_core::{Brain, InboundMessage, OutboundMessage, ToolExecutor, ToolRequest};
+use brain_core::{format_memory_prompt, Brain, InboundMessage, OutboundMessage, ToolExecutor, ToolRequest};
 use database::Database;
 use grok_brain::{GrokBrain, GrokBrainConfig, GrokToolExecutor};
 use maple_brain::{MapleBrain, MapleBrainConfig};
@@ -40,6 +40,12 @@ Commands:
 I automatically detect sensitive topics (health, finances, personal) and route them securely. General queries use fast mode for better real-time info.
 
 Just send me a message and I'll do my best to help!"#;
+
+#[derive(Debug, Default)]
+struct MemoryContext {
+    summary: Option<String>,
+    prompt: Option<String>,
+}
 
 /// Main orchestrator that coordinates message processing.
 ///
@@ -252,6 +258,24 @@ impl<S: MessageSender> Orchestrator<S> {
         message.routing = Some(routing);
     }
 
+    async fn load_memory_context(&self, history_key: &str) -> MemoryContext {
+        let Some(memory) = &self.memory else {
+            return MemoryContext::default();
+        };
+
+        let policy = memory.prompt_policy_for(history_key);
+        match memory.snapshot_with_policy(history_key, &policy).await {
+            Ok(snapshot) => MemoryContext {
+                summary: snapshot.summary.clone(),
+                prompt: format_memory_prompt(&snapshot, &policy),
+            },
+            Err(err) => {
+                warn!("Failed to load memory snapshot: {}", err);
+                MemoryContext::default()
+            }
+        }
+    }
+
     /// Process an incoming message end-to-end.
     ///
     /// This method:
@@ -279,21 +303,28 @@ impl<S: MessageSender> Orchestrator<S> {
         }
 
         // 2. Get conversation context (local operation, fast)
-        let mut context = None;
-        if let Some(memory) = &self.memory {
-            context = memory.get_summary(&history_key).await;
+        let memory_context = self.load_memory_context(&history_key).await;
+        let maple_context = self.maple_brain.get_context_summary(&history_key).await;
+        let maple_has_history = maple_context
+            .as_ref()
+            .map(|text| !text.trim().is_empty())
+            .unwrap_or(false);
+        let mut routing_context = memory_context.summary.clone();
+        if routing_context.is_none() {
+            routing_context = maple_context.clone();
         }
-        if context.is_none() {
-            context = self.maple_brain.get_context_summary(&history_key).await;
-        }
-        if let Some(ref ctx) = context {
+        if let Some(ref ctx) = routing_context {
             debug!("Conversation context: {}", ctx);
         }
 
         // 3. Route the message with context and attachments
         let plan = self
             .router
-            .route_with_attachments(&message.text, context.as_deref(), &message.attachments)
+            .route_with_attachments(
+                &message.text,
+                routing_context.as_deref(),
+                &message.attachments,
+            )
             .await;
         info!(
             "Routing plan: {} actions (attachments: {})",
@@ -303,7 +334,15 @@ impl<S: MessageSender> Orchestrator<S> {
 
         // 4. Execute actions, building context
         let result = self
-            .execute_plan(&message, &plan, recipient, is_group, &history_key)
+            .execute_plan(
+                &message,
+                &plan,
+                recipient,
+                is_group,
+                &history_key,
+                memory_context.prompt.as_deref(),
+                maple_has_history,
+            )
             .await;
 
         // 5. Stop typing indicator (always, even on error)
@@ -322,6 +361,8 @@ impl<S: MessageSender> Orchestrator<S> {
         recipient: &str,
         is_group: bool,
         history_key: &str,
+        memory_prompt: Option<&str>,
+        maple_has_history: bool,
     ) -> Result<OutboundMessage, OrchestratorError> {
         let mut context = Context::new();
 
@@ -370,19 +411,42 @@ impl<S: MessageSender> Orchestrator<S> {
                             .await;
                     }
                     return self
-                        .execute_respond(message, &context, *sensitivity, *task_hint, history_key)
+                        .execute_respond(
+                            message,
+                            &context,
+                            *sensitivity,
+                            *task_hint,
+                            history_key,
+                            memory_prompt,
+                            maple_has_history,
+                        )
                         .await;
                 }
 
                 OrchestratorAction::Grok { query, task_hint } => {
                     return self
-                        .execute_direct_grok(message, query, &context, *task_hint)
+                        .execute_direct_grok(
+                            message,
+                            query,
+                            &context,
+                            *task_hint,
+                            memory_prompt,
+                            maple_has_history,
+                        )
                         .await;
                 }
 
                 OrchestratorAction::Maple { query, task_hint } => {
                     return self
-                        .execute_direct_maple(message, query, &context, *task_hint, history_key)
+                        .execute_direct_maple(
+                            message,
+                            query,
+                            &context,
+                            *task_hint,
+                            history_key,
+                            memory_prompt,
+                            maple_has_history,
+                        )
                         .await;
                 }
 
@@ -464,6 +528,8 @@ impl<S: MessageSender> Orchestrator<S> {
             fallback_sensitivity,
             fallback_task_hint,
             history_key,
+            memory_prompt,
+            maple_has_history,
         )
         .await
     }
@@ -616,6 +682,8 @@ impl<S: MessageSender> Orchestrator<S> {
         sensitivity: Sensitivity,
         task_hint: TaskHint,
         history_key: &str,
+        memory_prompt: Option<&str>,
+        maple_has_history: bool,
     ) -> Result<OutboundMessage, OrchestratorError> {
         // Vision tasks MUST use Maple - Grok has no vision support
         let effective_task_hint = Self::resolve_task_hint(message, task_hint);
@@ -650,7 +718,12 @@ impl<S: MessageSender> Orchestrator<S> {
         );
 
         // Augment message with search context if any
-        let mut augmented = context.augment_message(message);
+        let effective_memory = if use_grok || !maple_has_history {
+            memory_prompt
+        } else {
+            None
+        };
+        let mut augmented = context.augment_message_with_memory(message, effective_memory);
         self.attach_routing_info(
             &mut augmented,
             Some(sensitivity),
@@ -706,6 +779,8 @@ impl<S: MessageSender> Orchestrator<S> {
         query: &str,
         context: &Context,
         task_hint: TaskHint,
+        memory_prompt: Option<&str>,
+        maple_has_history: bool,
     ) -> Result<OutboundMessage, OrchestratorError> {
         // If this is a vision task, fall back to Maple (Grok doesn't support vision)
         if task_hint == TaskHint::Vision || message.has_images() {
@@ -713,7 +788,15 @@ impl<S: MessageSender> Orchestrator<S> {
                 "Grok requested but message has images - falling back to Maple (Grok has no vision support)"
             );
             return self
-                .execute_direct_maple(message, query, context, task_hint, &Self::history_key(message))
+                .execute_direct_maple(
+                    message,
+                    query,
+                    context,
+                    task_hint,
+                    &Self::history_key(message),
+                    memory_prompt,
+                    maple_has_history,
+                )
                 .await;
         }
 
@@ -730,7 +813,7 @@ impl<S: MessageSender> Orchestrator<S> {
         modified.text = query.to_string();
 
         // Augment with context if any
-        let mut augmented = context.augment_message(&modified);
+        let mut augmented = context.augment_message_with_memory(&modified, memory_prompt);
         self.attach_routing_info(
             &mut augmented,
             None,
@@ -766,6 +849,8 @@ impl<S: MessageSender> Orchestrator<S> {
         context: &Context,
         task_hint: TaskHint,
         history_key: &str,
+        memory_prompt: Option<&str>,
+        maple_has_history: bool,
     ) -> Result<OutboundMessage, OrchestratorError> {
         let effective_task_hint = Self::resolve_task_hint(message, task_hint);
 
@@ -782,7 +867,12 @@ impl<S: MessageSender> Orchestrator<S> {
         modified.text = query.to_string();
 
         // Augment with context if any
-        let mut augmented = context.augment_message(&modified);
+        let effective_memory = if maple_has_history {
+            None
+        } else {
+            memory_prompt
+        };
+        let mut augmented = context.augment_message_with_memory(&modified, effective_memory);
         self.attach_routing_info(
             &mut augmented,
             None,

@@ -25,8 +25,9 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - Attachment-aware routing (vision tasks stay on Maple)
 - Opt-in regional alerts (outages, throttling, advisories)
 - Basic onboarding and subscription management
-- Durable preferences + rolling conversation summaries (SQLite, if configured)
-- Tool history + clear-context events for auditability (SQLite, if configured)
+- Durable preferences + rolling conversation summaries (SQLite) with memory snapshot prompt hydration
+- Tool history + clear-context events feed memory snapshots (SQLite, if configured)
+- Memory prompt policy controls (PII redaction, per-sender overrides)
 - Operator broadcasts and dashboards
 - Optional web UI for browser chat
 - OpenAI-compatible API gateway (echo, orchestrator, or OpenRouter proxy modes) with local/Nostr KB injection

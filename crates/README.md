@@ -12,7 +12,7 @@ with configuration and usage details.
 | `broadcaster` | Signal outbound delivery using signal-daemon |
 | `agent-brain` | Onboarding, routing, and subscription handling |
 | `mock-brain` | Mock brain implementations for testing message flows |
-| `brain-core` | Shared Brain trait and message types for AI backends |
+| `brain-core` | Shared Brain trait, message types, and memory contract for AI backends |
 | `maple-brain` | OpenSecret-backed Brain implementation |
 | `grok-brain` | xAI Grok Brain and tool executor |
 | `orchestrator` | Message routing, action planning, and tool orchestration |

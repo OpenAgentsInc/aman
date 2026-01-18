@@ -101,11 +101,28 @@ impl Context {
     /// If there are search or tool results, they are formatted and prepended
     /// to the original message text as a system context.
     pub fn augment_message(&self, original: &InboundMessage) -> InboundMessage {
-        if !self.has_results() {
+        self.augment_message_with_memory(original, None)
+    }
+
+    /// Create an augmented message with optional memory + context prepended.
+    pub fn augment_message_with_memory(
+        &self,
+        original: &InboundMessage,
+        memory_prompt: Option<&str>,
+    ) -> InboundMessage {
+        if !self.has_results() && memory_prompt.is_none() {
             return original.clone();
         }
 
         let mut context_text = String::new();
+
+        if let Some(memory) = memory_prompt {
+            let trimmed = memory.trim();
+            if !trimmed.is_empty() {
+                context_text.push_str(trimmed);
+                context_text.push_str("\n\n");
+            }
+        }
 
         // Add search results if any
         if self.has_search_results() {
@@ -215,6 +232,19 @@ mod tests {
         assert!(augmented.text.contains("Test result content"));
         assert!(augmented.text.contains("[USER MESSAGE]"));
         assert!(augmented.text.contains("What is the result?"));
+    }
+
+    #[test]
+    fn test_augment_message_with_memory() {
+        let context = Context::new();
+        let original = InboundMessage::direct("+1234567890", "Hello", 123);
+
+        let memory = "[MEMORY SNAPSHOT]\nNotes\n[END MEMORY SNAPSHOT]";
+        let augmented = context.augment_message_with_memory(&original, Some(memory));
+
+        assert!(augmented.text.starts_with("[MEMORY SNAPSHOT]"));
+        assert!(augmented.text.contains("[USER MESSAGE]"));
+        assert!(augmented.text.contains("Hello"));
     }
 
     #[test]

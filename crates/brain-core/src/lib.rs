@@ -30,6 +30,7 @@
 
 mod error;
 mod history;
+mod memory;
 mod message;
 mod prompt;
 mod tools;
@@ -37,6 +38,10 @@ mod trait_def;
 
 pub use error::BrainError;
 pub use history::{ConversationHistory, HistoryMessage};
+pub use memory::{
+    format_memory_prompt, MemoryClearEvent, MemoryError, MemoryPiiPolicy, MemoryPromptPolicy,
+    MemorySnapshot, MemoryStore, MemoryToolEntry,
+};
 pub use message::{
     InboundAttachment, InboundMessage, OutboundMessage, RoutingInfo, Sensitivity, TaskHint,
     TextStyle,

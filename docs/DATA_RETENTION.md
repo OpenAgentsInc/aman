@@ -83,6 +83,7 @@ Adjust these windows based on threat model and legal constraints.
 
 - The router can flag PII and prompt the user for a privacy choice.
 - The `sanitize` tool exists to redact PII before fast-mode requests, but full orchestration wiring is still in progress.
+- Memory prompt policy can redact or skip durable memory injection when configured.
 
 ## Security notes
 
