@@ -36,6 +36,7 @@ impl Weather {
         Self {
             client: reqwest::Client::builder()
                 .user_agent("curl/8.0.0") // wttr.in serves different content based on user agent
+                .timeout(std::time::Duration::from_secs(10))
                 .build()
                 .expect("Failed to create HTTP client"),
         }

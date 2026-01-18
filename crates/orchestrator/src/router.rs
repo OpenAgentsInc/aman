@@ -6,9 +6,7 @@ use std::env;
 use std::path::Path;
 use tracing::{debug, info, warn};
 
-use crate::actions::RoutingPlan;
-#[cfg(test)]
-use crate::actions::OrchestratorAction;
+use crate::actions::{RoutingPlan, Sensitivity, TaskHint};
 use crate::error::OrchestratorError;
 
 /// Default path for the router prompt file.
@@ -155,16 +153,16 @@ impl Router {
 
     /// Route a message and return the routing plan.
     ///
-    /// Returns a default plan (respond only) if routing fails or produces
-    /// invalid output.
+    /// Returns a safe fallback plan (respond-only, Maple, vision-safe) if routing
+    /// fails or produces invalid output.
     pub async fn route(&self, message_text: &str, context: Option<&str>) -> RoutingPlan {
         self.route_with_attachments(message_text, context, &[]).await
     }
 
     /// Route a message with attachments and return the routing plan.
     ///
-    /// Returns a default plan (respond only) if routing fails or produces
-    /// invalid output.
+    /// Returns a safe fallback plan (respond-only, Maple, vision-safe) if routing
+    /// fails or produces invalid output.
     pub async fn route_with_attachments(
         &self,
         message_text: &str,
@@ -177,14 +175,22 @@ impl Router {
         // Create a minimal inbound message for the brain
         let inbound = InboundMessage::direct("router", &formatted_input, 0);
 
+        let fallback = Self::fallback_plan(attachments);
+
         match self.brain.process(inbound).await {
             Ok(response) => {
                 debug!("Router response: {}", response.text);
-                self.parse_plan(&response.text)
+                match self.parse_plan(&response.text) {
+                    Ok(plan) => plan,
+                    Err(e) => {
+                        warn!("Failed to parse routing plan: {}, using fallback", e);
+                        fallback
+                    }
+                }
             }
             Err(e) => {
-                warn!("Router brain error: {}, using default plan", e);
-                RoutingPlan::respond_only()
+                warn!("Router brain error: {}, using fallback plan", e);
+                fallback
             }
         }
     }
@@ -283,28 +289,41 @@ impl Router {
     }
 
     /// Parse the routing plan from the brain's response.
-    fn parse_plan(&self, response: &str) -> RoutingPlan {
+    fn parse_plan(&self, response: &str) -> Result<RoutingPlan, OrchestratorError> {
         // Try to extract JSON from the response
         let json_str = self.extract_json(response);
 
-        match serde_json::from_str::<RoutingPlan>(json_str) {
-            Ok(plan) => {
-                if plan.is_empty() {
-                    info!("Empty routing plan, using default");
-                    RoutingPlan::respond_only()
-                } else {
-                    info!("Parsed routing plan with {} actions", plan.actions.len());
-                    for action in &plan.actions {
-                        debug!("  - {}", action.description());
-                    }
-                    plan
-                }
-            }
-            Err(e) => {
-                warn!("Failed to parse routing plan: {}, response was: {}", e, response);
-                RoutingPlan::respond_only()
-            }
+        let plan = serde_json::from_str::<RoutingPlan>(json_str).map_err(|e| {
+            OrchestratorError::InvalidPlan(format!(
+                "parse error: {}, response was: {}",
+                e, response
+            ))
+        })?;
+
+        if plan.is_empty() {
+            return Err(OrchestratorError::InvalidPlan(
+                "empty routing plan".to_string(),
+            ));
         }
+
+        info!("Parsed routing plan with {} actions", plan.actions.len());
+        for action in &plan.actions {
+            debug!("  - {}", action.description());
+        }
+
+        Ok(plan)
+    }
+
+    /// Build a safe fallback plan when routing fails.
+    fn fallback_plan(attachments: &[InboundAttachment]) -> RoutingPlan {
+        let task_hint = if attachments.iter().any(|a| a.is_image()) {
+            TaskHint::Vision
+        } else {
+            TaskHint::General
+        };
+
+        // Fail closed to Maple by marking sensitivity as sensitive.
+        RoutingPlan::respond_with_hint(Sensitivity::Sensitive, task_hint)
     }
 
     /// Extract JSON from a response that may contain markdown or other text.
@@ -351,6 +370,7 @@ impl Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actions::OrchestratorAction;
     use brain_core::InboundAttachment;
 
     /// Helper function to extract JSON, matching Router's logic.
@@ -513,5 +533,43 @@ mod tests {
         }];
         let input = Router::format_router_input("what is this?", None, &attachments);
         assert_eq!(input, "[MESSAGE: what is this?]\n[ATTACHMENTS: 1 image (jpeg, 1024x768)]");
+    }
+
+    #[test]
+    fn test_fallback_plan_no_attachments() {
+        let plan = Router::fallback_plan(&[]);
+        assert_eq!(plan.actions.len(), 1);
+
+        if let OrchestratorAction::Respond {
+            sensitivity,
+            task_hint,
+        } = &plan.actions[0]
+        {
+            assert_eq!(*sensitivity, Sensitivity::Sensitive);
+            assert_eq!(*task_hint, TaskHint::General);
+        } else {
+            panic!("Expected Respond action");
+        }
+    }
+
+    #[test]
+    fn test_fallback_plan_with_image() {
+        let attachments = vec![InboundAttachment {
+            content_type: "image/png".to_string(),
+            ..Default::default()
+        }];
+        let plan = Router::fallback_plan(&attachments);
+        assert_eq!(plan.actions.len(), 1);
+
+        if let OrchestratorAction::Respond {
+            sensitivity,
+            task_hint,
+        } = &plan.actions[0]
+        {
+            assert_eq!(*sensitivity, Sensitivity::Sensitive);
+            assert_eq!(*task_hint, TaskHint::Vision);
+        } else {
+            panic!("Expected Respond action");
+        }
     }
 }

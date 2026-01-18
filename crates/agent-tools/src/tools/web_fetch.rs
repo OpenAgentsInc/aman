@@ -13,6 +13,22 @@ const MAX_CONTENT_LENGTH: usize = 500 * 1024;
 /// Maximum content length for summarization (10KB).
 const MAX_SUMMARIZE_LENGTH: usize = 10 * 1024;
 
+fn truncate_utf8(input: &str, max_bytes: usize) -> String {
+    if input.len() <= max_bytes {
+        return input.to_string();
+    }
+    if max_bytes == 0 {
+        return String::new();
+    }
+
+    let mut idx = max_bytes.min(input.len());
+    while idx > 0 && !input.is_char_boundary(idx) {
+        idx -= 1;
+    }
+
+    input[..idx].to_string()
+}
+
 /// WebFetch tool for fetching URL content and optionally summarizing it.
 ///
 /// Fetches web pages, converts HTML to plain text, and can optionally
@@ -84,7 +100,7 @@ impl WebFetch {
 
         // Truncate if necessary
         let body = if body.len() > MAX_CONTENT_LENGTH {
-            body[..MAX_CONTENT_LENGTH].to_string()
+            truncate_utf8(&body, MAX_CONTENT_LENGTH)
         } else {
             body
         };
@@ -114,10 +130,10 @@ impl WebFetch {
 
         // Truncate content for summarization
         let truncated = if content.len() > MAX_SUMMARIZE_LENGTH {
+            let preview = truncate_utf8(content, MAX_SUMMARIZE_LENGTH);
             format!(
-                "{}...\n\n[Content truncated, showing first {} characters]",
-                &content[..MAX_SUMMARIZE_LENGTH],
-                MAX_SUMMARIZE_LENGTH
+                "{}...\n\n[Content truncated, showing first {} bytes]",
+                preview, MAX_SUMMARIZE_LENGTH
             )
         } else {
             content.to_string()
@@ -201,11 +217,12 @@ impl Tool for WebFetch {
         }
 
         // Return raw content
-        let preview_len = content.len().min(2000);
         let preview = if content.len() > 2000 {
+            let snippet = truncate_utf8(&content, 2000);
             format!(
-                "{}...\n\n[Showing first 2000 of {} characters]",
-                &content[..preview_len],
+                "{}...\n\n[Showing first {} of {} bytes]",
+                snippet,
+                snippet.len(),
                 content.len()
             )
         } else {

@@ -133,7 +133,7 @@ impl WorldTime {
     /// Fetch time from WorldTimeAPI.
     async fn fetch_time(&self, timezone: &str) -> Result<WorldTimeResponse, ToolError> {
         let url = format!(
-            "http://worldtimeapi.org/api/timezone/{}",
+            "https://worldtimeapi.org/api/timezone/{}",
             timezone.replace(' ', "_")
         );
 

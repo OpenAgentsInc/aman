@@ -6,7 +6,7 @@ use std::sync::Arc;
 use brain_core::{Brain, InboundMessage, OutboundMessage, ToolExecutor, ToolRequest};
 use grok_brain::{GrokBrain, GrokBrainConfig, GrokToolExecutor};
 use maple_brain::{MapleBrain, MapleBrainConfig};
-use serde_json::Value;
+use serde_json::{json, Value};
 use agent_tools::ToolRegistry;
 use tracing::{debug, info, warn};
 
@@ -50,7 +50,7 @@ pub struct Orchestrator<S: MessageSender> {
     /// Router for message classification (stateless, uses Maple).
     router: Router,
     /// Maple brain for sensitive responses (TEE, privacy-preserving).
-    maple_brain: MapleBrain,
+    maple_brain: Arc<MapleBrain>,
     /// Grok brain for insensitive responses (fast, has native search).
     grok_brain: GrokBrain,
     /// Tool executor for real-time search (used by Maple for tool calls).
@@ -74,6 +74,11 @@ impl<S: MessageSender> Orchestrator<S> {
         search: GrokToolExecutor,
         sender: S,
     ) -> Self {
+        let maple_brain = Arc::new(maple_brain);
+        let mut tool_registry = agent_tools::default_registry();
+        let brain: Arc<dyn Brain> = maple_brain.clone();
+        tool_registry.set_brain(brain);
+
         Self {
             router,
             maple_brain,
@@ -82,7 +87,7 @@ impl<S: MessageSender> Orchestrator<S> {
             sender,
             preferences: PreferenceStore::new(),
             model_selector: ModelSelector::default(),
-            tool_registry: agent_tools::default_registry(),
+            tool_registry,
         }
     }
 
@@ -95,6 +100,11 @@ impl<S: MessageSender> Orchestrator<S> {
         sender: S,
         tool_registry: ToolRegistry,
     ) -> Self {
+        let maple_brain = Arc::new(maple_brain);
+        let mut tool_registry = tool_registry;
+        let brain: Arc<dyn Brain> = maple_brain.clone();
+        tool_registry.set_brain(brain);
+
         Self {
             router,
             maple_brain,
@@ -140,6 +150,11 @@ impl<S: MessageSender> Orchestrator<S> {
         // Create model selector from environment
         let model_selector = ModelSelector::from_env();
 
+        let maple_brain = Arc::new(maple_brain);
+        let mut tool_registry = agent_tools::default_registry();
+        let brain: Arc<dyn Brain> = maple_brain.clone();
+        tool_registry.set_brain(brain);
+
         Ok(Self {
             router,
             maple_brain,
@@ -148,7 +163,7 @@ impl<S: MessageSender> Orchestrator<S> {
             sender,
             preferences: PreferenceStore::new(),
             model_selector,
-            tool_registry: agent_tools::default_registry(),
+            tool_registry,
         })
     }
 
@@ -167,6 +182,11 @@ impl<S: MessageSender> Orchestrator<S> {
         let grok_brain = GrokBrain::new(grok_config)
             .map_err(|e| OrchestratorError::ToolFailed(format!("Grok brain init error: {}", e)))?;
 
+        let maple_brain = Arc::new(maple_brain);
+        let mut tool_registry = agent_tools::default_registry();
+        let brain: Arc<dyn Brain> = maple_brain.clone();
+        tool_registry.set_brain(brain);
+
         Ok(Self {
             router,
             maple_brain,
@@ -175,7 +195,7 @@ impl<S: MessageSender> Orchestrator<S> {
             sender,
             preferences: PreferenceStore::new(),
             model_selector: ModelSelector::from_env(),
-            tool_registry: agent_tools::default_registry(),
+            tool_registry,
         })
     }
 
@@ -338,11 +358,22 @@ impl<S: MessageSender> Orchestrator<S> {
 
         // If no Respond action in plan, generate one with default sensitivity and task hint
         info!("No response action in plan, generating response anyway");
+        let fallback_task_hint = if message.has_images() {
+            TaskHint::Vision
+        } else {
+            TaskHint::default()
+        };
+        let fallback_sensitivity = if message.has_images() {
+            Sensitivity::Sensitive
+        } else {
+            Sensitivity::default()
+        };
+
         self.execute_respond(
             message,
             &context,
-            Sensitivity::default(),
-            TaskHint::default(),
+            fallback_sensitivity,
+            fallback_task_hint,
             history_key,
         )
         .await
@@ -378,10 +409,11 @@ impl<S: MessageSender> Orchestrator<S> {
         }
 
         // Execute the search
+        let args_json = json!({ "query": query }).to_string();
         let request = ToolRequest::from_call(
             "orchestrator-search".to_string(),
             "realtime_search".to_string(),
-            &format!(r#"{{"query": "{}"}}"#, query.replace('"', "\\\"")),
+            &args_json,
         )
         .map_err(|e| OrchestratorError::ToolFailed(format!("Invalid search request: {}", e)))?;
 
@@ -467,7 +499,12 @@ impl<S: MessageSender> Orchestrator<S> {
         history_key: &str,
     ) -> Result<OutboundMessage, OrchestratorError> {
         // Vision tasks MUST use Maple - Grok has no vision support
-        let force_maple = task_hint == TaskHint::Vision;
+        let effective_task_hint = if message.has_images() {
+            TaskHint::Vision
+        } else {
+            task_hint
+        };
+        let force_maple = effective_task_hint == TaskHint::Vision;
 
         // Determine which agent to use based on sensitivity and user preference
         // (unless vision task forces Maple)
@@ -487,14 +524,14 @@ impl<S: MessageSender> Orchestrator<S> {
 
         // Select the best model based on task hint
         let selected_model = if use_grok {
-            self.model_selector.select_grok(task_hint)
+            self.model_selector.select_grok(effective_task_hint)
         } else {
-            self.model_selector.select_maple(task_hint)
+            self.model_selector.select_maple(effective_task_hint)
         };
 
         info!(
             "Generating response with {:?} (sensitivity: {:?}, task_hint: {:?}, model: {}, use_grok: {}, force_maple: {})",
-            indicator, sensitivity, task_hint, selected_model, use_grok, force_maple
+            indicator, sensitivity, effective_task_hint, selected_model, use_grok, force_maple
         );
 
         // Augment message with search context if any
@@ -580,12 +617,18 @@ impl<S: MessageSender> Orchestrator<S> {
         task_hint: TaskHint,
         _history_key: &str,
     ) -> Result<OutboundMessage, OrchestratorError> {
+        let effective_task_hint = if message.has_images() {
+            TaskHint::Vision
+        } else {
+            task_hint
+        };
+
         // Select the best model based on task hint
-        let selected_model = self.model_selector.select_maple(task_hint);
+        let selected_model = self.model_selector.select_maple(effective_task_hint);
 
         info!(
             "Direct Maple query (task_hint: {:?}, model: {}): {}",
-            task_hint, selected_model, query
+            effective_task_hint, selected_model, query
         );
 
         // Create a modified message with the extracted query
@@ -647,7 +690,7 @@ impl<S: MessageSender> Orchestrator<S> {
 
     /// Get the Maple brain.
     pub fn maple_brain(&self) -> &MapleBrain {
-        &self.maple_brain
+        self.maple_brain.as_ref()
     }
 
     /// Get the Grok brain.
