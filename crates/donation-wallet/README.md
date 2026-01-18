@@ -69,6 +69,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Blink**
 - **Speed**
 
+## Build Requirements
+
+### Debian/Ubuntu
+
+```bash
+sudo apt-get install protobuf-compiler
+```
+
+### macOS
+
+```bash
+brew install protobuf
+```
+
+### From source
+
+Download from https://github.com/protocolbuffers/protobuf/releases
+
 ## AI Agent Guidelines
 
 If you are an AI assistant modifying this crate:
