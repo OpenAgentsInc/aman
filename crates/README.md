@@ -56,16 +56,15 @@ This directory contains all Rust crates that make up the Aman Signal chatbot. Th
 | --- | --- |
 | `signal-daemon` | Core client for signal-cli daemon (HTTP/SSE) |
 | `message-listener` | Signal inbound transport using signal-daemon |
-| `broadcaster` | Signal outbound delivery using signal-daemon |
-| `agent-brain` | Onboarding, routing, and subscription handling |
+| `agent-brain` | Basic brain with user management |
 | `mock-brain` | Mock brain implementations for testing message flows |
 | `brain-core` | Shared Brain trait and message types for AI backends |
 | `maple-brain` | OpenSecret-backed Brain implementation |
 | `grok-brain` | xAI Grok Brain and tool executor |
 | `orchestrator` | Message routing, action planning, and tool orchestration |
 | `agent-tools` | Tool registry, built-in tools, and ToolExecutor adapter with policy controls |
-| `database` | SQLite persistence (users/topics/notifications + preferences/summaries/tool history) |
+| `database` | SQLite persistence (users + preferences/summaries/tool history) |
 | `api` | OpenAI-compatible chat API (local inference gateway) |
 | `ingester` | Document chunking and Nostr publishing/indexing |
 | `nostr-persistence` | Nostr publisher/indexer for durable doc/chunk metadata |
-| `admin-web` | Admin dashboard and broadcast UI |
+| `admin-web` | Admin dashboard UI |

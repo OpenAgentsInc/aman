@@ -10,19 +10,11 @@
         <div class="stat-value">{{ stats.user_count }}</div>
         <div class="stat-label">Users</div>
     </div>
-    <div class="stat-card">
-        <div class="stat-value">{{ stats.topic_count }}</div>
-        <div class="stat-label">Topics</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-value">{{ stats.subscription_count }}</div>
-        <div class="stat-label">Subscriptions</div>
-    </div>
 </div>
 
 {% if let Some(proton) = stats.proton %}
 <div class="section">
-    <h2>📧 Proton Mail</h2>
+    <h2>Proton Mail</h2>
     <div class="stats-grid">
         <div class="stat-card {% if proton.unread_count > 0 %}highlight{% endif %}">
             <div class="stat-value">{{ proton.unread_count }}</div>
@@ -35,35 +27,10 @@
     </div>
     <p class="email-info">Account: <strong>{{ proton.email }}</strong></p>
     {% if let Some(error) = proton.error %}
-    <p class="error-message">⚠️ {{ error }}</p>
+    <p class="error-message">{{ error }}</p>
     {% endif %}
 </div>
 {% endif %}
-
-<div class="section">
-    <h2>Topics</h2>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Topic</th>
-                <th>Subscribers</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for topic in stats.topics %}
-            <tr>
-                <td>{{ topic.slug }}</td>
-                <td>{{ topic.subscriber_count }}</td>
-            </tr>
-            {% endfor %}
-            {% if stats.topics.is_empty() %}
-            <tr>
-                <td colspan="2" class="empty">No topics</td>
-            </tr>
-            {% endif %}
-        </tbody>
-    </table>
-</div>
 
 <div class="section">
     <h2>Users by Language</h2>

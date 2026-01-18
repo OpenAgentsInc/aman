@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-Core decision layer for Aman. AgentBrain handles onboarding, subscription state, and regional alert routing.
+Core decision layer for Aman. AgentBrain handles user management and basic message processing.
 It implements the shared `Brain` trait so it can be used directly with the message listener.
 
 ## Public interfaces
@@ -10,30 +10,16 @@ It implements the shared `Brain` trait so it can be used directly with the messa
 Consumes:
 
 - `InboundMessage` (from `message-listener`)
-- `RegionEvent` (for alert fanout)
 
 Produces:
 
-- `OutboundMessage` (to `broadcaster` or `message-listener` processor)
-- Subscription updates in SQLite (via `database`)
-
-## Onboarding and state machine
-
-- New contacts are prompted to opt in to regional alerts.
-- Regions are parsed from user input ("Iran", "Syria", etc.).
-- Users can opt out with "stop" or "unsubscribe".
-
-## Subscription storage
-
-Uses the `database` crate (SQLite) for users, topics, and notifications.
+- `OutboundMessage` (to `message-listener` processor)
+- User records in SQLite (via `database`)
 
 ## Commands (MVP)
 
 - `help`
 - `status`
-- `subscribe <region>`
-- `region <region>`
-- `stop` / `unsubscribe`
 
 ## Run (Signal bot)
 
@@ -52,29 +38,10 @@ Optional multi-account mode:
 export SIGNAL_DAEMON_ACCOUNT="+15551234567"
 ```
 
-## Send a regional event
-
-```bash
-cat <<'JSON' > /tmp/region-event.json
-{
-  "region": "Iran",
-  "kind": "outage",
-  "severity": "urgent",
-  "confidence": "high",
-  "summary": "Reported nationwide connectivity disruption.",
-  "source_refs": ["https://example.org/report"],
-  "ts": "2025-01-01T12:00:00Z"
-}
-JSON
-
-cargo run -p agent-brain --bin region_event_send -- /tmp/region-event.json
-```
-
 ## Failure modes
 
 - Missing or invalid `SQLITE_PATH`.
-- Unknown region input (responds with help/choices).
-- signal-cli daemon unavailable when sending alerts.
+- signal-cli daemon unavailable when sending responses.
 
 ## Future work
 

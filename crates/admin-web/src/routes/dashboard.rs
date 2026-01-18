@@ -21,18 +21,8 @@ pub struct DashboardTemplate {
 #[derive(Clone, Serialize)]
 pub struct Stats {
     pub user_count: i64,
-    pub topic_count: i64,
-    pub subscription_count: i64,
-    pub topics: Vec<TopicStats>,
     pub languages: Vec<LanguageStats>,
     pub proton: Option<ProtonStats>,
-}
-
-/// Statistics for a single topic.
-#[derive(Clone, Serialize)]
-pub struct TopicStats {
-    pub slug: String,
-    pub subscriber_count: i64,
 }
 
 /// Statistics for a language.
@@ -68,19 +58,7 @@ async fn get_stats(state: &AppState) -> Result<Stats> {
     let pool = state.db.pool();
 
     let user_count = database::user::count_users(pool).await?;
-    let topics_with_counts = database::topic::list_topics_with_subscriber_counts(pool).await?;
     let languages = database::user::count_users_by_language(pool).await?;
-
-    let topic_count = topics_with_counts.len() as i64;
-    let subscription_count: i64 = topics_with_counts.iter().map(|(_, c)| *c).sum();
-
-    let topics = topics_with_counts
-        .into_iter()
-        .map(|(slug, count)| TopicStats {
-            slug,
-            subscriber_count: count,
-        })
-        .collect();
 
     let languages = languages
         .into_iter()
@@ -99,9 +77,6 @@ async fn get_stats(state: &AppState) -> Result<Stats> {
 
     Ok(Stats {
         user_count,
-        topic_count,
-        subscription_count,
-        topics,
         languages,
         proton,
     })

@@ -12,10 +12,6 @@ pub enum AdminError {
     #[error("Database error: {0}")]
     Database(#[from] database::DatabaseError),
 
-    /// Broadcaster error.
-    #[error("Broadcaster error: {0}")]
-    Broadcaster(#[from] broadcaster::Error),
-
     /// Internal server error.
     #[error("Internal error: {0}")]
     Internal(String),
@@ -26,10 +22,6 @@ impl IntoResponse for AdminError {
         let (status, message) = match &self {
             AdminError::Database(err) => {
                 tracing::error!("Database error: {}", err);
-                (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
-            }
-            AdminError::Broadcaster(err) => {
-                tracing::error!("Broadcaster error: {}", err);
                 (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
             }
             AdminError::Internal(msg) => {

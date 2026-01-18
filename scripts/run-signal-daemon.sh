@@ -55,4 +55,5 @@ exec java -jar "$SIGNAL_CLI_JAR" \
     -a "$ACCOUNT" \
     daemon \
     --http="$HTTP_ADDR" \
+    --receive-mode=on-connection \
     --send-read-receipts

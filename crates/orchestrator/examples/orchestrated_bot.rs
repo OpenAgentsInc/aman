@@ -92,12 +92,20 @@ fn envelope_to_inbound(envelope: &Envelope) -> Option<InboundMessage> {
 }
 
 /// Check if we should process this envelope.
-fn should_process(envelope: &Envelope, bot_number: Option<&str>) -> Result<(), String> {
+fn should_process(envelope: &Envelope, bot_number: Option<&str>, startup_time_ms: u64) -> Result<(), String> {
     // Skip messages from ourselves
     if let Some(bot) = bot_number {
         if envelope.source == bot || envelope.source_number == bot {
             return Err("message from self".to_string());
         }
+    }
+
+    // Skip messages older than startup time (prevents replay of old messages)
+    if envelope.timestamp < startup_time_ms {
+        return Err(format!(
+            "old message (ts={}, startup={})",
+            envelope.timestamp, startup_time_ms
+        ));
     }
 
     // Must have a data message with text
@@ -132,8 +140,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get bot number from environment
     let bot_number = env::var("AMAN_NUMBER").ok();
 
+    // Capture startup time for filtering old messages
+    let startup_time_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_millis() as u64;
+
     // Connect to Signal daemon
-    let (_process, client) = if let Some(ref account) = bot_number {
+    let (mut process, client) = if let Some(ref account) = bot_number {
         // Spawn daemon from JAR
         let jar_path = env::var("SIGNAL_CLI_JAR")
             .unwrap_or_else(|_| "build/signal-cli.jar".to_string());
@@ -182,82 +196,105 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Subscribe to messages and process them
     let mut stream = signal_daemon::subscribe(&client)?;
 
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(envelope) => {
-                // Check if we should process this message
-                if let Err(reason) = should_process(&envelope, bot_number.as_deref()) {
-                    debug!("Skipping message: {}", reason);
-                    continue;
-                }
+    // Main message loop with shutdown handling
+    loop {
+        tokio::select! {
+            // Handle Ctrl+C gracefully
+            _ = tokio::signal::ctrl_c() => {
+                info!("Shutdown signal received, stopping...");
+                break;
+            }
+            // Process incoming messages
+            result = stream.next() => {
+                match result {
+                    Some(Ok(envelope)) => {
+                        // Check if we should process this message
+                        if let Err(reason) = should_process(&envelope, bot_number.as_deref(), startup_time_ms) {
+                            debug!("Skipping message: {}", reason);
+                            continue;
+                        }
 
-                // Convert to inbound message
-                let inbound = match envelope_to_inbound(&envelope) {
-                    Some(msg) => msg,
-                    None => {
-                        debug!("Could not convert envelope to inbound message");
-                        continue;
-                    }
-                };
+                        // Convert to inbound message
+                        let inbound = match envelope_to_inbound(&envelope) {
+                            Some(msg) => msg,
+                            None => {
+                                debug!("Could not convert envelope to inbound message");
+                                continue;
+                            }
+                        };
 
-                info!("Received message from {}: {}", inbound.sender, inbound.text);
+                        info!("Received message from {}: {}", inbound.sender, inbound.text);
 
-                // Process through orchestrator
-                let orchestrator = orchestrator.clone();
-                let client = client.clone();
-                let inbound_clone = inbound.clone();
+                        // Process through orchestrator
+                        let orchestrator = orchestrator.clone();
+                        let client = client.clone();
+                        let inbound_clone = inbound.clone();
 
-                // Spawn a task to process the message
-                tokio::spawn(async move {
-                    match orchestrator.process(inbound_clone.clone()).await {
-                        Ok(response) => {
-                            // Send the final response
-                            let send_result = if response.is_group {
-                                client.send_to_group(&response.recipient, &response.text).await
-                            } else {
-                                client.send_text(&response.recipient, &response.text).await
-                            };
+                        // Spawn a task to process the message
+                        tokio::spawn(async move {
+                            match orchestrator.process(inbound_clone.clone()).await {
+                                Ok(response) => {
+                                    // Send the final response
+                                    let send_result = if response.is_group {
+                                        client.send_to_group(&response.recipient, &response.text).await
+                                    } else {
+                                        client.send_text(&response.recipient, &response.text).await
+                                    };
 
-                            match send_result {
-                                Ok(_) => {
-                                    info!(
-                                        "Sent response to {}: {} chars",
-                                        response.recipient,
-                                        response.text.len()
-                                    );
+                                    match send_result {
+                                        Ok(_) => {
+                                            info!(
+                                                "Sent response to {}: {} chars",
+                                                response.recipient,
+                                                response.text.len()
+                                            );
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to send response: {}", e);
+                                        }
+                                    }
+                                }
+                                Err(OrchestratorError::Skipped(reason)) => {
+                                    debug!("Message skipped by orchestrator: {}", reason);
                                 }
                                 Err(e) => {
-                                    error!("Failed to send response: {}", e);
+                                    error!("Orchestrator error: {}", e);
+
+                                    // Try to send an error message to the user
+                                    let error_msg = "Sorry, I encountered an error processing your message. Please try again.";
+                                    let recipient = inbound_clone.group_id.as_ref().unwrap_or(&inbound_clone.sender);
+                                    let is_group = inbound_clone.group_id.is_some();
+
+                                    let _ = if is_group {
+                                        client.send_to_group(recipient, error_msg).await
+                                    } else {
+                                        client.send_text(recipient, error_msg).await
+                                    };
                                 }
                             }
-                        }
-                        Err(OrchestratorError::Skipped(reason)) => {
-                            debug!("Message skipped by orchestrator: {}", reason);
-                        }
-                        Err(e) => {
-                            error!("Orchestrator error: {}", e);
-
-                            // Try to send an error message to the user
-                            let error_msg = "Sorry, I encountered an error processing your message. Please try again.";
-                            let recipient = inbound_clone.group_id.as_ref().unwrap_or(&inbound_clone.sender);
-                            let is_group = inbound_clone.group_id.is_some();
-
-                            let _ = if is_group {
-                                client.send_to_group(recipient, error_msg).await
-                            } else {
-                                client.send_text(recipient, error_msg).await
-                            };
-                        }
+                        });
                     }
-                });
-            }
-            Err(e) => {
-                warn!("Stream error: {}", e);
-                // Continue on stream errors - they might be recoverable
+                    Some(Err(e)) => {
+                        warn!("Stream error: {}", e);
+                        // Continue on stream errors - they might be recoverable
+                    }
+                    None => {
+                        warn!("Message stream ended");
+                        break;
+                    }
+                }
             }
         }
     }
 
-    warn!("Message stream ended");
+    // Clean up daemon process
+    if let Some(ref mut proc) = process {
+        info!("Stopping signal-cli daemon...");
+        if let Err(e) = proc.kill() {
+            warn!("Failed to kill daemon: {}", e);
+        }
+    }
+
+    info!("Shutdown complete");
     Ok(())
 }

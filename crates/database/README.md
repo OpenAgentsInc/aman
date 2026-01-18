@@ -6,7 +6,7 @@ SQLite persistence layer for Aman using async SQLx.
 
 - Async SQLite with connection pooling
 - Built-in migrations
-- CRUD operations for Users, Topics, and Notification subscriptions
+- CRUD operations for Users
 - Durable memory tables for preferences, summaries, tool history, and clear-context events
 - User profiles with validated fields (nickname, country, etc.)
 - Input validation for user-provided data
@@ -14,24 +14,13 @@ SQLite persistence layer for Aman using async SQLx.
 ## Schema
 
 ```
-┌─────────────────┐       ┌─────────────────┐
-│     users       │       │     topics      │
-├─────────────────┤       ├─────────────────┤
-│ id (PK)         │       │ slug (PK)       │
-│ name            │       └────────┬────────┘
-│ language        │                │
-└────────┬────────┘                │
-         │                         │
-         │    ┌────────────────────┘
-         │    │
-         ▼    ▼
-┌─────────────────────────┐
-│     notifications       │
-├─────────────────────────┤
-│ user_id (FK)            │
-│ topic_slug (FK)         │
-│ created_at              │
-└─────────────────────────┘
+┌─────────────────┐
+│     users       │
+├─────────────────┤
+│ id (PK)         │
+│ name            │
+│ language        │
+└─────────────────┘
 ```
 
 ### Memory tables
@@ -46,7 +35,7 @@ clear_context_events (history_key, sender_id, created_at)
 ## Usage
 
 ```rust
-use database::{Database, User, user, topic, notification};
+use database::{Database, User, user};
 
 #[tokio::main]
 async fn main() -> database::Result<()> {
@@ -61,15 +50,6 @@ async fn main() -> database::Result<()> {
         language: "Arabic".to_string(),
     };
     user::create_user(db.pool(), &user).await?;
-
-    // Subscribe user to a topic
-    notification::subscribe(db.pool(), &user.id, "iran").await?;
-
-    // Get all subscribers for a topic
-    let subscribers = notification::get_topic_subscribers(db.pool(), "iran").await?;
-
-    // Get all topics a user is subscribed to
-    let topics = notification::get_user_subscriptions(db.pool(), &user.id).await?;
 
     Ok(())
 }
@@ -95,25 +75,6 @@ async fn main() -> database::Result<()> {
 | `user::update_user(pool, user)` | Update user |
 | `user::delete_user(pool, id)` | Delete user |
 | `user::list_users(pool)` | List all users |
-
-### Topic CRUD
-
-| Function | Description |
-|----------|-------------|
-| `topic::create_topic(pool, slug)` | Create a new topic |
-| `topic::get_topic(pool, slug)` | Get topic by slug |
-| `topic::delete_topic(pool, slug)` | Delete topic |
-| `topic::list_topics(pool)` | List all topics |
-
-### Notification CRUD
-
-| Function | Description |
-|----------|-------------|
-| `notification::subscribe(pool, user_id, topic_slug)` | Subscribe user to topic |
-| `notification::unsubscribe(pool, user_id, topic_slug)` | Unsubscribe user from topic |
-| `notification::is_subscribed(pool, user_id, topic_slug)` | Check if user is subscribed |
-| `notification::get_user_subscriptions(pool, user_id)` | Get all topics for a user |
-| `notification::get_topic_subscribers(pool, topic_slug)` | Get all users for a topic |
 
 ### Preferences
 
@@ -156,18 +117,6 @@ async fn main() -> database::Result<()> {
 | `user_profile::delete_profile(pool, user_id)` | Delete entire profile |
 
 Profile fields: `nickname`, `country`, `language`, `timezone`, `birthday`, `bio`
-
-## Default Topics
-
-The initial migration seeds these topics:
-
-- `iran`
-- `syria`
-- `lebanon`
-- `uganda`
-- `venezuela`
-- `bitcoin`
-- `vpn+iran`
 
 ## Testing
 

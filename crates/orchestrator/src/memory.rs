@@ -234,6 +234,7 @@ impl MemorySettings {
 pub struct MemoryStore {
     database: Database,
     settings: MemorySettings,
+    #[cfg_attr(not(feature = "nostr"), allow(dead_code))]
     publisher: Option<MemoryPublisher>,
 }
 

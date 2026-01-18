@@ -1,7 +1,7 @@
 //! SQLite persistence layer for Aman.
 //!
-//! This crate provides async database operations for users, topics, and notification
-//! subscriptions using SQLx with SQLite.
+//! This crate provides async database operations for users, preferences, and
+//! conversation state using SQLx with SQLite.
 //!
 //! # Example
 //!
@@ -22,9 +22,6 @@
 //!     };
 //!     user::create_user(db.pool(), &user).await?;
 //!
-//!     // Subscribe to a topic
-//!     database::notification::subscribe(db.pool(), &user.id, "iran").await?;
-//!
 //!     Ok(())
 //! }
 //! ```
@@ -35,15 +32,13 @@ pub mod preference;
 pub mod conversation_summary;
 pub mod tool_history;
 pub mod clear_context_event;
-pub mod notification;
-pub mod topic;
 pub mod user;
 pub mod user_profile;
 pub mod validation;
 
 pub use error::{DatabaseError, Result};
 pub use models::{
-    ClearContextEvent, ConversationSummary, Notification, Preference, ToolHistoryEntry, Topic,
+    ClearContextEvent, ConversationSummary, Preference, ToolHistoryEntry,
     User, UserProfile,
 };
 pub use user_profile::ProfileField;
@@ -172,61 +167,5 @@ mod tests {
         user::delete_user(db.pool(), &user.id).await.unwrap();
         let result = user::get_user(db.pool(), &user.id).await;
         assert!(matches!(result, Err(DatabaseError::NotFound { .. })));
-    }
-
-    #[tokio::test]
-    async fn test_topic_crud() {
-        let db = test_db().await;
-
-        // Initial topics from migration
-        let topics = topic::list_topics(db.pool()).await.unwrap();
-        assert!(topics.iter().any(|t| t.slug == "iran"));
-
-        // Create
-        let new_topic = topic::create_topic(db.pool(), "test-topic").await.unwrap();
-        assert_eq!(new_topic.slug, "test-topic");
-
-        // Read
-        let fetched = topic::get_topic(db.pool(), "test-topic").await.unwrap();
-        assert_eq!(fetched.slug, "test-topic");
-
-        // Delete
-        topic::delete_topic(db.pool(), "test-topic").await.unwrap();
-        let result = topic::get_topic(db.pool(), "test-topic").await;
-        assert!(matches!(result, Err(DatabaseError::NotFound { .. })));
-    }
-
-    #[tokio::test]
-    async fn test_subscriptions() {
-        let db = test_db().await;
-
-        // Create a user
-        let user = User {
-            id: "sub-test-user".to_string(),
-            name: "Subscriber".to_string(),
-            language: "English".to_string(),
-        };
-        user::create_user(db.pool(), &user).await.unwrap();
-
-        // Subscribe to topics
-        notification::subscribe(db.pool(), &user.id, "iran").await.unwrap();
-        notification::subscribe(db.pool(), &user.id, "bitcoin").await.unwrap();
-
-        // Check subscription
-        assert!(notification::is_subscribed(db.pool(), &user.id, "iran").await.unwrap());
-        assert!(!notification::is_subscribed(db.pool(), &user.id, "uganda").await.unwrap());
-
-        // Get user subscriptions
-        let subs = notification::get_user_subscriptions(db.pool(), &user.id).await.unwrap();
-        assert_eq!(subs.len(), 2);
-
-        // Get topic subscribers
-        let subscribers = notification::get_topic_subscribers(db.pool(), "iran").await.unwrap();
-        assert_eq!(subscribers.len(), 1);
-        assert_eq!(subscribers[0].id, user.id);
-
-        // Unsubscribe
-        notification::unsubscribe(db.pool(), &user.id, "iran").await.unwrap();
-        assert!(!notification::is_subscribed(db.pool(), &user.id, "iran").await.unwrap());
     }
 }

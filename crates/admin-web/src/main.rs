@@ -1,15 +1,13 @@
 //! Admin web interface for Aman Signal bot.
 //!
-//! Provides a dashboard and broadcast functionality via HTMX + server-rendered HTML.
+//! Provides a dashboard via HTMX + server-rendered HTML.
 
 mod config;
 mod error;
 mod routes;
 mod state;
 
-use broadcaster::Broadcaster;
 use database::Database;
-use signal_daemon::DaemonConfig;
 use tower_http::services::ServeDir;
 use tracing::info;
 
@@ -31,24 +29,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = Database::connect(&config.database_url).await?;
     db.migrate().await?;
 
-    // Connect to broadcaster (optional - dashboard works without it)
-    let daemon_config = DaemonConfig::with_account(
-        &config.signal_daemon_url,
-        &config.aman_number,
-    );
-    let broadcaster = match Broadcaster::connect(daemon_config).await {
-        Ok(b) => {
-            info!("Connected to Signal daemon");
-            Some(b)
-        }
-        Err(e) => {
-            tracing::warn!("Signal daemon not available: {}. Broadcast features will be disabled.", e);
-            None
-        }
-    };
-
     // Build application state
-    let state = AppState::new(db, broadcaster, config.proton);
+    let state = AppState::new(db, config.proton);
 
     // Build router
     let app = routes::router()

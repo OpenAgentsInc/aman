@@ -1,5 +1,7 @@
+#[cfg(feature = "nostr")]
 use std::sync::Arc;
 
+#[cfg(feature = "nostr")]
 use tracing::warn;
 
 #[cfg(feature = "nostr")]

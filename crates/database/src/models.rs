@@ -14,24 +14,6 @@ pub struct User {
     pub language: String,
 }
 
-/// A topic that users can subscribe to for notifications.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
-pub struct Topic {
-    /// Unique slug identifier (e.g., "iran", "bitcoin")
-    pub slug: String,
-}
-
-/// A notification subscription linking a user to a topic.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
-pub struct Notification {
-    /// Topic slug
-    pub topic_slug: String,
-    /// User ID (Signal UUID)
-    pub user_id: String,
-    /// When the subscription was created
-    pub created_at: String,
-}
-
 /// A stored routing preference for a sender or group.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
 pub struct Preference {

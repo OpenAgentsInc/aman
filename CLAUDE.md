@@ -76,8 +76,7 @@ Located in `crates/`:
 | **orchestrator** | Message routing, action coordination, multi-step processing | Production-ready |
 | **agent-tools** | Tool registry with 11 tools: Calculator, Weather, WebFetch, Dictionary, WorldTime, BitcoinPrice, CryptoPrice, CurrencyConverter, UnitConverter, RandomNumber, Sanitize | Production-ready |
 | **mock-brain** | Mock brain implementations for testing | Stable |
-| **broadcaster** | Signal outbound delivery | Working |
-| **agent-brain** | Onboarding, routing, and subscriptions | Stub |
+| **agent-brain** | Basic brain with user management | Stub |
 
 ## Quick Start (Development)
 

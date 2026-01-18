@@ -4,13 +4,11 @@
 use std::sync::Arc;
 
 use brain_core::{async_trait, Brain, BrainError, InboundMessage, OutboundMessage};
-use database::{notification, topic, user, Database, DatabaseError, User};
+use database::{user, Database, DatabaseError, User};
 #[cfg(feature = "nostr")]
 use nostr_persistence::{NostrIndexer, NostrPublisher};
 
 use crate::config::AgentBrainConfig;
-use crate::events::RegionEvent;
-use crate::regions::{canonicalize_region, normalize_region_input};
 
 /// Core brain implementation for Aman.
 #[derive(Clone)]
@@ -87,107 +85,12 @@ impl AgentBrain {
         }
     }
 
-    async fn list_topics(&self) -> Result<Vec<String>, BrainError> {
-        let topics = topic::list_topics(self.db.pool())
-            .await
-            .map_err(map_db_error)?;
-        Ok(topics.into_iter().map(|t| t.slug).collect())
+    fn help_text(&self) -> String {
+        "Commands: help, status\nSend a message to chat.".to_string()
     }
 
-    async fn get_subscriptions(&self, sender: &str) -> Result<Vec<String>, BrainError> {
-        let subs = notification::get_user_subscriptions(self.db.pool(), sender)
-            .await
-            .map_err(map_db_error)?;
-        Ok(subs.into_iter().map(|t| t.slug).collect())
-    }
-
-    async fn unsubscribe_all(&self, sender: &str) -> Result<usize, BrainError> {
-        let subs = notification::get_user_subscriptions(self.db.pool(), sender)
-            .await
-            .map_err(map_db_error)?;
-        let mut removed = 0usize;
-        for sub in subs {
-            if notification::unsubscribe(self.db.pool(), sender, &sub.slug)
-                .await
-                .is_ok()
-            {
-                removed += 1;
-            }
-        }
-        Ok(removed)
-    }
-
-    async fn resolve_region_slug(&self, raw: &str) -> Result<Option<String>, BrainError> {
-        let cleaned = normalize_region_input(raw);
-        if cleaned.is_empty() {
-            return Ok(None);
-        }
-
-        let canonical = canonicalize_region(&cleaned);
-        if topic::get_topic(self.db.pool(), &canonical).await.is_ok() {
-            return Ok(Some(canonical));
-        }
-
-        let dashed = canonical.replace(' ', "-");
-        if topic::get_topic(self.db.pool(), &dashed).await.is_ok() {
-            return Ok(Some(dashed));
-        }
-
-        let plus = canonical.replace(' ', "+");
-        if topic::get_topic(self.db.pool(), &plus).await.is_ok() {
-            return Ok(Some(plus));
-        }
-
-        Ok(None)
-    }
-
-    async fn set_region_subscription(&self, sender: &str, region_slug: &str) -> Result<(), BrainError> {
-        self.unsubscribe_all(sender).await?;
-        notification::subscribe(self.db.pool(), sender, region_slug)
-            .await
-            .map_err(map_db_error)
-    }
-
-    fn help_text(&self, topics: &[String]) -> String {
-        let mut lines = vec![
-            "Commands: help, status, subscribe <region>, region <region>, stop".to_string(),
-            "Example: subscribe Iran".to_string(),
-        ];
-        if !topics.is_empty() {
-            lines.push(format!("Available regions: {}", topics.join(", ")));
-        }
-        lines.join("\n")
-    }
-
-    fn onboarding_text(&self) -> String {
-        "Want regional alerts? Reply with a region (e.g., Iran) or send 'stop'.".to_string()
-    }
-
-    fn unknown_region_text(&self, topics: &[String]) -> String {
-        if topics.is_empty() {
-            "I didn't recognize that region. Try again or send 'help'.".to_string()
-        } else {
-            format!(
-                "I didn't recognize that region. Try one of: {}",
-                topics.join(", ")
-            )
-        }
-    }
-
-    /// Fan out a regional event to all subscribers.
-    pub async fn fanout_event(&self, event: &RegionEvent) -> Result<Vec<OutboundMessage>, BrainError> {
-        let Some(region_slug) = self.resolve_region_slug(&event.region).await? else {
-            return Ok(Vec::new());
-        };
-        let subscribers = notification::get_topic_subscribers(self.db.pool(), &region_slug)
-            .await
-            .map_err(map_db_error)?;
-        let body = event.render_alert();
-
-        Ok(subscribers
-            .into_iter()
-            .map(|user| OutboundMessage::direct(user.id, body.clone()))
-            .collect())
+    fn welcome_text(&self) -> String {
+        "Welcome! Send a message to get started, or 'help' for commands.".to_string()
     }
 }
 
@@ -204,87 +107,22 @@ impl Brain for AgentBrain {
                     "Thanks for the attachment. I can only process text for now.",
                 ));
             }
-            return Ok(OutboundMessage::reply_to(&message, self.onboarding_text()));
+            return Ok(OutboundMessage::reply_to(&message, self.welcome_text()));
         }
 
-        let (command, rest) = split_command(text);
+        let (command, _rest) = split_command(text);
         let command_lower = command.to_lowercase();
 
-        let topics = self.list_topics().await?;
-        let subscriptions = self.get_subscriptions(&message.sender).await?;
-
         match command_lower.as_str() {
-            "help" | "?" => Ok(OutboundMessage::reply_to(&message, self.help_text(&topics))),
-            "status" => {
-                if subscriptions.is_empty() {
-                    Ok(OutboundMessage::reply_to(
-                        &message,
-                        "You're not subscribed to any alerts. Reply with a region to opt in.",
-                    ))
-                } else {
-                    Ok(OutboundMessage::reply_to(
-                        &message,
-                        format!("You're subscribed to: {}", subscriptions.join(", ")),
-                    ))
-                }
-            }
-            "stop" | "unsubscribe" => {
-                let _ = self.unsubscribe_all(&message.sender).await?;
-                Ok(OutboundMessage::reply_to(
-                    &message,
-                    "You're unsubscribed. Send 'subscribe <region>' to opt back in.",
-                ))
-            }
-            "subscribe" | "region" => {
-                if rest.is_empty() {
-                    return Ok(OutboundMessage::reply_to(
-                        &message,
-                        "Please provide a region. Example: subscribe Iran",
-                    ));
-                }
-
-                if let Some(region_slug) = self.resolve_region_slug(rest).await? {
-                    self.set_region_subscription(&message.sender, &region_slug)
-                        .await?;
-                    Ok(OutboundMessage::reply_to(
-                        &message,
-                        format!("Subscribed to {} alerts.", region_slug),
-                    ))
-                } else {
-                    Ok(OutboundMessage::reply_to(
-                        &message,
-                        self.unknown_region_text(&topics),
-                    ))
-                }
-            }
-            "yes" => Ok(OutboundMessage::reply_to(
+            "help" | "?" => Ok(OutboundMessage::reply_to(&message, self.help_text())),
+            "status" => Ok(OutboundMessage::reply_to(
                 &message,
-                "Which region should I watch? Example: Iran",
+                "AgentBrain is running.",
             )),
-            "no" => {
-                let _ = self.unsubscribe_all(&message.sender).await?;
-                Ok(OutboundMessage::reply_to(
-                    &message,
-                    "Okay. You won't receive regional alerts.",
-                ))
-            }
-            _ => {
-                if let Some(region_slug) = self.resolve_region_slug(text).await? {
-                    self.set_region_subscription(&message.sender, &region_slug)
-                        .await?;
-                    Ok(OutboundMessage::reply_to(
-                        &message,
-                        format!("Subscribed to {} alerts.", region_slug),
-                    ))
-                } else if subscriptions.is_empty() {
-                    Ok(OutboundMessage::reply_to(&message, self.onboarding_text()))
-                } else {
-                    Ok(OutboundMessage::reply_to(
-                        &message,
-                        "Send 'help' for commands or 'status' to view subscriptions.",
-                    ))
-                }
-            }
+            _ => Ok(OutboundMessage::reply_to(
+                &message,
+                format!("You said: {}", text),
+            )),
         }
     }
 
@@ -311,9 +149,9 @@ mod tests {
 
     #[test]
     fn test_split_command() {
-        let (cmd, rest) = split_command("subscribe iran");
-        assert_eq!(cmd, "subscribe");
-        assert_eq!(rest, "iran");
+        let (cmd, rest) = split_command("help me");
+        assert_eq!(cmd, "help");
+        assert_eq!(rest, "me");
 
         let (cmd, rest) = split_command("status");
         assert_eq!(cmd, "status");

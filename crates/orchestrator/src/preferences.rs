@@ -17,6 +17,7 @@ use crate::actions::UserPreference;
 pub struct PreferenceStore {
     preferences: RwLock<HashMap<String, UserPreference>>,
     database: Option<Database>,
+    #[cfg_attr(not(feature = "nostr"), allow(dead_code))]
     publisher: Option<MemoryPublisher>,
 }
 
