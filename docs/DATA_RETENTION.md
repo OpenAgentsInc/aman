@@ -36,6 +36,12 @@ This document defines what Aman stores, what it does not store, and the default 
 - Precise location data or unnecessary metadata.
 - Raw upstream requests/responses when retention is disabled (if supported by the provider).
 
+## Optional donation wallet backends
+
+- Lightning wallet secrets and transaction data live in the external backend (Phoenixd, CLN, LND, NWC, Strike, Blink, Speed).
+- Aman does not store private keys or any send-capable credentials; the donation wallet crate only exposes receive flows.
+- If donation flows are wired into the bot, only invoice metadata (hash, memo, amount, settlement status) should be stored.
+
 ## Optional Nostr durability (when enabled)
 
 These items are stored only when Nostr is configured:

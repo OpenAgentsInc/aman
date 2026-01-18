@@ -33,6 +33,7 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - Operator broadcasts and dashboards
 - Optional web UI for browser chat
 - OpenAI-compatible API gateway (echo, orchestrator, or OpenRouter proxy modes) with local/Nostr KB injection
+- Receive-only Lightning donation wallet crate (LNI-backed; no send/pay functions exposed)
 
 ## What it is not yet
 
@@ -42,6 +43,7 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - Automated event ingestion from live feeds
 - End-to-end durable memory in the brain crates (Maple/Grok history is still in-memory)
 - End-to-end PII sanitization flow (tool exists, orchestration wiring pending)
+- Donation flows wired into Signal responses (donation-wallet is currently standalone)
 
 ## Quickstart (local dev)
 
@@ -66,6 +68,7 @@ Edit these files to customize the bot's personality, tone, and routing behavior 
 - `ROADMAP.md` - next phases
 - `crates/README.md` - crate catalog
 - `crates/orchestrator/README.md` - routing + action orchestration
+- `crates/donation-wallet/README.md` - receive-only Lightning wallet
 - `web/README.md` - browser UI
 
 ## Safety Posture

@@ -180,6 +180,8 @@ Aman is a Signal-native chatbot that provides AI-powered conversations with priv
 └─────────────────┘     └─────────────────┘
 ```
 
+Other workspace crates: `donation-wallet` (receive-only Lightning wallet built on the `repos/lni` submodule).
+
 ## Quick Start
 
 To understand the architecture, start with these key concepts:
@@ -202,7 +204,7 @@ To understand the architecture, start with these key concepts:
 
 - Signal-native messaging experience.
 - Opt-in regional alerts for activists and human-rights defenders.
-- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`, `admin-web`, `grok-brain`, `orchestrator`, `agent-tools`.
+- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`, `admin-web`, `donation-wallet`, `grok-brain`, `orchestrator`, `agent-tools`.
 - Data persistence crate: `database` (SQLite via SQLx).
 - Brain interface crate: `brain-core` (shared Brain trait, message types, and ConversationHistory).
 - Optional brain crate: `maple-brain` (OpenSecret-based AI backend).
@@ -222,6 +224,10 @@ To understand the architecture, start with these key concepts:
 - Admin web UI (crate: `crates/admin-web`)
   - Dashboard + broadcast tooling for operators.
   - Reads from SQLite and sends broadcasts via `broadcaster`.
+- `donation-wallet` (crate: `crates/donation-wallet`)
+  - Receive-only Lightning wallet wrapper (no send/pay functions exposed).
+  - Uses the LNI submodule (`repos/lni`) for backend support.
+  - Intended for donation flows; not yet wired into Signal responses.
 - `api` (crate: `crates/api`)
   - OpenAI-compatible inference gateway (`/v1/chat/completions`, `/v1/models`).
   - Uses a local knowledge base (if configured), orchestrator brain, or OpenRouter inference mode.
@@ -592,6 +598,10 @@ Environment variables (names may be implementation-specific):
 - `OPENROUTER_MODEL`: default OpenRouter model if the request omits `model`.
 - `OPENROUTER_HTTP_REFERER`: optional app URL header for OpenRouter.
 - `OPENROUTER_X_TITLE`: optional app title header for OpenRouter.
+- `PHOENIXD_URL`: Phoenixd base URL for donation wallet (optional).
+- `PHOENIXD_PASSWORD`: Phoenixd password for donation wallet (optional).
+- `NWC_URI`: Nostr Wallet Connect URI for donation wallet (optional).
+- `STRIKE_API_KEY`: Strike API key for donation wallet (optional).
 - `NOSTR_RELAYS`: comma-separated relay URLs (memory publishing + indexer).
 - `NOSTR_DB_PATH`: SQLite path for Nostr indexer and memory rehydration.
 - `NOSTR_SECRETBOX_KEY`: optional symmetric key for payload encryption.

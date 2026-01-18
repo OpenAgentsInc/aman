@@ -64,6 +64,7 @@ This directory contains all Rust crates that make up the Aman Signal chatbot. Th
 | `orchestrator` | Message routing, action planning, and tool orchestration |
 | `agent-tools` | Tool registry, built-in tools, and ToolExecutor adapter with policy controls |
 | `database` | SQLite persistence (users/topics/notifications + memory tables + Nostr provenance columns) |
+| `donation-wallet` | Receive-only Lightning wallet wrapper (LNI-backed) for donation flows |
 | `api` | OpenAI-compatible chat API (local inference gateway) |
 | `ingester` | Document chunking and Nostr publishing/indexing |
 | `nostr-persistence` | Nostr publisher/indexer for durable doc/chunk metadata and memory events |

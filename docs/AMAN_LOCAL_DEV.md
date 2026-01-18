@@ -105,6 +105,9 @@ git submodule update --init --recursive
 ./scripts/build-signal-cli.sh
 ```
 
+If you're working on the receive-only Lightning donation wallet, the same submodule command also fetches
+`repos/lni` (Lightning Node Interface), which `crates/donation-wallet` depends on.
+
 ## 4) Set up Aman's Signal account
 
 Choose one path:

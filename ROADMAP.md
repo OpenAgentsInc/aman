@@ -25,6 +25,7 @@ persistence and rehydration.
 - `api` crate provides an OpenAI-compatible inference gateway (stubbed echo).
 - `ingester` crate exists for chunking files and publishing/indexing Nostr events.
 - `admin-web` crate provides a dashboard + broadcast UI (auth still needed).
+- `donation-wallet` crate provides a receive-only Lightning wallet wrapper (LNI submodule; no send/pay).
 
 ## Phase 0 - Signal MVP hardening + orchestrator adoption (in progress)
 
