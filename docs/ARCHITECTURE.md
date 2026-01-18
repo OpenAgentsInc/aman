@@ -205,6 +205,7 @@ To understand the architecture, start with these key concepts:
 - Signal-native messaging experience.
 - Opt-in regional alerts for activists and human-rights defenders.
 - Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`, `admin-web`, `donation-wallet`, `grok-brain`, `orchestrator`, `agent-tools`.
+- Cloudflare Worker gateway: `workers/aman-gateway` (OpenAI-compatible endpoint, OpenRouter-backed, KV memory).
 - Data persistence crate: `database` (SQLite via SQLx).
 - Brain interface crate: `brain-core` (shared Brain trait, message types, and ConversationHistory).
 - Optional brain crate: `maple-brain` (OpenSecret-based AI backend).
@@ -231,6 +232,10 @@ To understand the architecture, start with these key concepts:
 - `api` (crate: `crates/api`)
   - OpenAI-compatible inference gateway (`/v1/chat/completions`, `/v1/models`).
   - Uses a local knowledge base (if configured), orchestrator brain, or OpenRouter inference mode.
+- `aman-gateway-worker` (Cloudflare Worker in `workers/aman-gateway`)
+  - OpenAI-compatible endpoint for web clients (no Signal dependency).
+  - Uses OpenRouter for inference and Cloudflare KV for minimal memory snapshots.
+  - Optional Nostr summary publish (stubbed in Phase 1).
 - `ingester` (crate: `crates/ingester`)
   - Chunks local files into blob refs and publishes DocManifest + ChunkRef events.
   - Can index directly into a local Nostr SQLite DB for testing.

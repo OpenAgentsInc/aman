@@ -34,6 +34,7 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - Optional web UI for browser chat
 - OpenAI-compatible API gateway (echo, orchestrator, or OpenRouter proxy modes) with local/Nostr KB injection
 - Receive-only Lightning donation wallet crate (LNI-backed; no send/pay functions exposed)
+- Cloudflare Worker OpenAI-compatible gateway (OpenRouter + KV memory, no Signal dependency)
 
 ## What it is not yet
 
@@ -69,6 +70,7 @@ Edit these files to customize the bot's personality, tone, and routing behavior 
 - `crates/README.md` - crate catalog
 - `crates/orchestrator/README.md` - routing + action orchestration
 - `crates/donation-wallet/README.md` - receive-only Lightning wallet
+- `workers/aman-gateway/README.md` - Cloudflare Worker OpenAI gateway
 - `web/README.md` - browser UI
 
 ## Safety Posture

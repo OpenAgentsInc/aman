@@ -12,6 +12,7 @@ local/
 bin/*
 build/*
 !build/.gitkeep
+workers/**/build/
 
 # Rust / Cargo
 **/target/

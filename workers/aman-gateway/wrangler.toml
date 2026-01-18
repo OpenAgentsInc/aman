@@ -1,0 +1,21 @@
+name = "aman-gateway"
+main = "build/index.js"
+compatibility_date = "2025-02-14"
+
+[build]
+command = "cargo install -q worker-build@^0.7 && worker-build --release"
+
+[vars]
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
+DEFAULT_MODEL = "openai/gpt-4o-mini"
+SUMMARY_MODEL = "mistral-small"
+MEMORY_MAX_CHARS = "1200"
+MEMORY_SUMMARIZE_EVERY_TURNS = "6"
+ALLOW_ANON = "true"
+RATE_LIMIT_MAX = "60"
+RATE_LIMIT_WINDOW_SECS = "60"
+
+[[kv_namespaces]]
+binding = "AMAN_MEMORY"
+id = "6adebd90f76f4598906f1102ee496510"
+preview_id = "88a7cb11d3364ff887a5721747abccc6"
