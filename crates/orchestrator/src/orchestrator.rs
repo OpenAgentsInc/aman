@@ -279,7 +279,7 @@ impl<S: MessageSender> Orchestrator<S> {
 
         // Try to initialize donation wallet from environment
         #[cfg(feature = "lightning")]
-        let donation_wallet = Self::load_donation_wallet_from_env();
+        let donation_wallet = Self::load_donation_wallet_from_env().await;
 
         let maple_brain = Arc::new(maple_brain);
         let mut tool_registry = agent_tools::default_registry();
@@ -331,7 +331,7 @@ impl<S: MessageSender> Orchestrator<S> {
 
         // Try to initialize donation wallet from environment
         #[cfg(feature = "lightning")]
-        let donation_wallet = Self::load_donation_wallet_from_env();
+        let donation_wallet = Self::load_donation_wallet_from_env().await;
 
         Ok(Self {
             router,
@@ -1799,12 +1799,25 @@ impl<S: MessageSender> Orchestrator<S> {
     /// Try to create a donation wallet from environment variables.
     /// Returns None if not configured (no Lightning backend credentials found).
     ///
-    /// Checks backends in order: Phoenixd, NWC, Strike
+    /// Checks backends in order: Spark, Phoenixd, NWC, Strike
     #[cfg(feature = "lightning")]
-    fn load_donation_wallet_from_env() -> Option<Arc<DonationWallet>> {
-        // Try Phoenixd first
+    async fn load_donation_wallet_from_env() -> Option<Arc<DonationWallet>> {
+        // Try Spark first (preferred for self-custody)
+        if let Ok(config) = DonationWalletConfig::spark_from_env() {
+            match DonationWallet::new(config).await {
+                Ok(wallet) => {
+                    info!("Donation wallet initialized (Spark)");
+                    return Some(Arc::new(wallet));
+                }
+                Err(e) => {
+                    warn!("Failed to create Spark wallet: {}", e);
+                }
+            }
+        }
+
+        // Try Phoenixd
         if let Ok(config) = DonationWalletConfig::phoenixd_from_env() {
-            match DonationWallet::new(config) {
+            match DonationWallet::new(config).await {
                 Ok(wallet) => {
                     info!("Donation wallet initialized (Phoenixd)");
                     return Some(Arc::new(wallet));
@@ -1817,7 +1830,7 @@ impl<S: MessageSender> Orchestrator<S> {
 
         // Try NWC
         if let Ok(config) = DonationWalletConfig::nwc_from_env() {
-            match DonationWallet::new(config) {
+            match DonationWallet::new(config).await {
                 Ok(wallet) => {
                     info!("Donation wallet initialized (NWC)");
                     return Some(Arc::new(wallet));
@@ -1830,7 +1843,7 @@ impl<S: MessageSender> Orchestrator<S> {
 
         // Try Strike
         if let Ok(config) = DonationWalletConfig::strike_from_env() {
-            match DonationWallet::new(config) {
+            match DonationWallet::new(config).await {
                 Ok(wallet) => {
                     info!("Donation wallet initialized (Strike)");
                     return Some(Arc::new(wallet));

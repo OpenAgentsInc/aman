@@ -8,6 +8,7 @@ use lni::{
     strike::StrikeConfig,
     blink::BlinkConfig,
     speed::SpeedConfig,
+    spark::SparkConfig,
 };
 
 /// Configuration for the donation wallet backend.
@@ -53,6 +54,14 @@ pub enum DonationWalletConfig {
     Speed {
         api_key: String,
     },
+
+    /// Spark backend (Breez SDK)
+    Spark {
+        mnemonic: String,
+        storage_dir: String,
+        api_key: Option<String>,
+        network: Option<String>,
+    },
 }
 
 impl DonationWalletConfig {
@@ -79,12 +88,29 @@ impl DonationWalletConfig {
     }
 
     /// Create a Strike configuration from environment variables.
-    /// 
+    ///
     /// Expects:
     /// - `STRIKE_API_KEY` - The Strike API key
     pub fn strike_from_env() -> Result<Self, std::env::VarError> {
         Ok(DonationWalletConfig::Strike {
             api_key: std::env::var("STRIKE_API_KEY")?,
+        })
+    }
+
+    /// Create a Spark configuration from environment variables.
+    ///
+    /// Expects:
+    /// - `SPARK_MNEMONIC` - 12 or 24 word mnemonic phrase
+    /// - `SPARK_STORAGE_DIR` - Storage directory path (optional, defaults to "./spark_data")
+    /// - `SPARK_API_KEY` - Breez API key (optional, required for mainnet)
+    /// - `SPARK_NETWORK` - Network: "mainnet" or "regtest" (optional, defaults to "mainnet")
+    pub fn spark_from_env() -> Result<Self, std::env::VarError> {
+        Ok(DonationWalletConfig::Spark {
+            mnemonic: std::env::var("SPARK_MNEMONIC")?,
+            storage_dir: std::env::var("SPARK_STORAGE_DIR")
+                .unwrap_or_else(|_| "./spark_data".to_string()),
+            api_key: std::env::var("SPARK_API_KEY").ok(),
+            network: std::env::var("SPARK_NETWORK").ok(),
         })
     }
 
@@ -186,6 +212,21 @@ impl DonationWalletConfig {
                     socks5_proxy: None,
                     accept_invalid_certs: Some(true),
                     http_timeout: Some(60),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn into_spark_config(self) -> Option<SparkConfig> {
+        match self {
+            DonationWalletConfig::Spark { mnemonic, storage_dir, api_key, network } => {
+                Some(SparkConfig {
+                    mnemonic,
+                    passphrase: None,
+                    api_key,
+                    storage_dir,
+                    network,
                 })
             }
             _ => None,

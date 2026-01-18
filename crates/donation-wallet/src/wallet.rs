@@ -20,6 +20,7 @@ use lni::{
     strike::StrikeNode,
     blink::BlinkNode,
     speed::SpeedNode,
+    spark::SparkNode,
 };
 
 use crate::config::DonationWalletConfig;
@@ -66,9 +67,9 @@ impl DonationWallet {
     ///     url: "http://localhost:9740".to_string(),
     ///     password: "password".to_string(),
     /// };
-    /// let wallet = DonationWallet::new(config)?;
+    /// let wallet = DonationWallet::new(config).await?;
     /// ```
-    pub fn new(config: DonationWalletConfig) -> Result<Self, DonationWalletError> {
+    pub async fn new(config: DonationWalletConfig) -> Result<Self, DonationWalletError> {
         let node: Arc<dyn LightningNode> = match config.clone() {
             DonationWalletConfig::Phoenixd { .. } => {
                 let cfg = config.into_phoenixd_config().unwrap();
@@ -104,6 +105,11 @@ impl DonationWallet {
                 let cfg = config.into_speed_config().unwrap();
                 info!("Creating Speed donation wallet");
                 Arc::new(SpeedNode::new(cfg))
+            }
+            DonationWalletConfig::Spark { .. } => {
+                let cfg = config.into_spark_config().unwrap();
+                info!("Creating Spark donation wallet");
+                Arc::new(SparkNode::new(cfg).await?)
             }
         };
 

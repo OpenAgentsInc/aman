@@ -88,7 +88,9 @@ build_bot() {
     echo "Building orchestrated_bot..."
 
     # Build in release mode for better performance
+    # Enable lightning feature for donation support
     cargo build --release --example orchestrated_bot \
+        --features lightning \
         --manifest-path "$PROJECT_ROOT/crates/orchestrator/Cargo.toml"
 
     # Ensure bin directory exists
@@ -98,6 +100,8 @@ build_bot() {
     local binary_path="$PROJECT_ROOT/target/release/examples/$BINARY_NAME"
 
     if [ -f "$binary_path" ]; then
+        # Remove old binary first to avoid "Text file busy" error if it's running
+        rm -f "$BIN_DIR/$BINARY_NAME"
         cp "$binary_path" "$BIN_DIR/"
         echo "Installed: $BIN_DIR/$BINARY_NAME"
     else
