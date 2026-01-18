@@ -4,7 +4,7 @@
 
 - Signal-native messaging experience.
 - Opt-in regional alerts for activists and human-rights defenders.
-- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`, `admin-web`.
+- Core crates: `signal-daemon`, `message-listener`, `agent-brain`, `broadcaster`, `api`, `ingester`, `admin-web`, `grok-brain`.
 - Data persistence crate: `database` (SQLite via SQLx).
 - Brain interface crate: `brain-core` (shared Brain trait and message types).
 - Optional brain crate: `maple-brain` (OpenSecret-based AI backend).
@@ -40,7 +40,11 @@
   - Defines attachments metadata (`InboundAttachment`) for inbound processing.
 - `maple-brain` (crate: `crates/maple-brain`)
   - OpenSecret-based Brain implementation with attestation handshake, per-sender history, and vision support.
+  - Optional tool calling via `ToolExecutor` (e.g., Grok real-time search).
   - Optional integration via `message-listener` (feature `maple`).
+- `grok-brain` (crate: `crates/grok-brain`)
+  - xAI Grok Brain implementation with optional X/Web search.
+  - Provides `GrokToolExecutor` for MapleBrain tool calls.
 - `agent_brain` (crate: `crates/agent-brain`)
   - Owns message handling, onboarding state machine, and routing decisions.
   - Implements the `Brain` trait for use with `message_listener`.
@@ -63,8 +67,6 @@
   - Signal account keys/credentials (managed by `signal-cli`).
   - Bot state: contacts, messages, subscriptions, dedupe.
   - Database tables: users, topics, notifications (via `database` crate).
-- OpenAI-compatible API endpoint
-  - Responses API for text generation.
 
 ## Data model (MVP intent)
 
@@ -119,6 +121,14 @@ Metadata for attachments captured from signal-cli.
 - `size` (optional)
 - `width` / `height` (optional, for images/videos)
 
+### ToolRequest / ToolResult (Brain tools)
+
+When tool calling is enabled, brains can request external actions via a
+`ToolExecutor` implementation.
+
+- `ToolRequest`: `id`, `name`, `arguments` (JSON object)
+- `ToolResult`: `tool_call_id`, `content`, `success`
+
 ## State machine (onboarding + subscriptions)
 
 States:
@@ -166,6 +176,13 @@ Region parsing:
 
 Note: the current processor requires a text body; attachment-only messages are skipped.
 
+### Tool execution flow (optional)
+
+1. MapleBrain receives a request that needs real-time information.
+2. MapleBrain calls `realtime_search` with a sanitized query.
+3. `GrokToolExecutor` fetches results from xAI and returns them.
+4. MapleBrain synthesizes the final response for Signal.
+
 ### Event flow (notifications)
 
 1. `regional_event_listener` observes an event for a region.
@@ -203,7 +220,7 @@ Note: the current processor requires a text body; attachment-only messages are s
 - Store inbound before processing to avoid double replies after restarts.
 - Alerts are at-least-once; de-dupe per (event_id, identity).
 - Retry send failures with exponential backoff.
-- Use a queue so OpenAI latency never blocks receiving.
+- Use a queue so inference latency never blocks receiving.
 
 ## Configuration
 
@@ -228,6 +245,15 @@ Environment variables (names may be implementation-specific):
 - `MAPLE_MAX_TOKENS`: max tokens for MapleBrain responses.
 - `MAPLE_TEMPERATURE`: temperature for MapleBrain responses.
 - `MAPLE_MAX_HISTORY_TURNS`: per-sender history length.
+- `GROK_API_KEY`: xAI API key for `grok-brain` / `GrokToolExecutor`.
+- `GROK_API_URL`: optional API URL override (default: `https://api.x.ai`).
+- `GROK_MODEL`: Grok model name (default: `grok-4-1-fast`).
+- `GROK_SYSTEM_PROMPT`: optional system prompt override.
+- `GROK_MAX_TOKENS`: max tokens for GrokBrain responses.
+- `GROK_TEMPERATURE`: temperature for GrokBrain responses.
+- `GROK_MAX_HISTORY_TURNS`: per-sender history length.
+- `GROK_ENABLE_X_SEARCH`: enable X Search tool.
+- `GROK_ENABLE_WEB_SEARCH`: enable Web Search tool.
 - `REGION_POLL_INTERVAL_SECONDS`: event ingester cadence.
 - `LOG_LEVEL`: log verbosity.
 - `AMAN_API_ADDR`: bind address for the OpenAI-compatible gateway (api crate).
@@ -253,8 +279,9 @@ the matching data directory (e.g., via `DaemonConfig::with_data_dir`).
 - Support "stop" / "unsubscribe" everywhere.
 - Minimal retention: store only what is needed for dedupe and context.
 - Do not log message bodies by default.
-- Prefer `store: false` (or equivalent) for the OpenAI-compatible Responses API.
+- Prefer retention-disabled settings (e.g., `store: false`) when supported by your provider.
 - Admin web should be bound to localhost or placed behind authentication.
+- Tool executors should receive only sanitized queries (no raw user text).
 
 ## Future architecture (RAG and Nostr)
 
@@ -379,6 +406,8 @@ AccessPolicy content:
 - **brain-core**: shared Brain trait and message types for AI backends.
 - **maple-brain**: OpenSecret-backed Brain implementation.
 - **admin-web**: admin dashboard and broadcast UI for operators.
+- **grok-brain**: xAI Grok Brain and GrokToolExecutor implementations.
+- **ToolExecutor**: interface for executing external tools (e.g., real-time search).
 - **DocManifest**: planned event describing a document and its chunks.
 - **Chunk**: planned unit of text for retrieval and citations.
 - **Embedding artifact**: planned vector or reference for retrieval.
@@ -390,9 +419,3 @@ AccessPolicy content:
   Protect this path with strict permissions and backups.
 - Signal is end-to-end encrypted to the server; the server is the endpoint.
   Treat it as a trusted boundary and minimize stored data.
-
-## References (example docs)
-
-[1]: https://platform.openai.com/docs/api-reference/responses?utm_source=chatgpt.com "Responses | OpenAI API Reference"
-[2]: https://platform.openai.com/docs/guides/your-data?utm_source=chatgpt.com "Data controls in the OpenAI platform"
-[3]: https://platform.openai.com/docs/guides/rate-limits?utm_source=chatgpt.com "Rate limits | OpenAI API"

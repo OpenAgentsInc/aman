@@ -31,7 +31,7 @@ This document defines what Aman stores, what it does not store, and the default 
 - Full transcripts unless short-context mode is enabled.
 - Attachment contents or media binaries (unless using MapleBrain vision).
 - Precise location data or unnecessary metadata.
-- Raw OpenAI requests/responses when `store: false` is used.
+- Raw upstream requests/responses when retention is disabled (if supported by the provider).
 
 ## Planned data categories (Phase 2+)
 
@@ -59,15 +59,20 @@ Adjust these windows based on threat model and legal constraints.
 - Do not export contact lists or message content to third parties.
 - Do not retain data after an explicit opt-out request beyond required dedupe metadata.
 
-## OpenAI-compatible API data
+## OpenAI-compatible provider data
 
-- Prefer `store: false` (or equivalent) to avoid server-side retention of application state.
+- Prefer retention-disabled settings (e.g., `store: false`) to avoid server-side retention of application state.
 - Only send the minimum text required for the response.
 
 ## Maple/OpenSecret data flow
 
 - When MapleBrain processes image attachments, attachment bytes are read from disk and sent to the Maple/OpenSecret API.
 - Do not persist or log attachment contents outside of signal-cli storage.
+
+## Tool executor data (xAI)
+
+- GrokToolExecutor receives only sanitized search queries (no raw user text).
+- Search results are returned to the brain for synthesis; avoid logging tool inputs/results.
 
 ## Security notes
 

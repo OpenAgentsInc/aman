@@ -8,8 +8,8 @@ It runs a dedicated Signal account on a server using `signal-cli`.
 Inbound messages are decrypted locally and normalized by `message_listener`.
 An `agent_brain` service handles onboarding and routing decisions.
 Signal message handling can use pluggable Brain implementations (see `brain-core`), including MapleBrain (OpenSecret)
-with optional image support, or mock brains for testing.
-The web UI uses an OpenAI-compatible Responses API for generation (example docs: [OpenAI Platform][1]).
+with optional image/tool support, GrokBrain (xAI), or mock brains for testing.
+The web UI uses an OpenAI-compatible chat completions API for generation (see `crates/api/README.md`).
 Replies are sent back to Signal via `broadcaster`.
 Aman can also deliver opt-in regional alerts to subscribed contacts.
 Alerts are driven by a regional event listener and a subscription state machine.
@@ -22,7 +22,7 @@ The web UI currently talks directly to the OpenAI-compatible API and is not yet 
 - Signal-native chat with a dedicated server-side account.
 - Opt-in regional alerts with a simple state machine.
 - Minimal storage for dedupe and short context.
-- Text-first responses; MapleBrain can process image attachments when present (attachments-only messages are skipped today).
+- Text-first responses; MapleBrain can process image attachments and optionally call tools for real-time search.
 - Web UI for browser chat (Next.js app in `web/`).
 - Admin web panel for dashboards and broadcast (crate `admin-web`).
 
@@ -30,13 +30,14 @@ The web UI currently talks directly to the OpenAI-compatible API and is not yet 
 
 - `signal-daemon`: HTTP/SSE client for signal-cli daemon.
 - `message_listener`: Signal inbound transport and message normalization.
-- `agent_brain`: onboarding, subscriptions, routing, and OpenAI-compatible API calls.
+- `agent_brain`: onboarding, subscriptions, and routing decisions.
 - `broadcaster`: outbound Signal delivery, chunking, retries.
 - `regional_event_listener`: regional event ingestion and normalization.
 - `web`: Next.js UI for browser chat (separate from Signal flow).
 - `api`: OpenAI-compatible inference gateway for local/dev web UI.
 - `brain-core`: shared Brain trait and message types for AI backends.
 - `maple-brain`: OpenSecret-backed Brain implementation (optional).
+- `grok-brain`: xAI Grok Brain + tool executor for real-time search.
 - `ingester`: file chunking + Nostr publishing for knowledge base content.
 - `admin-web`: admin panel for dashboards and broadcast messaging.
 
@@ -71,6 +72,13 @@ Signal AI flow (optional):
 1. Signal -> `message_listener` -> `MessageProcessor`.
 2. `MessageProcessor` calls a `Brain` implementation (mock or MapleBrain).
 3. Responses send back via `signal-daemon`.
+
+Tool execution flow (optional):
+
+1. MapleBrain receives a request that needs real-time info.
+2. MapleBrain calls `realtime_search` with a sanitized query.
+3. GrokToolExecutor fetches results from xAI and returns them.
+4. MapleBrain synthesizes the final response.
 
 Admin web flow:
 
@@ -205,7 +213,7 @@ npm install
 npm run dev
 ```
 
-To point the web UI at the local Aman API instead of OpenAI:
+To point the web UI at the local Aman API instead of a hosted provider:
 
 ```bash
 cd web
@@ -242,11 +250,18 @@ To use the full Nostr flow, set `NOSTR_DB_PATH` and ingest documents via the `in
 | `SQLITE_PATH` | `./data/aman.db` | SQLite path for subscriptions/state |
 | `AMAN_DEFAULT_LANGUAGE` | `English` | Default language label for new contacts |
 | `SIGNAL_DAEMON_URL` | - | Override daemon base URL (optional) |
+| `SIGNAL_DAEMON_ACCOUNT` | - | Account selector for multi-account daemon mode |
+| `ADMIN_ADDR` | `127.0.0.1:8788` | Admin web bind address |
 | `MAPLE_API_KEY` | - | OpenSecret API key (MapleBrain) |
 | `MAPLE_API_URL` | `https://enclave.trymaple.ai` | Maple/OpenSecret API URL |
 | `MAPLE_MODEL` | `llama-3.3-70b` | Text model for MapleBrain |
 | `MAPLE_VISION_MODEL` | `qwen3-vl-30b` | Vision model for MapleBrain |
 | `MAPLE_PROMPT_FILE` | `PROMPT.md` | System prompt file for MapleBrain |
+| `GROK_API_KEY` | - | xAI API key (GrokBrain/GrokToolExecutor) |
+| `GROK_API_URL` | `https://api.x.ai` | xAI API URL |
+| `GROK_MODEL` | `grok-4-1-fast` | Grok model name |
+| `GROK_ENABLE_X_SEARCH` | `false` | Enable X Search tool |
+| `GROK_ENABLE_WEB_SEARCH` | `false` | Enable Web Search tool |
 
 ## Docs
 
@@ -255,6 +270,7 @@ To use the full Nostr flow, set `NOSTR_DB_PATH` and ingest documents via the `in
 - Data retention: `docs/DATA_RETENTION.md`
 - signal-cli daemon guide: `docs/signal-cli-daemon.md`
 - OpenSecret API: `docs/OPENSECRET_API.md`
+- Grok brain: `crates/grok-brain/README.md`
 - Roadmap: `ROADMAP.md`
 - Admin web: `crates/admin-web/README.md`
 
@@ -269,6 +285,7 @@ To use the full Nostr flow, set `NOSTR_DB_PATH` and ingest documents via the `in
 | `mock-brain` | Mock brain implementations for testing message flows |
 | `brain-core` | Shared Brain trait + message types for AI backends |
 | `maple-brain` | OpenSecret-backed Brain implementation |
+| `grok-brain` | xAI Grok Brain + tool executor |
 | `database` | SQLite persistence (users/topics/notifications) via SQLx |
 | `api` | OpenAI-compatible chat API (local inference gateway) |
 | `ingester` | Document chunking + Nostr publishing/indexing |
@@ -281,13 +298,10 @@ See individual READMEs in `crates/*/README.md` for API documentation.
 
 - Opt-in alerts only; honor "stop" everywhere.
 - Minimal retention and minimal logging.
-- Use `store: false` (or equivalent) with the OpenAI-compatible Responses API (example docs: [OpenAI Platform][2]).
+- If your upstream provider supports retention controls (e.g., `store: false`), prefer disabling storage.
 - Bind `admin-web` to localhost or put it behind authentication.
 
 ## Future work
 
 - RAG pipeline with ingestion for documents and YouTube.
 - Nostr relay persistence and local vector DB rehydration.
-
-[1]: https://platform.openai.com/docs/api-reference/responses?utm_source=chatgpt.com "Responses | OpenAI API Reference"
-[2]: https://platform.openai.com/docs/guides/your-data?utm_source=chatgpt.com "Data controls in the OpenAI platform"

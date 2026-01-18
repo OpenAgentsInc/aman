@@ -8,7 +8,8 @@ next phases: RAG and Nostr-based persistence.
 - signal-cli daemon workflows and helper scripts are in place.
 - `signal-daemon`, `message-listener`, and `broadcaster` are working as libraries.
 - `brain-core` defines the shared Brain trait and message types.
-- `maple-brain` provides an OpenSecret-backed Brain implementation (optional).
+- `maple-brain` provides an OpenSecret-backed Brain implementation (optional, with tool calling support).
+- `grok-brain` provides an xAI Grok-backed Brain and ToolExecutor for real-time search.
 - `agent-brain` implements the onboarding state machine and subscription routing.
 - `agent-brain` ships `agent_brain_bot` (Signal MVP bot) and `region_event_send` (alert fanout).
 - `regional_event_listener` exists as a documented subsystem; intake wiring is still pending.
@@ -32,17 +33,7 @@ Goal: complete and stabilize the Signal-native assistant with opt-in regional al
   - [x] service binary that wires listener + brain (`agent_brain_bot`)
   - [ ] optional: wire `web/` UI to `agent_brain` instead of direct OpenAI calls
   - [ ] replace `api` echo stub with real `agent_brain` inference
-  - [x] `agent_brain` onboarding state machine and routing
-  - [x] subscription storage (SQLite) for regional alerts
-  - [ ] dedupe logic for inbound messages
-  - [x] regional event intake (file-based via `region_event_send`)
-  - [x] service binary that wires listener + brain (`agent_brain_bot`)
-  - [ ] optional: wire `web/` UI to `agent_brain` instead of direct OpenAI calls
-  - [ ] replace `api` echo stub with real `agent_brain` inference
 - Persistence
-  - [x] Wire `database` crate into services for user/topic/subscription persistence
-  - [ ] SQLite schema for contacts, messages, dedupe
-  - [ ] at-least-once delivery with idempotent sends
   - [x] Wire `database` crate into services for user/topic/subscription persistence
   - [ ] SQLite schema for contacts, messages, dedupe
   - [ ] at-least-once delivery with idempotent sends

@@ -4,13 +4,15 @@ xAI Grok-based brain implementation for the Aman Signal bot.
 
 ## Overview
 
-This crate provides a `Brain` implementation that uses the [xAI Grok API](https://docs.x.ai) for AI-powered message processing. It features:
+This crate provides a `Brain` implementation and a `ToolExecutor` that use the
+[xAI Grok API](https://docs.x.ai) for AI-powered message processing. It features:
 
 - **Grok 4.1 Fast** model for quick, intelligent responses
 - Per-sender conversation history
 - Optional **X Search** for real-time Twitter/X data
 - Optional **Web Search** for current web information
 - Fully configurable via environment variables
+- `GrokToolExecutor` for privacy-preserving tool calls from MapleBrain
 
 ## Installation
 
@@ -59,12 +61,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let brain = GrokBrain::from_env().await?;
     
     // Process a message
-    let message = InboundMessage {
-        sender: "+1234567890".to_string(),
-        text: "What's happening on Twitter right now?".to_string(),
-        timestamp: chrono::Utc::now(),
-        attachments: vec![],
-    };
+    let message = InboundMessage::direct(
+        "+1234567890",
+        "What's happening on Twitter right now?",
+        0,
+    );
     
     let response = brain.process(message).await?;
     println!("Response: {}", response.text);
@@ -88,6 +89,22 @@ let config = GrokBrainConfig::builder()
     .build();
 
 let brain = GrokBrain::new(config)?;
+```
+
+### Tool Executor (for MapleBrain)
+
+```rust
+use grok_brain::GrokToolExecutor;
+use maple_brain::{MapleBrain, MapleBrainConfig};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let grok_executor = GrokToolExecutor::from_env()?;
+    let maple_config = MapleBrainConfig::from_env()?;
+    let brain = MapleBrain::with_tools(maple_config, grok_executor).await?;
+    println!("MapleBrain tools enabled: {}", brain.has_tools());
+    Ok(())
+}
 ```
 
 ## Real-Time Search Tools
@@ -151,6 +168,20 @@ impl Brain for GrokBrain {
     fn name(&self) -> &str;
 }
 ```
+
+### GrokToolExecutor
+
+```rust
+impl GrokToolExecutor {
+    /// Build from env vars (GROK_*).
+    pub fn from_env() -> Result<Self, BrainError>;
+    /// Create with explicit config.
+    pub fn new(config: GrokBrainConfig) -> Result<Self, BrainError>;
+}
+```
+
+`GrokToolExecutor` implements `ToolExecutor` for the `realtime_search` tool.
+The model crafts a sanitized query; the tool executor only sees that query.
 
 ## License
 

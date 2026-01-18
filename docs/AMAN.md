@@ -33,6 +33,7 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 - `message_listener` owns inbound Signal transport and normalization.
 - `brain-core` defines the shared `Brain` trait and message types (including attachments metadata).
 - `maple-brain` provides an OpenSecret-based Brain implementation (optional).
+- `grok-brain` provides an xAI Grok-based Brain and tool executor (optional).
 - `mock-brain` provides test Brain implementations for local development.
 - `agent_brain` owns the state machine, routing, and subscription updates.
 - `broadcaster` owns outbound delivery, retries, and chunking.
@@ -48,6 +49,8 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 Optional: `message_listener` can also run a `MessageProcessor` that calls a `Brain`
 (mock or MapleBrain) directly and sends replies via `signal-daemon`.
 `agent-brain` also ships a simple `agent_brain_bot` binary for local Signal MVP use.
+MapleBrain can optionally call `realtime_search` via a `ToolExecutor` (e.g., Grok)
+for privacy-preserving real-time lookups.
 
 For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 
@@ -56,7 +59,7 @@ For the authoritative architecture spec, see `docs/ARCHITECTURE.md`.
 - Opt-in alerts only; "stop" must always be honored.
 - Minimal retention and minimal logging.
 - Treat the server as a trusted endpoint (Signal E2EE terminates at the server).
-- Prefer `store: false` (or equivalent) with the OpenAI-compatible Responses API.
+- Prefer retention-disabled settings (e.g., `store: false`) when supported by your provider.
 - Bind the admin web UI to localhost or place it behind authentication.
 
 ## Future phases (planned)

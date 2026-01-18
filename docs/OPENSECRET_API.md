@@ -15,6 +15,12 @@ processed in a secure enclave, and responses are encrypted before returning. Thi
 - Streaming support
 - Authentication varies by SDK (browser SDK uses user auth; MapleBrain uses an API key)
 
+## Aman integration notes
+
+- Aman integrates via `maple-brain`, which wraps this API and handles the attestation handshake.
+- MapleBrain can optionally use a `ToolExecutor` (e.g., Grok search) for real-time lookups. Tool calls are separate
+  from the OpenSecret API path. See `crates/maple-brain/README.md` and `crates/grok-brain/README.md`.
+
 ## Setup
 
 ### Installation

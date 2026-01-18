@@ -9,6 +9,7 @@ A Brain implementation for the Aman Signal bot that uses the [Maple/OpenSecret](
 - Per-sender conversation history management
 - Streaming response support
 - **Vision support** - Automatically processes image attachments using vision-language models
+- **Tool calling support** - Optional real-time search via ToolExecutor (e.g., Grok)
 - Configurable via environment variables
 
 ## Installation
@@ -135,6 +136,34 @@ MapleBrain automatically detects image attachments in incoming messages and uses
 
 Supported image formats: JPEG, PNG, GIF, WebP (any format your Signal client can send)
 
+## Tool Calling (Real-Time Search)
+
+MapleBrain can be configured with a `ToolExecutor` to fetch real-time data
+while keeping user messages private. The model crafts a sanitized query,
+then the executor performs the external call and returns results for synthesis.
+
+### MapleBrain + GrokToolExecutor
+
+```rust
+use grok_brain::GrokToolExecutor;
+use maple_brain::{MapleBrain, MapleBrainConfig};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let grok_executor = GrokToolExecutor::from_env()?;
+    let maple_config = MapleBrainConfig::from_env()?;
+    let brain = MapleBrain::with_tools(maple_config, grok_executor).await?;
+    println!("Tools enabled: {}", brain.has_tools());
+    Ok(())
+}
+```
+
+### Tool Definition
+
+MapleBrain exposes a single tool definition by default:
+
+- `realtime_search` (privacy-safe query + optional `search_type` of `web`, `social`, or `both`)
+
 ### Programmatic Vision Example
 
 ```rust
@@ -178,6 +207,12 @@ cargo run -p maple-brain --example test_chat
 cargo run -p maple-brain --example test_vision
 ```
 
+### MapleBrain with Grok Tools
+
+```bash
+cargo run -p maple-brain --example test_with_grok
+```
+
 ## How It Works
 
 1. **Attestation Handshake**: On initialization, the client performs an attestation handshake with the Maple enclave to verify it's running in a secure TEE and establish encrypted communication.
@@ -190,7 +225,9 @@ cargo run -p maple-brain --example test_vision
 
 4. **Streaming Responses**: The Maple API only supports streaming completions. MapleBrain collects the streamed chunks into a complete response.
 
-5. **Conversation History**: Each sender has their own conversation history, enabling multi-turn conversations. History is automatically trimmed to the configured maximum turns. (Note: Vision requests don't include history.)
+5. **Tool Calls (optional)**: The model can request tools (e.g., `realtime_search`). MapleBrain executes the tools and feeds results back before final response.
+
+6. **Conversation History**: Each sender has their own conversation history, enabling multi-turn conversations. History is automatically trimmed to the configured maximum turns. (Note: Vision requests don't include history.)
 
 ## Security
 

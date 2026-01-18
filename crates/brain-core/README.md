@@ -11,6 +11,8 @@ Defines the shared `Brain` trait and message types used by Aman brain implementa
 - `InboundAttachment`: attachment metadata (content type, filename, file path, size, dimensions).
 - `OutboundMessage`: reply container with recipient and text.
 - `BrainError`: common error types for brain implementations.
+- `ToolExecutor`: optional interface for executing external tools (e.g., real-time search).
+- `ToolRequest` / `ToolResult`: tool call input/output types.
 
 ## Usage
 
@@ -35,6 +37,7 @@ impl Brain for MyBrain {
 
 - This crate has no I/O; it is purely types + trait definitions.
 - Attachments are represented as metadata and file paths from signal-cli.
+- Tool executors receive sanitized queries crafted by the brain (privacy boundary).
 
 ## Security notes
 

@@ -11,6 +11,7 @@ Scope: this runbook covers the Signal MVP only. RAG and Nostr components are pla
 - A Signal phone number for Aman (SMS or voice verification).
 - An OpenAI-compatible API key (if using `agent_brain` with a hosted model).
 - A Maple/OpenSecret API key (if using MapleBrain).
+- An xAI API key (if using GrokBrain or GrokToolExecutor).
 - Rust toolchain (for crates and examples).
 - qrencode (for linking a device via QR): `sudo apt install qrencode` or `brew install qrencode`.
 - jq (for `scripts/send-message.sh`).
@@ -46,6 +47,10 @@ export MAPLE_VISION_MODEL="qwen3-vl-30b"
 export MAPLE_API_URL="https://enclave.trymaple.ai"
 export MAPLE_MAX_HISTORY_TURNS="10"
 export MAPLE_PROMPT_FILE="crates/maple-brain/PROMPT.md"
+export GROK_API_KEY="..."      # required for GrokBrain/GrokToolExecutor
+export GROK_MODEL="grok-4-1-fast"
+export GROK_ENABLE_X_SEARCH="false"
+export GROK_ENABLE_WEB_SEARCH="false"
 export REGION_POLL_INTERVAL_SECONDS="60"
 export LOG_LEVEL="info"
 export AMAN_API_ADDR="127.0.0.1:8787"
@@ -53,6 +58,8 @@ export AMAN_API_TOKEN="aman-local"
 export AMAN_API_MODEL="aman-chat"
 export ADMIN_ADDR="127.0.0.1:8788"
 ```
+
+See `.env.example` for the full set of Maple/Grok configuration knobs.
 
 ## 3) Fetch and build signal-cli
 
@@ -139,6 +146,15 @@ cargo run -p message-listener --example processor_bot
 # MapleBrain (OpenSecret) processor
 export MAPLE_API_KEY="..."
 cargo run -p message-listener --example maple_bot --features maple
+
+# GrokBrain example (direct usage)
+export GROK_API_KEY="..."
+cargo run -p grok-brain --example test_chat
+
+# MapleBrain + Grok tool executor (privacy-preserving realtime search)
+export MAPLE_API_KEY="..."
+export GROK_API_KEY="..."
+cargo run -p maple-brain --example test_with_grok
 ```
 
 For MapleBrain configuration details, see `docs/OPENSECRET_API.md`.
