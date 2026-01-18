@@ -134,3 +134,63 @@ impl Attachment {
         Self::new(filename, content_type, data)
     }
 }
+
+/// A received email message from the inbox.
+#[derive(Debug, Clone)]
+pub struct InboxMessage {
+    /// Unique identifier (UID) of the message
+    pub uid: u32,
+    /// Message ID header
+    pub message_id: Option<String>,
+    /// Sender email address
+    pub from: Option<String>,
+    /// Sender display name
+    pub from_name: Option<String>,
+    /// Recipient email addresses
+    pub to: Vec<String>,
+    /// CC recipients
+    pub cc: Vec<String>,
+    /// Email subject
+    pub subject: String,
+    /// Plain text body
+    pub body: Option<String>,
+    /// HTML body
+    pub html_body: Option<String>,
+    /// Date received (RFC 2822 format)
+    pub date: Option<String>,
+    /// Attachments
+    pub attachments: Vec<InboxAttachment>,
+    /// Raw message data
+    pub raw: Option<Vec<u8>>,
+}
+
+impl InboxMessage {
+    /// Create a new inbox message with minimal fields.
+    pub fn new(uid: u32, subject: impl Into<String>) -> Self {
+        Self {
+            uid,
+            message_id: None,
+            from: None,
+            from_name: None,
+            to: Vec::new(),
+            cc: Vec::new(),
+            subject: subject.into(),
+            body: None,
+            html_body: None,
+            date: None,
+            attachments: Vec::new(),
+            raw: None,
+        }
+    }
+}
+
+/// An attachment from a received email.
+#[derive(Debug, Clone)]
+pub struct InboxAttachment {
+    /// Filename
+    pub filename: String,
+    /// MIME content type
+    pub content_type: String,
+    /// Attachment data
+    pub data: Vec<u8>,
+}

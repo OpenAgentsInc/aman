@@ -1,10 +1,10 @@
 # proton-proxy
 
-SMTP client for sending end-to-end encrypted email between Proton users via [Proton Mail Bridge](https://proton.me/mail/bridge).
+SMTP/IMAP client for sending and receiving end-to-end encrypted email between Proton users via [Proton Mail Bridge](https://proton.me/mail/bridge).
 
 ## Overview
 
-This crate provides a simple async interface for sending emails through Proton Mail Bridge's local SMTP server. When sending to other Proton users, emails are automatically end-to-end encrypted.
+This crate provides a simple async interface for sending and receiving emails through Proton Mail Bridge's local SMTP/IMAP servers. When communicating with other Proton users, emails are automatically end-to-end encrypted.
 
 ## Prerequisites
 
@@ -22,11 +22,15 @@ This crate provides a simple async interface for sending emails through Proton M
 ```bash
 export PROTON_SMTP_HOST=127.0.0.1      # Default Bridge host
 export PROTON_SMTP_PORT=1025            # Default Bridge SMTP port
+export PROTON_IMAP_HOST=127.0.0.1      # Default Bridge host
+export PROTON_IMAP_PORT=1143            # Default Bridge IMAP port
 export PROTON_USERNAME=you@proton.me    # Your Proton email
 export PROTON_PASSWORD=bridge-password  # From Bridge GUI
 ```
 
 ## Usage
+
+### Sending Email
 
 ```rust
 use proton_proxy::{ProtonClient, ProtonConfig, Email, Attachment};
@@ -52,13 +56,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Reading Emails (IMAP)
+
+```rust
+use proton_proxy::{ImapClient, ProtonConfig};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = ProtonConfig::from_env()?;
+    let mut client = ImapClient::connect(&config).await?;
+    
+    // List folders
+    let folders = client.list_folders().await?;
+    println!("Folders: {:?}", folders);
+    
+    // Select INBOX
+    client.select_folder("INBOX").await?;
+    
+    // Get message UIDs and fetch
+    let uids = client.fetch_uids().await?;
+    if let Some(&uid) = uids.first() {
+        let msg = client.fetch_message(uid).await?;
+        println!("Subject: {}", msg.subject);
+    }
+    
+    client.logout().await?;
+    Ok(())
+}
+```
+
+### Watching for New Messages
+
+```rust
+use proton_proxy::{InboxWatcher, ProtonConfig, InboxMessage};
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = ProtonConfig::from_env()?;
+    
+    let watcher = InboxWatcher::new(config)
+        .with_poll_interval(Duration::from_secs(10));
+    
+    watcher.watch("INBOX", |msg: InboxMessage| async move {
+        println!("New message: {}", msg.subject);
+        Ok(())
+    }).await?;
+    
+    Ok(())
+}
+```
+
 ## Features
 
 - **Connection pooling** - Efficient for batch sending
 - **Attachment support** - Auto-detects MIME types
 - **HTML emails** - Optional HTML body with text fallback
 - **Multiple recipients** - To, CC, BCC support
-- **Async/await** - Built on Tokio
+- **IMAP support** - Read emails, search, and manage folders
+- **Inbox watching** - Poll for new messages with callbacks
+- **Async/await** - Built on Tokio and async-std
 
 ## Security Notes
 

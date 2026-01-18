@@ -15,14 +15,19 @@ lettre = { version = "0.11", default-features = false, features = [
     "pool",
     "builder",
 ] }
-tokio = { version = "1", features = ["rt", "macros"] }
+async-imap = "0.10"
+async-native-tls = "0.5"
+futures = "0.3"
+async-std = { version = "1.12", features = ["attributes"] }
+tokio = { version = "1", features = ["rt", "macros", "time", "sync"] }
 thiserror = "2"
 tracing = "0.1"
 secrecy = { version = "0.10", features = ["serde"] }
 mime_guess = "2"
 mime = "0.3"
+mail-parser = "0.9"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"
-tracing-subscriber = "0.3"

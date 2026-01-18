@@ -34,4 +34,24 @@ pub enum ProtonError {
     /// Invalid attachment
     #[error("Invalid attachment: {0}")]
     Attachment(String),
+
+    /// IMAP connection error
+    #[error("IMAP connection error: {0}")]
+    ImapConnection(String),
+
+    /// IMAP authentication error
+    #[error("IMAP authentication error: {0}")]
+    ImapAuth(String),
+
+    /// IMAP operation error
+    #[error("IMAP error: {0}")]
+    Imap(String),
+
+    /// TLS error
+    #[error("TLS error: {0}")]
+    Tls(String),
+
+    /// Message parsing error
+    #[error("Failed to parse message: {0}")]
+    ParseMessage(String),
 }

@@ -233,6 +233,116 @@ email.add_bcc("bcc@proton.me");
 client.send(&email).await?;
 ```
 
+## IMAP - Reading Emails
+
+The crate also supports reading emails via IMAP.
+
+### Fetching Messages
+
+```rust
+use proton_proxy::{ImapClient, ProtonConfig};
+
+#[tokio::main]
+async fn main() -> Result<(), proton_proxy::ProtonError> {
+    let config = ProtonConfig::from_env()?;
+    let mut client = ImapClient::connect(&config).await?;
+    
+    // List available folders
+    let folders = client.list_folders().await?;
+    println!("Folders: {:?}", folders);
+    
+    // Select INBOX and get message count
+    let count = client.select_folder("INBOX").await?;
+    println!("INBOX has {} messages", count);
+    
+    // Get UIDs of all messages
+    let uids = client.fetch_uids().await?;
+    
+    // Fetch a specific message
+    if let Some(&uid) = uids.first() {
+        let msg = client.fetch_message(uid).await?;
+        println!("From: {:?}", msg.from);
+        println!("Subject: {}", msg.subject);
+        println!("Body: {:?}", msg.body);
+    }
+    
+    // Search for unread messages
+    let unread = client.search_unread().await?;
+    println!("Unread UIDs: {:?}", unread);
+    
+    client.logout().await?;
+    Ok(())
+}
+```
+
+### Watching a Folder for New Messages
+
+Use `InboxWatcher` to continuously poll a folder and get callbacks when new messages arrive:
+
+```rust
+use proton_proxy::{InboxWatcher, ProtonConfig, InboxMessage, ProtonError};
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> Result<(), ProtonError> {
+    let config = ProtonConfig::from_env()?;
+    
+    let watcher = InboxWatcher::new(config)
+        .with_poll_interval(Duration::from_secs(10));  // Poll every 10 seconds
+    
+    // Watch INBOX and process new messages
+    watcher.watch("INBOX", |msg: InboxMessage| async move {
+        println!("New message!");
+        println!("  From: {:?} ({:?})", msg.from, msg.from_name);
+        println!("  Subject: {}", msg.subject);
+        println!("  Body preview: {:?}", msg.body.as_ref().map(|b| &b[..b.len().min(100)]));
+        
+        // Process the message...
+        
+        Ok(())
+    }).await?;
+    
+    Ok(())
+}
+```
+
+### Using a Channel Instead of Callbacks
+
+```rust
+use proton_proxy::{InboxWatcher, ProtonConfig};
+
+#[tokio::main]
+async fn main() -> Result<(), proton_proxy::ProtonError> {
+    let config = ProtonConfig::from_env()?;
+    let watcher = InboxWatcher::new(config);
+    
+    // Get a channel of new messages
+    let mut rx = watcher.watch_channel("INBOX").await?;
+    
+    // Process messages as they arrive
+    while let Some(msg) = rx.recv().await {
+        println!("New message: {}", msg.subject);
+        // Process msg...
+    }
+    
+    Ok(())
+}
+```
+
+### IMAP Configuration
+
+Add these optional environment variables for IMAP:
+
+```bash
+# IMAP host (default: 127.0.0.1)
+# PROTON_IMAP_HOST=127.0.0.1
+
+# IMAP port (default: 1143)
+# PROTON_IMAP_PORT=1143
+```
+
+The username and password are the same as SMTP (your Proton email and Bridge password).
+
 ## Troubleshooting
 
 ### "no keychain" error

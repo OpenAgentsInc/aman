@@ -1,6 +1,6 @@
 use lettre::{
     message::{header::ContentType, Attachment as LettreAttachment, MultiPart, SinglePart},
-    transport::smtp::authentication::Credentials,
+    transport::smtp::{authentication::Credentials, client::TlsParameters},
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
 };
 use tracing::{debug, info, instrument};
@@ -22,10 +22,18 @@ impl ProtonClient {
     pub fn new(config: ProtonConfig) -> Result<Self, ProtonError> {
         let creds = Credentials::new(config.username.clone(), config.password().to_string());
 
+        // Bridge uses a self-signed certificate, so we need to accept invalid certs
+        // This is safe because Bridge only accepts localhost connections
+        let tls_params = TlsParameters::builder(config.smtp_host.clone())
+            .dangerous_accept_invalid_certs(true)
+            .build()
+            .map_err(|e| ProtonError::Transport(format!("TLS config error: {}", e)))?;
+
         let transport = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.smtp_host)
             .map_err(|e| ProtonError::Transport(e.to_string()))?
             .port(config.smtp_port)
             .credentials(creds)
+            .tls(lettre::transport::smtp::client::Tls::Required(tls_params))
             .build();
 
         info!(
