@@ -188,4 +188,43 @@ mod spark_tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn test_create_zero_amount_invoice() {
+        if should_skip() {
+            println!("Skipping test: SPARK_MNEMONIC or SPARK_API_KEY not set");
+            return;
+        }
+
+        let node = get_spark_node().await.expect("Failed to connect to Spark");
+
+        // Create a zero-amount invoice (amount not specified)
+        // This allows the payer to choose how much to send
+        let params = CreateInvoiceParams {
+            amount_msats: None, // Zero/any amount - payer decides
+            description: Some("Donate any amount".to_string()),
+            expiry: Some(3600), // 1 hour
+            ..Default::default()
+        };
+
+        match node.create_invoice(params).await {
+            Ok(invoice) => {
+                println!("=== Created Zero-Amount Invoice ===");
+                println!("Invoice: {}", invoice.invoice);
+                println!("Payment Hash: {}", invoice.payment_hash);
+                println!("Amount: {} msats (0 = any amount)", invoice.amount_msats);
+                println!("Description: {}", invoice.description);
+                println!("Created At: {}", invoice.created_at);
+                println!("Expires At: {}", invoice.expires_at);
+                
+                assert!(!invoice.invoice.is_empty(), "Invoice string should not be empty");
+                assert!(!invoice.payment_hash.is_empty(), "Payment hash should not be empty");
+                assert_eq!(invoice.amount_msats, 0, "Amount should be 0 for zero-amount invoice");
+                println!("✓ Zero-amount invoice created successfully!");
+            }
+            Err(e) => {
+                panic!("Failed to create zero-amount invoice: {}", e);
+            }
+        }
+    }
 }
