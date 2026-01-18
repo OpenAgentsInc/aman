@@ -76,4 +76,4 @@ because Signal E2EE terminates there.
 
 ## License
 
-MIT
+Public domain
