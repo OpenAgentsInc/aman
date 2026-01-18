@@ -22,6 +22,8 @@ pub enum Error {
     Crypto(#[from] CryptoError),
     #[error("invalid utf8: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
+    #[error("missing env var: {0}")]
+    MissingEnv(&'static str),
     #[error("missing d tag")]
     MissingDTag,
     #[error("unknown event kind: {0}")]
