@@ -266,6 +266,18 @@ cargo run -p api
 ```bash
 cd web
 cat <<'EOF' > .env.local
+AMAN_API_BASE_URL=https://aman-gateway.openagents.workers.dev/v1
+AMAN_API_MODEL=x-ai/grok-4.1-fast
+EOF
+npm install
+npm run dev
+```
+
+To point the UI at your local API instead:
+
+```bash
+cd web
+cat <<'EOF' > .env.local
 AMAN_API_BASE_URL=http://127.0.0.1:8787
 AMAN_API_KEY=aman-local
 AMAN_API_MODEL=aman-chat
@@ -383,7 +395,7 @@ sqlite3 ./data/nostr.db "select doc_id, title from docs;"
 Set Nostr relays and keys (publishing + rehydration use these):
 
 ```bash
-export NOSTR_RELAYS="wss://relay.damus.io"
+export NOSTR_RELAYS="wss://relay.damus.io,wss://nos.lol,wss://nexus.openagents.com"
 export NOSTR_SECRET_KEY="hex:your-secret-key"
 export NOSTR_SECRETBOX_KEY="hex:your-secretbox-key"
 export NOSTR_DB_PATH="./data/nostr.db"

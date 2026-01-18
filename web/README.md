@@ -2,13 +2,20 @@ This is the [assistant-ui](https://github.com/Yonom/assistant-ui) starter projec
 
 ## Getting Started
 
-First, add your OpenAI-compatible API key to `.env.local` file (if using a hosted provider):
+If you are using a hosted OpenAI-compatible provider directly, add a key in `.env.local`:
 
 ```
 OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-To use the local Aman API instead of a hosted provider, set:
+By default, the UI will call the hosted Aman gateway worker:
+
+```
+AMAN_API_BASE_URL=https://aman-gateway.openagents.workers.dev/v1
+AMAN_API_MODEL=x-ai/grok-4.1-fast
+```
+
+To use the local Aman API instead of the hosted worker, set:
 
 ```
 AMAN_API_BASE_URL=http://127.0.0.1:8787

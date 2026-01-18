@@ -236,7 +236,8 @@ To understand the architecture, start with these key concepts:
   - OpenAI-compatible endpoint for web clients (no Signal dependency).
   - Uses OpenRouter for inference, KV for memory snapshots, and D1 for KB storage.
   - Scheduled sync pulls DocManifest/ChunkRef events from Nostr relays into D1.
-  - Injects KB snippets into prompts; exposes `/kb/status` + `/kb/search` debug endpoints.
+  - Injects KB snippets into prompts and skips memory injection when KB context is present.
+  - Exposes `/kb/status`, `/kb/search`, and `/kb/sync` debug endpoints.
 - `ingester` (crate: `crates/ingester`)
   - Chunks local files into blob refs and publishes DocManifest + ChunkRef events.
   - Can index directly into a local Nostr SQLite DB for testing.
@@ -492,7 +493,7 @@ If PII is detected, the router can request an explicit privacy choice before res
 ### Web UI flow (current)
 
 1. Browser -> Next.js app in `web/`.
-2. `/api/chat` streams responses from the OpenAI-compatible API.
+2. `/api/chat` streams responses from the OpenAI-compatible API (local `api` service or the hosted worker via `AMAN_API_BASE_URL`).
 
 ### OpenAI-compatible API flow (current)
 
@@ -508,7 +509,7 @@ If PII is detected, the router can request an explicit privacy choice before res
 1. Web client -> `workers/aman-gateway` `/v1/chat/completions`.
 2. Worker loads KV memory (`AMAN_MEMORY`) and D1 KB (`AMAN_KB`).
 3. Scheduled cron sync pulls Nostr DocManifest/ChunkRef events into D1.
-4. Worker injects memory + KB context into the OpenRouter prompt.
+4. Worker injects KB context into the system prompt; if KB is present, memory injection is skipped.
 5. Worker returns OpenAI-style chat completions (streaming or non-streaming).
 
 ### Admin web flow
@@ -617,11 +618,20 @@ Environment variables (names may be implementation-specific):
 - `PHOENIXD_PASSWORD`: Phoenixd password for donation wallet (optional).
 - `NWC_URI`: Nostr Wallet Connect URI for donation wallet (optional).
 - `STRIKE_API_KEY`: Strike API key for donation wallet (optional).
-- `NOSTR_RELAYS`: comma-separated relay URLs (memory publishing + indexer).
+- `NOSTR_RELAYS`: comma-separated relay URLs (memory publishing + indexer; worker default uses damus + nos.lol + nexus).
 - `NOSTR_KB_AUTHOR`: optional pubkey filter for worker KB sync.
 - `NOSTR_DB_PATH`: SQLite path for Nostr indexer and memory rehydration.
 - `NOSTR_SECRETBOX_KEY`: optional symmetric key for payload encryption.
 - `NOSTR_SECRET_KEY`: secret key used by publishers (`ingester`, memory events).
+- `DEFAULT_MODEL`: worker default OpenRouter model (default: `x-ai/grok-4.1-fast`).
+- `SUMMARY_MODEL`: worker summary model (default: `openai/gpt-5-nano`).
+- `SYSTEM_PROMPT`: worker system prompt (includes KB-only guidance).
+- `MEMORY_MAX_CHARS`: worker memory prompt cap.
+- `MEMORY_SUMMARIZE_EVERY_TURNS`: worker summary cadence.
+- `ALLOW_ANON`: allow unauthenticated worker requests (`true`/`false`).
+- `WORKER_API_TOKEN`: bearer token when `ALLOW_ANON=false`.
+- `RATE_LIMIT_MAX`: worker fixed-window request cap.
+- `RATE_LIMIT_WINDOW_SECS`: worker rate-limit window (seconds).
 - `KB_SYNC_LOOKBACK_SECS`: worker KB sync lookback window (seconds).
 - `KB_MAX_SNIPPET_CHARS`: max chars per KB snippet (worker).
 - `KB_MAX_TOTAL_CHARS`: max chars for total KB injection (worker).

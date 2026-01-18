@@ -24,7 +24,7 @@ const SYNC_STATE_KEY: &str = "kb_checkpoint";
 const SECRETBOX_TAG: &str = "secretbox-v1";
 const NOSTR_RELAY_TIMEOUT_MS: u64 = 4500;
 const KB_FALLBACK_CANDIDATES: usize = 200;
-const DEFAULT_SYSTEM_PROMPT: &str = "You are Aman, a privacy-focused AI assistant built for high-risk contexts. Respond clearly and succinctly, prioritize user safety and privacy, and ask clarifying questions when needed.";
+const DEFAULT_SYSTEM_PROMPT: &str = "You are Aman, a privacy-focused AI assistant built for high-risk contexts. Respond clearly and succinctly, prioritize user safety and privacy, and ask clarifying questions when needed. When [KNOWLEDGE BASE CONTEXT] is present, answer using only that context and cite document titles in brackets (e.g., [source: title]). If the context does not answer the question, say so.";
 
 #[event(fetch)]
 async fn fetch(mut req: Request, env: Env, _ctx: Context) -> worker::Result<Response> {
@@ -47,6 +47,7 @@ async fn fetch(mut req: Request, env: Env, _ctx: Context) -> worker::Result<Resp
         (Method::Post, "/v1/chat/completions") => handle_chat_completions(&mut req, &env).await,
         (Method::Get, "/kb/status") => handle_kb_status(&env, req.headers()).await,
         (Method::Post, "/kb/search") => handle_kb_search(&mut req, &env).await,
+        (Method::Post, "/kb/sync") => handle_kb_sync(&req, &env).await,
         _ => Err(ApiError::not_found("route not found")),
     };
 
@@ -318,7 +319,7 @@ impl Settings {
         let default_model = env_string(env, "DEFAULT_MODEL")
             .unwrap_or_else(|| "openai/gpt-4o-mini".to_string());
         let summary_model = env_string(env, "SUMMARY_MODEL")
-            .unwrap_or_else(|| "mistral-small".to_string());
+            .unwrap_or_else(|| "openai/gpt-5-nano".to_string());
         let system_prompt = env_string(env, "SYSTEM_PROMPT")
             .unwrap_or_else(|| DEFAULT_SYSTEM_PROMPT.to_string());
         let memory_max_chars = env_usize(env, "MEMORY_MAX_CHARS", 1200);
@@ -475,9 +476,21 @@ async fn handle_chat_completions(req: &mut Request, env: &Env) -> ApiResult<Resp
         .map_err(|err| ApiError::internal(format!("KV read failed: {err}")))?
         .unwrap_or_default();
 
-    let messages = inject_system_prompt(request.messages.clone(), &settings.system_prompt);
-    let memory_prompt = build_memory_prompt(&snapshot, settings.memory_max_chars);
-    let messages = inject_memory(messages, memory_prompt);
+    let mut kb_debug = header_value(req.headers(), "X-KB-Debug")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !kb_debug {
+        if let Ok(url) = req.url() {
+            for (key, value) in url.query_pairs() {
+                if key.eq_ignore_ascii_case("kb_debug")
+                    && (value == "1" || value.eq_ignore_ascii_case("true"))
+                {
+                    kb_debug = true;
+                    break;
+                }
+            }
+        }
+    }
 
     let model = request
         .model
@@ -485,7 +498,10 @@ async fn handle_chat_completions(req: &mut Request, env: &Env) -> ApiResult<Resp
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| settings.default_model.clone());
 
+    let messages = inject_system_prompt(request.messages.clone(), &settings.system_prompt);
+
     let user_text = last_user_text(&request.messages);
+    let user_text_for_debug = user_text.clone();
     let kb_prompt = if let Some(query) = user_text.as_deref() {
         match env.d1("AMAN_KB") {
             Ok(db) => match build_kb_prompt(&db, query, &settings).await {
@@ -500,6 +516,13 @@ async fn handle_chat_completions(req: &mut Request, env: &Env) -> ApiResult<Resp
     } else {
         None
     };
+    let kb_prompt_for_debug = kb_prompt.clone();
+    let memory_prompt = if kb_prompt.is_some() {
+        None
+    } else {
+        build_memory_prompt(&snapshot, settings.memory_max_chars)
+    };
+    let messages = inject_memory(messages, memory_prompt);
     let messages = inject_knowledge(messages, kb_prompt);
 
     if request.stream.unwrap_or(false) {
@@ -535,7 +558,34 @@ async fn handle_chat_completions(req: &mut Request, env: &Env) -> ApiResult<Resp
         user: Some(history_key.clone()),
     };
 
-    let response_json = call_openrouter(&settings, &payload).await?;
+    let mut response_json = call_openrouter(&settings, &payload).await?;
+    if kb_debug {
+        if let Value::Object(obj) = &mut response_json {
+            let context = kb_prompt_for_debug.unwrap_or_default();
+            let tokens = user_text_for_debug
+                .as_deref()
+                .map(tokenize_query)
+                .unwrap_or_default();
+            let token_values = tokens.into_iter().map(Value::String).collect::<Vec<_>>();
+            let mut debug = serde_json::Map::new();
+            debug.insert(
+                "query".to_string(),
+                user_text_for_debug
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
+            );
+            debug.insert("tokens".to_string(), Value::Array(token_values));
+            debug.insert(
+                "context".to_string(),
+                if context.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(context)
+                },
+            );
+            obj.insert("kb_debug".to_string(), Value::Object(debug));
+        }
+    }
 
     let assistant_text = extract_assistant_text(&response_json);
     update_snapshot(
@@ -614,6 +664,29 @@ async fn handle_kb_search(req: &mut Request, env: &Env) -> ApiResult<Response> {
     let response = KbSearchResponse { hits };
 
     json_response(200, &response).map_err(|err| ApiError::internal(err.to_string()))
+}
+
+async fn handle_kb_sync(req: &Request, env: &Env) -> ApiResult<Response> {
+    let settings = Settings::from_env(env)?;
+    let auth_header = header_value(req.headers(), "Authorization");
+    if !settings.allow_anon {
+        authorize(auth_header.as_deref(), &settings)?;
+    }
+
+    let mut override_since = None;
+    if let Ok(url) = req.url() {
+        for (key, value) in url.query_pairs() {
+            if key.eq_ignore_ascii_case("full") || key.eq_ignore_ascii_case("reset") {
+                if value == "1" || value.eq_ignore_ascii_case("true") {
+                    override_since =
+                        Some(now_unix().saturating_sub(settings.kb_sync_lookback_secs));
+                }
+            }
+        }
+    }
+
+    sync_kb_with_since(env, override_since).await?;
+    handle_kb_status(env, req.headers()).await
 }
 
 fn authorize(auth_header: Option<&str>, settings: &Settings) -> ApiResult<()> {
@@ -918,7 +991,8 @@ fn format_kb_context(
     }
 
     let mut lines = Vec::new();
-    let mut used = KB_CONTEXT_PREFIX.len() + KB_CONTEXT_SUFFIX.len() + 2;
+    let instruction = "Answer using only these sources. Cite with [source: <title>]. If they do not answer the question, say so.";
+    let mut used = KB_CONTEXT_PREFIX.len() + KB_CONTEXT_SUFFIX.len() + 2 + instruction.len() + 1;
 
     for hit in hits {
         let snippet = truncate_text(&normalize_line(&hit.text), max_snippet_chars);
@@ -929,10 +1003,10 @@ fn format_kb_context(
         if let Some(title) = hit.title.as_ref() {
             let title = truncate_text(&normalize_line(title), 120);
             if !title.is_empty() {
-                label = format!("doc_id={}, title={}, chunk_id={}", hit.doc_id, title, hit.chunk_id);
+                label = title;
             }
         }
-        let line = format!("- ({}) {}", label, snippet);
+        let line = format!("- [{}] {}", label, snippet);
         if used + line.len() + 1 > max_total_chars {
             break;
         }
@@ -946,6 +1020,8 @@ fn format_kb_context(
 
     let mut out = String::new();
     out.push_str(KB_CONTEXT_PREFIX);
+    out.push('\n');
+    out.push_str(instruction);
     out.push('\n');
     out.push_str(&lines.join("\n"));
     out.push('\n');
@@ -1140,16 +1216,24 @@ fn inject_knowledge(mut messages: Vec<ChatMessage>, knowledge_prompt: Option<Str
         return messages;
     };
 
-    let knowledge_message = ChatMessage {
-        role: "system".to_string(),
-        content: Value::String(knowledge),
-    };
+    if let Some(index) = messages.iter().position(|msg| msg.role == "system") {
+        if let Value::String(content) = &messages[index].content {
+            let mut combined = content.trim_end().to_string();
+            combined.push('\n');
+            combined.push('\n');
+            combined.push_str(&knowledge);
+            messages[index].content = Value::String(combined);
+            return messages;
+        }
+    }
 
-    let insert_at = messages
-        .iter()
-        .position(|msg| msg.role != "system")
-        .unwrap_or(messages.len());
-    messages.insert(insert_at, knowledge_message);
+    messages.insert(
+        0,
+        ChatMessage {
+            role: "system".to_string(),
+            content: Value::String(knowledge),
+        },
+    );
     messages
 }
 
@@ -1438,14 +1522,80 @@ fn tokenize_query(query: &str) -> Vec<String> {
                 .filter(|ch| ch.is_ascii_alphanumeric())
                 .collect();
             let cleaned = cleaned.to_lowercase();
-            if cleaned.len() >= 2 {
-                Some(cleaned)
-            } else {
-                None
+            if cleaned.len() < 3 {
+                return None;
             }
+            if is_stopword(&cleaned) {
+                return None;
+            }
+            Some(cleaned)
         })
         .take(12)
         .collect()
+}
+
+fn is_stopword(token: &str) -> bool {
+    matches!(
+        token,
+        "a"
+            | "an"
+            | "and"
+            | "are"
+            | "as"
+            | "at"
+            | "be"
+            | "been"
+            | "but"
+            | "by"
+            | "can"
+            | "could"
+            | "did"
+            | "do"
+            | "does"
+            | "for"
+            | "from"
+            | "had"
+            | "has"
+            | "have"
+            | "how"
+            | "if"
+            | "in"
+            | "is"
+            | "it"
+            | "its"
+            | "me"
+            | "of"
+            | "on"
+            | "or"
+            | "our"
+            | "please"
+            | "should"
+            | "tell"
+            | "that"
+            | "the"
+            | "their"
+            | "them"
+            | "then"
+            | "there"
+            | "these"
+            | "they"
+            | "this"
+            | "to"
+            | "was"
+            | "we"
+            | "were"
+            | "what"
+            | "when"
+            | "where"
+            | "which"
+            | "who"
+            | "why"
+            | "with"
+            | "would"
+            | "you"
+            | "your"
+            | "about"
+    )
 }
 
 fn looks_sensitive_query(query: &str) -> bool {
@@ -1533,6 +1683,10 @@ async fn save_sync_state(db: &D1Database, state: &SyncState) -> ApiResult<()> {
 }
 
 async fn sync_kb(env: &Env) -> ApiResult<()> {
+    sync_kb_with_since(env, None).await
+}
+
+async fn sync_kb_with_since(env: &Env, override_since: Option<u64>) -> ApiResult<()> {
     let settings = Settings::from_env(env)?;
     if settings.nostr_relays.is_empty() {
         return Ok(());
@@ -1547,6 +1701,9 @@ async fn sync_kb(env: &Env) -> ApiResult<()> {
         since: now.saturating_sub(settings.kb_sync_lookback_secs),
         updated_at: 0,
     });
+    if let Some(since) = override_since {
+        state.since = since;
+    }
 
     let since = state.since.saturating_sub(1);
     let fts_enabled = fts_available(&db).await.unwrap_or(false);

@@ -65,6 +65,8 @@ These items are stored only when Nostr is configured:
 - Tool history: 14 days (capped by row count).
 - Clear-context events: 30 days (capped by row count).
 - Subscriptions: keep until user opts out.
+- Worker KV memory snapshots: no TTL by default (override in code if needed).
+- Worker D1 knowledge base: persists until explicit cleanup.
 
 Adjust these windows based on threat model and legal constraints.
 

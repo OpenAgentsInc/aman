@@ -47,6 +47,7 @@ Signal User -> signal-cli daemon -> signal-daemon -> message_listener -> agent_b
 - `api` supports `echo`, `orchestrator`, and `openrouter` modes.
 - `api` can optionally read a local knowledge base via `AMAN_KB_PATH` (or Nostr via `NOSTR_DB_PATH`).
 - `api` can also proxy to OpenRouter for OpenAI-compatible inference.
+- `aman-gateway-worker` provides a hosted OpenAI-compatible endpoint (OpenRouter + KV memory + D1 KB synced from Nostr).
 - `ingester` chunks files and publishes/indexes Nostr events for the knowledge base.
 - `admin-web` provides a dashboard and broadcast tool for operators.
 

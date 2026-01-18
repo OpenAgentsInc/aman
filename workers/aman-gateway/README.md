@@ -2,7 +2,8 @@
 
 Cloudflare Worker (workers-rs) that exposes an OpenAI-compatible API backed by OpenRouter with a
 minimal Aman-like loop. It stores short memory snapshots in KV, maintains a local D1 knowledge
-base synced from Nostr DocManifest/ChunkRef events, and injects KB snippets into prompts.
+base synced from Nostr DocManifest/ChunkRef events, and injects KB snippets into prompts. When KB
+context is present, the worker skips memory injection to avoid mixing sources.
 
 ## Endpoints
 
@@ -11,6 +12,7 @@ base synced from Nostr DocManifest/ChunkRef events, and injects KB snippets into
 - `POST /v1/chat/completions` (streaming supported via `stream: true`)
 - `GET /kb/status` (debug)
 - `POST /kb/search` (debug)
+- `POST /kb/sync` (debug; add `?full=1` to backfill lookback window)
 
 ## Quickstart
 
@@ -60,8 +62,9 @@ curl -s http://127.0.0.1:8787/v1/chat/completions \
 ## Knowledge base ingestion
 
 - Use `ingester --inline-text` to embed chunk text directly inside `ChunkRef` events.
-- Set `NOSTR_RELAYS` to the relay(s) you publish to.
+- Set `NOSTR_RELAYS` to the relay(s) you publish to (default: `wss://relay.damus.io,wss://nos.lol,wss://nexus.openagents.com`).
 - Cron sync runs every 5 minutes (configurable in `wrangler.toml`).
+- If you add new relays, call `POST /kb/sync?full=1` to backfill the lookback window.
 
 ## Environment variables
 
@@ -75,8 +78,8 @@ Optional:
 - `OPENROUTER_HTTP_REFERER` (optional header)
 - `OPENROUTER_X_TITLE` (optional header)
 - `DEFAULT_MODEL` (default: `x-ai/grok-4.1-fast`)
-- `SUMMARY_MODEL` (default: `mistral-small`)
-- `SYSTEM_PROMPT` (default: Aman identity + safety/clarity guidance)
+- `SUMMARY_MODEL` (default: `openai/gpt-5-nano`)
+- `SYSTEM_PROMPT` (default: Aman identity + safety/clarity guidance + KB-only instructions)
 - `MEMORY_MAX_CHARS` (default: `1200`)
 - `MEMORY_SUMMARIZE_EVERY_TURNS` (default: `6`)
 - `ALLOW_ANON` (default: `true`)
@@ -97,3 +100,4 @@ Optional:
 - KV bindings: `AMAN_MEMORY` for chat memory, `AMAN_META` for KB sync metadata.
 - D1 binding: `AMAN_KB` for KB storage and search.
 - Nostr sync is best-effort and continues if a relay fails.
+- For debugging KB injection, pass `X-KB-Debug: 1` or `?kb_debug=1` to include a `kb_debug` object in the response.

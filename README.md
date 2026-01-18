@@ -54,8 +54,10 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 2) The Cloudflare Worker cron sync pulls Nostr events, upserts docs/chunks into D1, and keeps a
    sync cursor in KV.
 3) `/v1/chat/completions` runs keyword/FTS search in D1 and injects a small, capped snippet bundle
-   into the system prompt before calling OpenRouter.
-4) `/kb/status` and `/kb/search` are available for debugging the KB state and search results.
+   into the system prompt before calling OpenRouter. When KB context is present, the worker skips
+   memory injection to avoid mixing sources.
+4) `/kb/status`, `/kb/search`, and `/kb/sync` are available for debugging the KB state and forcing
+   a backfill (`/kb/sync?full=1`).
 
 Key knobs: `NOSTR_RELAYS`, `NOSTR_KB_AUTHOR`, `NOSTR_SECRETBOX_KEY`, `KB_*` limits, and the
 worker KV/D1 bindings. See `workers/aman-gateway/README.md` for the full setup.
