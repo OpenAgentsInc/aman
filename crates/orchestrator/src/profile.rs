@@ -179,6 +179,7 @@ impl ProfileStore {
             None => "No profile settings saved yet.\n\n\
                     Available settings:\n\
                     • default_model - Your preferred AI model\n\
+                      (llama, deepseek, qwen, mistral, gpt-oss, grok-4-1-fast)\n\
                     • email - Your email address\n\
                     • bolt12_offer - Lightning payment offer"
                 .to_string(),

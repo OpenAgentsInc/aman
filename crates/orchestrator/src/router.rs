@@ -4,7 +4,7 @@ use brain_core::{Brain, InboundAttachment, InboundMessage};
 use maple_brain::{MapleBrain, MapleBrainConfig};
 use std::env;
 use std::path::Path;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use brain_core::{hash_prompt, Sensitivity, TaskHint};
 use crate::actions::RoutingPlan;
@@ -183,6 +183,15 @@ impl Router {
         // Format the input with context and attachments if available
         let formatted_input = Self::format_router_input(message_text, context, attachments);
 
+        // Log the router input for debugging
+        trace!(
+            message_text = %message_text,
+            context = ?context,
+            attachments_count = attachments.len(),
+            formatted_input = %formatted_input,
+            "ROUTER_INPUT"
+        );
+
         // Create a minimal inbound message for the brain
         let inbound = InboundMessage::direct("router", &formatted_input, 0);
 
@@ -190,17 +199,37 @@ impl Router {
 
         match self.brain.process(inbound).await {
             Ok(response) => {
+                // Log full router response for debugging
+                trace!(
+                    raw_response = %response.text,
+                    response_len = response.text.len(),
+                    "ROUTER_RAW_RESPONSE"
+                );
                 debug!("Router response: {}", response.text);
                 match self.parse_plan(&response.text) {
-                    Ok(plan) => plan,
+                    Ok(plan) => {
+                        trace!(
+                            actions_count = plan.actions.len(),
+                            parsed_plan = ?plan,
+                            "ROUTER_PARSED_PLAN"
+                        );
+                        plan
+                    }
                     Err(e) => {
-                        warn!("Failed to parse routing plan: {}, using fallback", e);
+                        warn!(
+                            error = %e,
+                            raw_response = %response.text,
+                            "ROUTER_PARSE_FAILED"
+                        );
                         fallback
                     }
                 }
             }
             Err(e) => {
-                warn!("Router brain error: {}, using fallback plan", e);
+                warn!(
+                    error = %e,
+                    "ROUTER_BRAIN_ERROR"
+                );
                 fallback
             }
         }
@@ -341,16 +370,17 @@ impl Router {
     fn extract_json<'a>(&self, response: &'a str) -> &'a str {
         let trimmed = response.trim();
 
-        // If it starts with {, assume it's JSON
+        // If it starts with {, extract balanced JSON object
         if trimmed.starts_with('{') {
-            return trimmed;
+            return Self::extract_balanced_json(trimmed);
         }
 
         // Try to find JSON in markdown code block
         if let Some(start) = trimmed.find("```json") {
             let json_start = start + 7;
             if let Some(end) = trimmed[json_start..].find("```") {
-                return trimmed[json_start..json_start + end].trim();
+                let extracted = trimmed[json_start..json_start + end].trim();
+                return Self::extract_balanced_json(extracted);
             }
         }
 
@@ -363,18 +393,61 @@ impl Router {
                 .map(|i| i + 1)
                 .unwrap_or(0);
             if let Some(end) = after_backticks[json_start..].find("```") {
-                return after_backticks[json_start..json_start + end].trim();
+                let extracted = after_backticks[json_start..json_start + end].trim();
+                return Self::extract_balanced_json(extracted);
             }
         }
 
         // Try to find a JSON object in the text
         if let Some(start) = trimmed.find('{') {
-            if let Some(end) = trimmed.rfind('}') {
-                return &trimmed[start..=end];
-            }
+            return Self::extract_balanced_json(&trimmed[start..]);
         }
 
         trimmed
+    }
+
+    /// Extract a balanced JSON object from a string that starts with '{'.
+    ///
+    /// This handles cases where the LLM adds trailing characters like extra braces.
+    /// For example: `{"actions": [...]}}}` -> `{"actions": [...]}`
+    fn extract_balanced_json(s: &str) -> &str {
+        if !s.starts_with('{') {
+            return s;
+        }
+
+        let mut depth = 0;
+        let mut in_string = false;
+        let mut escape_next = false;
+
+        for (i, ch) in s.char_indices() {
+            if escape_next {
+                escape_next = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if in_string => {
+                    escape_next = true;
+                }
+                '"' => {
+                    in_string = !in_string;
+                }
+                '{' if !in_string => {
+                    depth += 1;
+                }
+                '}' if !in_string => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // Found the matching closing brace
+                        return &s[..=i];
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // If we didn't find balanced braces, return the original
+        s
     }
 }
 
@@ -384,61 +457,56 @@ mod tests {
     use crate::actions::OrchestratorAction;
     use brain_core::InboundAttachment;
 
-    /// Helper function to extract JSON, matching Router's logic.
-    fn extract_json(response: &str) -> &str {
-        let trimmed = response.trim();
+    #[test]
+    fn test_extract_balanced_json_clean() {
+        let input = r#"{"actions": [{"type": "respond"}]}"#;
+        let result = Router::extract_balanced_json(input);
+        assert_eq!(result, input);
+    }
 
-        // If it starts with {, assume it's JSON
-        if trimmed.starts_with('{') {
-            return trimmed;
-        }
+    #[test]
+    fn test_extract_balanced_json_trailing_braces() {
+        // This is the actual bug we observed in production
+        let input = r#"{"actions": [{"type": "use_tool", "name": "bitcoin_price"}]}}"#;
+        let result = Router::extract_balanced_json(input);
+        assert_eq!(result, r#"{"actions": [{"type": "use_tool", "name": "bitcoin_price"}]}"#);
+    }
 
-        // Try to find JSON in markdown code block
-        if let Some(start) = trimmed.find("```json") {
-            let json_start = start + 7;
-            if let Some(end) = trimmed[json_start..].find("```") {
-                return trimmed[json_start..json_start + end].trim();
-            }
-        }
+    #[test]
+    fn test_extract_balanced_json_multiple_trailing() {
+        let input = r#"{"actions": [{"type": "respond"}]}}}}}"#;
+        let result = Router::extract_balanced_json(input);
+        assert_eq!(result, r#"{"actions": [{"type": "respond"}]}"#);
+    }
 
-        // Try to find JSON in generic code block
-        if let Some(start) = trimmed.find("```") {
-            let after_backticks = &trimmed[start + 3..];
-            let json_start = after_backticks.find('\n').map(|i| i + 1).unwrap_or(0);
-            if let Some(end) = after_backticks[json_start..].find("```") {
-                return after_backticks[json_start..json_start + end].trim();
-            }
-        }
+    #[test]
+    fn test_extract_balanced_json_with_strings() {
+        // Ensure braces inside strings don't confuse the parser
+        let input = r#"{"message": "Hello { world }", "nested": {"key": "value"}}"#;
+        let result = Router::extract_balanced_json(input);
+        assert_eq!(result, input);
+    }
 
-        // Try to find a JSON object in the text
-        if let Some(start) = trimmed.find('{') {
-            if let Some(end) = trimmed.rfind('}') {
-                return &trimmed[start..=end];
-            }
-        }
-
-        trimmed
+    #[test]
+    fn test_extract_balanced_json_with_escaped_quotes() {
+        let input = r#"{"message": "He said \"hello\"", "done": true}"#;
+        let result = Router::extract_balanced_json(input);
+        assert_eq!(result, input);
     }
 
     #[test]
     fn test_extract_json_plain() {
-        let result = extract_json(r#"{"actions": [{"type": "respond"}]}"#);
+        let input = r#"{"actions": [{"type": "respond"}]}"#;
+        let result = Router::extract_balanced_json(input);
         assert!(result.starts_with('{'));
+        assert!(result.ends_with('}'));
     }
 
     #[test]
-    fn test_extract_json_code_block() {
-        let input = "Here's the plan:\n```json\n{\"actions\": [{\"type\": \"respond\"}]}\n```";
-        let result = extract_json(input);
-        assert!(result.starts_with('{'));
-        assert!(result.contains("respond"));
-    }
-
-    #[test]
-    fn test_extract_json_with_text() {
-        let input = "Let me analyze this. {\"actions\": [{\"type\": \"respond\"}]} That's my plan.";
-        let result = extract_json(input);
-        assert!(result.starts_with('{'));
+    fn test_extract_json_with_trailing_text() {
+        let input = r#"{"actions": [{"type": "respond"}]} some trailing text"#;
+        let result = Router::extract_balanced_json(input);
+        assert_eq!(result, r#"{"actions": [{"type": "respond"}]}"#);
     }
 
     #[test]

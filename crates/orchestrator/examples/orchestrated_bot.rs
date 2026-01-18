@@ -11,6 +11,11 @@
 //!   MAPLE_API_URL      - OpenSecret API URL
 //!   MAPLE_API_KEY      - API key for MapleBrain (required)
 //!   GROK_API_KEY       - API key for Grok search (required)
+//!
+//! Logging configuration:
+//!   AMAN_LOG_FILE      - Path to log file (default: logs/aman.log)
+//!   AMAN_LOG_LEVEL     - Log level for file (default: debug)
+//!   RUST_LOG           - Console log level (default: info)
 
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -22,6 +27,7 @@ use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 /// Signal-based message sender for the orchestrator.
 #[derive(Clone)]
@@ -74,7 +80,42 @@ impl MessageSender for SignalMessageSender {
 /// Convert a Signal envelope to an InboundMessage.
 fn envelope_to_inbound(envelope: &Envelope) -> Option<InboundMessage> {
     let data_message = envelope.data_message.as_ref()?;
-    let text = data_message.message.as_ref()?;
+
+    // Convert attachments
+    let attachments: Vec<brain_core::InboundAttachment> = data_message
+        .attachments
+        .iter()
+        .map(|att| {
+            // Resolve attachment path using signal-cli's default location
+            let file_path = att.id.as_ref().map(|id| {
+                // signal-cli stores attachments in ~/.local/share/signal-cli/attachments/
+                let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+                format!("{}/.local/share/signal-cli/attachments/{}", home, id)
+            });
+
+            brain_core::InboundAttachment {
+                content_type: att.content_type.clone(),
+                filename: att.filename.clone(),
+                file_path,
+                size: att.size,
+                width: att.width,
+                height: att.height,
+                caption: att.caption.clone(),
+            }
+        })
+        .collect();
+
+    // Get text content - allow empty string if there are attachments
+    let text = data_message
+        .message
+        .clone()
+        .or_else(|| {
+            if !attachments.is_empty() {
+                Some(String::new())
+            } else {
+                None
+            }
+        })?;
 
     let group_id = data_message
         .group_info
@@ -83,10 +124,10 @@ fn envelope_to_inbound(envelope: &Envelope) -> Option<InboundMessage> {
 
     Some(InboundMessage {
         sender: envelope.source.clone(),
-        text: text.clone(),
+        text,
         timestamp: envelope.timestamp,
         group_id,
-        attachments: Vec::new(), // TODO: Handle attachments
+        attachments,
         routing: None,
     })
 }
@@ -108,18 +149,87 @@ fn should_process(envelope: &Envelope, bot_number: Option<&str>, startup_time_ms
         ));
     }
 
-    // Must have a data message with text
+    // Must have a data message
     let data_message = envelope
         .data_message
         .as_ref()
         .ok_or_else(|| "no data message".to_string())?;
 
-    data_message
-        .message
-        .as_ref()
-        .ok_or_else(|| "no text content".to_string())?;
+    // Must have either text or attachments
+    let has_text = data_message.message.is_some();
+    let has_attachments = !data_message.attachments.is_empty();
+
+    if !has_text && !has_attachments {
+        return Err("no text content or attachments".to_string());
+    }
 
     Ok(())
+}
+
+/// Set up logging with both console and file output.
+///
+/// Returns a guard that must be kept alive for the duration of the program
+/// to ensure logs are flushed to the file.
+fn setup_logging(log_file_path: &str) -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn std::error::Error>> {
+    use std::path::Path;
+
+    // Create logs directory if needed
+    if let Some(parent) = Path::new(log_file_path).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+
+    // Set up file appender
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_file_path)?;
+    let (file_writer, guard) = tracing_appender::non_blocking(file);
+
+    // Console layer - human readable, respects RUST_LOG
+    let console_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| {
+            EnvFilter::new("info")
+                .add_directive("orchestrator=debug".parse().unwrap())
+                .add_directive("maple_brain=info".parse().unwrap())
+                .add_directive("grok_brain=info".parse().unwrap())
+        });
+
+    let console_layer = fmt::layer()
+        .with_target(true)
+        .with_filter(console_filter);
+
+    // File layer - JSON format, debug level for full payloads
+    let file_filter = env::var("AMAN_LOG_LEVEL")
+        .ok()
+        .and_then(|level| EnvFilter::try_new(&level).ok())
+        .unwrap_or_else(|| {
+            EnvFilter::new("debug")
+                .add_directive("orchestrator=debug".parse().unwrap())
+                .add_directive("maple_brain=debug".parse().unwrap())
+                .add_directive("grok_brain=debug".parse().unwrap())
+                .add_directive("agent_tools=debug".parse().unwrap())
+                .add_directive("hyper=warn".parse().unwrap())
+                .add_directive("reqwest=warn".parse().unwrap())
+        });
+
+    let file_layer = fmt::layer()
+        .json()
+        .with_writer(file_writer)
+        .with_filter(file_filter);
+
+    // Initialize the subscriber with both layers
+    tracing_subscriber::registry()
+        .with(console_layer)
+        .with(file_layer)
+        .init();
+
+    println!("Logging to file: {}", log_file_path);
+    println!("  Tail logs: tail -f {}", log_file_path);
+    println!("  View JSON: cat {} | jq", log_file_path);
+
+    Ok(guard)
 }
 
 #[tokio::main]
@@ -127,15 +237,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load .env file if present
     let _ = dotenvy::dotenv();
 
-    // Initialize tracing for logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("orchestrator=debug".parse().unwrap())
-                .add_directive("maple_brain=info".parse().unwrap())
-                .add_directive("grok_brain=info".parse().unwrap()),
-        )
-        .init();
+    // Initialize logging with file and console output
+    let log_file_path = env::var("AMAN_LOG_FILE").unwrap_or_else(|_| "logs/aman.log".to_string());
+    let _guard = setup_logging(&log_file_path)?;
 
     // Get bot number from environment
     let bot_number = env::var("AMAN_NUMBER").ok();

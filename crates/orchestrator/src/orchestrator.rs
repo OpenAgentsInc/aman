@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::path::Path;
 use std::sync::Arc;
 
 use brain_core::{
@@ -14,7 +15,7 @@ use maple_brain::{MapleBrain, MapleBrainConfig};
 use chrono::Utc;
 use serde_json::{json, Value};
 use agent_tools::ToolRegistry;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use brain_core::{Sensitivity, TaskHint};
 use crate::actions::{OrchestratorAction, PrivacyChoice, RoutingPlan, UserPreference};
@@ -41,18 +42,78 @@ Commands:
 • "reset preferences" - Return to default (auto-detect)
 • "grok: <query>" - One-time direct query to Grok
 • "maple: <query>" - One-time direct query to Maple
+• "<model>: <query>" - One-time query to specific model
 • "forget our chat" - Clear conversation history
 
 Profile Settings:
 • "show my settings" - View your profile
 • "set my email to X" - Update your email
 • "set my default model to X" - Set preferred AI model
+• "set my bolt12 to lno1..." - Set Lightning payment offer
 • "clear my email" - Remove a setting
 • "delete my profile" - Clear all settings
+
+Available Models:
+• Privacy (Maple): llama, deepseek, qwen, mistral, gpt-oss
+• Speed (Grok): grok-4-1-fast, grok-4-1, grok-3
 
 I automatically detect sensitive topics (health, finances, personal) and route them securely. General queries use fast mode for better real-time info.
 
 Just send me a message and I'll do my best to help!"#;
+
+/// Default path for the support prompt file.
+pub const DEFAULT_SUPPORT_PROMPT_FILE: &str = "SUPPORT_PROMPT.md";
+
+/// Default support text (fallback if file not found).
+pub const DEFAULT_SUPPORT_TEXT: &str = r#"Thank you for your interest in supporting this project!
+
+This is a privacy-focused AI assistant. To configure support information, create a SUPPORT_PROMPT.md file in the project root with your donation addresses and project links."#;
+
+/// Load the support text.
+///
+/// Priority:
+/// 1. `SUPPORT_PROMPT` env var (if set)
+/// 2. Contents of prompt file (`SUPPORT_PROMPT_FILE` or default `SUPPORT_PROMPT.md`)
+/// 3. Embedded default text
+fn load_support_text() -> String {
+    // 1. Check for inline env var
+    if let Ok(text) = env::var("SUPPORT_PROMPT") {
+        info!("Using support text from SUPPORT_PROMPT env var");
+        return text;
+    }
+
+    // 2. Try to load from file
+    let prompt_file = env::var("SUPPORT_PROMPT_FILE")
+        .unwrap_or_else(|_| DEFAULT_SUPPORT_PROMPT_FILE.to_string());
+
+    if let Some(text) = load_text_file(&prompt_file) {
+        info!("Loaded support text from {}", prompt_file);
+        return text;
+    }
+
+    // 3. Fall back to embedded default
+    info!("Using embedded default support text");
+    DEFAULT_SUPPORT_TEXT.to_string()
+}
+
+/// Load text from a file path.
+///
+/// Returns `Some(content)` if the file exists and is readable, `None` otherwise.
+fn load_text_file(path: impl AsRef<Path>) -> Option<String> {
+    let path = path.as_ref();
+
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            let trimmed = content.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Err(_) => None,
+    }
+}
 
 #[derive(Debug, Default)]
 struct MemoryContext {
@@ -104,6 +165,8 @@ pub struct Orchestrator<S: MessageSender> {
     email_client: Option<EmailClient>,
     /// User profile store for personal settings.
     profile: ProfileStore,
+    /// Support text for donation/support inquiries.
+    support_text: String,
 }
 
 impl<S: MessageSender> Orchestrator<S> {
@@ -132,6 +195,7 @@ impl<S: MessageSender> Orchestrator<S> {
             tool_registry,
             email_client: None,
             profile: ProfileStore::new(),
+            support_text: load_support_text(),
         }
     }
 
@@ -161,6 +225,7 @@ impl<S: MessageSender> Orchestrator<S> {
             tool_registry,
             email_client: None,
             profile: ProfileStore::new(),
+            support_text: load_support_text(),
         }
     }
 
@@ -219,6 +284,7 @@ impl<S: MessageSender> Orchestrator<S> {
             tool_registry,
             email_client,
             profile,
+            support_text: load_support_text(),
         })
     }
 
@@ -259,6 +325,7 @@ impl<S: MessageSender> Orchestrator<S> {
             tool_registry,
             email_client,
             profile,
+            support_text: load_support_text(),
         })
     }
 
@@ -350,6 +417,17 @@ impl<S: MessageSender> Orchestrator<S> {
             message.sender, is_group, history_key
         );
 
+        // Log full inbound message for debugging
+        trace!(
+            sender = %message.sender,
+            text = %message.text,
+            timestamp = message.timestamp,
+            group_id = ?message.group_id,
+            attachments_count = message.attachments.len(),
+            has_images = message.has_images(),
+            "INBOUND_MESSAGE"
+        );
+
         // 1. Start typing indicator
         if let Err(e) = self.sender.set_typing(recipient, is_group, true).await {
             warn!("Failed to start typing indicator: {}", e);
@@ -380,6 +458,22 @@ impl<S: MessageSender> Orchestrator<S> {
             plan.actions.len(),
             message.attachments.len()
         );
+
+        // Log full routing plan for debugging
+        trace!(
+            actions_count = plan.actions.len(),
+            has_search = plan.has_search(),
+            actions = ?plan.actions.iter().map(|a| a.description()).collect::<Vec<_>>(),
+            "ROUTING_PLAN"
+        );
+        for (i, action) in plan.actions.iter().enumerate() {
+            debug!(
+                action_index = i,
+                action_type = %action.description(),
+                action_details = ?action,
+                "ROUTING_ACTION"
+            );
+        }
 
         // 4. Execute actions, building context
         let memory_context_ref = if memory_context.prompt.is_some() {
@@ -442,6 +536,10 @@ impl<S: MessageSender> Orchestrator<S> {
 
                 OrchestratorAction::Help => {
                     return Ok(OutboundMessage::reply_to(message, HELP_TEXT));
+                }
+
+                OrchestratorAction::Support => {
+                    return self.execute_support(message).await;
                 }
 
                 OrchestratorAction::Respond {
@@ -582,6 +680,10 @@ impl<S: MessageSender> Orchestrator<S> {
 
                 OrchestratorAction::ClearProfile => {
                     return self.execute_clear_profile(message).await;
+                }
+
+                OrchestratorAction::MissingAttachment { intent } => {
+                    return self.execute_missing_attachment(message, intent).await;
                 }
             }
         }
@@ -805,6 +907,25 @@ impl<S: MessageSender> Orchestrator<S> {
 
         debug!("Context summary: {}", context.format_summary());
 
+        // Log the request being sent to the brain
+        trace!(
+            brain = if use_grok { "grok" } else { "maple" },
+            model = %selected_model,
+            sensitivity = ?sensitivity,
+            task_hint = ?effective_task_hint,
+            request_text = %augmented.text,
+            has_context = context.has_results(),
+            memory_prompt_len = augmented.routing.as_ref().and_then(|r| r.memory_prompt.as_ref()).map(|p| p.len()).unwrap_or(0),
+            "BRAIN_REQUEST"
+        );
+
+        // Refresh typing indicator before potentially long brain API call
+        let recipient = message.group_id.as_ref().unwrap_or(&message.sender);
+        let is_group = message.group_id.is_some();
+        if let Err(e) = self.sender.set_typing(recipient, is_group, true).await {
+            warn!("Failed to refresh typing indicator: {}", e);
+        }
+
         // Process through the appropriate brain
         // Note: Currently using the default model configured in the brain.
         // TODO: Add per-request model override support to brains for dynamic model selection.
@@ -814,6 +935,15 @@ impl<S: MessageSender> Orchestrator<S> {
             self.maple_brain.process(augmented).await?
         };
         let summary_text = response.text.clone();
+
+        // Log the response from the brain
+        trace!(
+            brain = if use_grok { "grok" } else { "maple" },
+            response_len = response.text.len(),
+            response_text = %response.text,
+            styles_count = response.styles.len(),
+            "BRAIN_RESPONSE"
+        );
 
         // Format response with metadata footer
         let mode_label = indicator.label();
@@ -1329,6 +1459,35 @@ impl<S: MessageSender> Orchestrator<S> {
                 Ok(OutboundMessage::reply_to(message, error_msg))
             }
         }
+    }
+
+    /// Execute a missing_attachment action - user referenced an attachment that wasn't included.
+    async fn execute_missing_attachment(
+        &self,
+        message: &InboundMessage,
+        intent: &str,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        info!(
+            "Missing attachment: user wanted to '{}' but no attachment received",
+            intent
+        );
+
+        let response_text = format!(
+            "I'd be happy to help {} - but I don't see any attachment in your message. \
+             Could you please send the file again? Make sure to attach it before sending.",
+            intent
+        );
+
+        Ok(OutboundMessage::reply_to(message, response_text))
+    }
+
+    /// Execute a support action - show support/donation information.
+    async fn execute_support(
+        &self,
+        message: &InboundMessage,
+    ) -> Result<OutboundMessage, OrchestratorError> {
+        info!("Showing support information");
+        Ok(OutboundMessage::reply_to(message, &self.support_text))
     }
 
     async fn record_exchange(

@@ -39,8 +39,10 @@ Output JSON with an "actions" array. Each action has a "type" field.
 - "set_preference": User wants to change their default agent. Include "preference" field: "default", "prefer_privacy", or "prefer_speed".
 - "privacy_choice_response": User is responding to a PII privacy choice prompt. Include "choice" field: "sanitize", "private", or "cancel".
 - "help": User is asking about bot capabilities.
+- "support": User is asking about supporting, donating to, or learning more about the project.
 - "skip": Don't process. Include "reason" field.
 - "ignore": Silently ignore (typos, "?", ".", stray characters).
+- "missing_attachment": User references an attachment that wasn't included. Include "intent" field describing what they wanted to do (e.g., "analyze the image", "read the document").
 
 ### Profile Actions
 - "view_profile": User wants to see their profile settings.
@@ -49,14 +51,28 @@ Output JSON with an "actions" array. Each action has a "type" field.
   - "value": New value (or null to clear the field)
 - "clear_profile": User wants to delete all their profile settings.
 
+**Profile fields:**
+- **email**: User's email address for notifications/contact
+- **default_model**: Preferred AI model for responses. Valid models:
+  - Maple (privacy): llama, deepseek, qwen, mistral, gpt-oss
+  - Grok (speed): grok-4-1-fast, grok-4-1, grok-3, grok-3-mini, grok-4
+- **bolt12_offer**: Lightning payment offer (starts with "lno1...")
+
 **Detect profile requests:**
 - "show my settings", "what are my settings", "my profile", "view profile" → view_profile
 - "what's my email", "what's my default model" → view_profile
 - "set my email to X", "my email is X" → update_profile(field="email", value="X")
-- "set my default model to X", "use X as my default" → update_profile(field="default_model", value="X")
+- "set my default model to X", "use X as my default", "use llama by default" → update_profile(field="default_model", value="X")
 - "set my bolt12 to lno1...", "my lightning address is lno1..." → update_profile(field="bolt12_offer", value="lno1...")
 - "clear my email", "remove my email" → update_profile(field="email", value=null)
 - "delete my profile", "clear my settings" → clear_profile
+
+**Questions about preferences/settings** → Use "help" action:
+- "how do I update my preferences?"
+- "how do I change my settings?"
+- "what settings can I change?"
+- "how do I configure the bot?"
+- "what preferences are available?"
 
 ## PII Detection
 
@@ -84,30 +100,47 @@ Detect personally identifiable information (PII) in the user's message. Set `has
 
 ## Sensitivity Classification
 
-Classify the sensitivity of requests that need a response:
+Classify the sensitivity of requests based on whether they contain PII:
 
 **sensitive** - Use privacy-preserving mode (Maple TEE):
-- Personal health, medical symptoms, mental health
-- Financial details, income, debts, investments
-- Legal matters, contracts, disputes
-- Relationships, family issues, personal conflicts
-- Private opinions on politics, religion, controversial topics
-- Anything involving personal identifying information
-- Secrets, confessions, private matters
+- ONLY use when the message contains actual PII (see PII Detection above)
+- If `has_pii: true`, then `sensitivity: "sensitive"`
 
 **insensitive** - Can use fast mode (Grok):
-- Weather, news, sports scores
-- General knowledge, trivia, facts
-- Coding help, technical questions
-- Entertainment, jokes, games
-- Public information, Wikipedia-style queries
-- Product recommendations (non-financial)
-- How-to guides, tutorials
+- Use for ALL messages that do NOT contain PII
+- General topics like health, finance, legal, relationships are insensitive unless they include actual PII
+- Examples that are insensitive (no PII):
+  - "what's the bitcoin price?" - no PII
+  - "give me investment tips" - no PII (general advice)
+  - "I have a headache, what should I do?" - no PII (no specific medical details)
+  - "how do I file for divorce?" - no PII (general question)
+  - "what's the best credit card?" - no PII
 
-**uncertain** - Could go either way:
-- Ambiguous context
-- Borderline topics
-- When you're not sure
+**Rules for sensitivity (STRICT - follow exactly):**
+1. If `has_pii: true` → `sensitivity: "sensitive"`
+2. If user explicitly says the request is sensitive/private/confidential → `sensitivity: "sensitive"`
+3. **ALL other cases** → `sensitivity: "insensitive"`
+
+**NOT sensitive (use insensitive) - these are ALL insensitive:**
+- Political topics, controversial opinions
+- Questions about violence, war, crimes
+- Health/medical questions (even about treatments, medications, symptoms)
+- Financial questions (investments, crypto, budgeting)
+- Legal questions (divorce, lawsuits, rights)
+- Relationship advice
+- Drug-related questions (recreational or medical)
+- Mental health topics (depression, anxiety, therapy)
+- ANY topic that doesn't contain actual PII data
+
+**Only sensitive when:**
+- User explicitly says "private", "confidential", "sensitive", "secret"
+- Message contains actual PII (names, SSN, addresses, phone numbers, etc.)
+
+Examples of explicit sensitivity requests:
+- "this is private, but..." → sensitive
+- "keep this confidential..." → sensitive
+- "this is sensitive..." → sensitive
+- "privately, I want to ask..." → sensitive
 
 ## Task Hint Classification
 
@@ -228,6 +261,20 @@ CRITICAL: If attachments include images, you MUST:
 2. Never use "grok" action (Grok cannot process images)
 3. If user explicitly requests "grok:" with an image, use "maple" action instead and note the limitation
 
+### Missing Attachments
+
+CRITICAL: If the user's message references an attachment but [ATTACHMENTS: none]:
+- Use "missing_attachment" action instead of "respond"
+- This prevents the AI from hallucinating about non-existent attachments
+- Include "intent" field describing what the user wanted to do
+
+Detect attachment references:
+- "this image", "this photo", "the picture", "this screenshot"
+- "analyze this", "what's this", "describe this" (when clearly referring to an image/file)
+- "read this", "this document", "this file", "the attachment"
+- "look at this", "check this out", "can you see this"
+- References to visual elements: "the chart", "the graph", "the diagram"
+
 ## Privacy Choice Responses
 
 When a user is responding to a privacy choice prompt (the conversation history shows we asked about PII handling), detect their choice:
@@ -262,7 +309,7 @@ If the user says something like "1" or "sanitize" but it's a new conversation wi
 → {"actions": [{"type": "search", "query": "weather New York City", "message": "Checking the forecast..."}, {"type": "respond", "sensitivity": "insensitive", "task_hint": "quick"}]}
 
 [MESSAGE: I'm worried about chest pain I've been having]
-→ {"actions": [{"type": "respond", "sensitivity": "sensitive", "task_hint": "general", "has_pii": false}]}
+→ {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "general", "has_pii": false}]}
 
 [MESSAGE: grok: what's trending on Twitter?]
 → {"actions": [{"type": "grok", "query": "what's trending on Twitter?", "task_hint": "general"}]}
@@ -277,7 +324,7 @@ If the user says something like "1" or "sanitize" but it's a new conversation wi
 → {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "creative"}]}
 
 [MESSAGE: I need advice about my divorce]
-→ {"actions": [{"type": "respond", "sensitivity": "sensitive", "task_hint": "general", "has_pii": false}]}
+→ {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "general", "has_pii": false}]}
 
 [MESSAGE: My name is John Smith and my SSN is 123-45-6789, can you help me with taxes?]
 → {"actions": [{"type": "respond", "sensitivity": "sensitive", "task_hint": "general", "has_pii": true, "pii_types": ["name", "ssn"]}]}
@@ -298,10 +345,25 @@ If the user says something like "1" or "sanitize" but it's a new conversation wi
 → {"actions": [{"type": "search", "query": "Super Bowl winner 2024", "message": "Looking that up..."}, {"type": "respond", "sensitivity": "insensitive", "task_hint": "quick"}]}
 
 [MESSAGE: what's the best way to invest my savings?]
-→ {"actions": [{"type": "respond", "sensitivity": "sensitive", "task_hint": "general"}]}
+→ {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "general", "has_pii": false}]}
 
 [MESSAGE: how do I make pasta?]
 → {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "general"}]}
+
+[MESSAGE: this is private, but I'm thinking about changing careers]
+→ {"actions": [{"type": "respond", "sensitivity": "sensitive", "task_hint": "general", "has_pii": false}]}
+
+[MESSAGE: How do I report war crimes?]
+→ {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "general", "has_pii": false}]}
+
+[MESSAGE: What are the arguments for and against abortion?]
+→ {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "general", "has_pii": false}]}
+
+[MESSAGE: I want to take ivermectin for covid, is it safe?]
+→ {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "general", "has_pii": false}]}
+
+[MESSAGE: How do I deal with depression?]
+→ {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "general", "has_pii": false}]}
 
 [MESSAGE: ?]
 → {"actions": [{"type": "ignore"}]}
@@ -332,7 +394,25 @@ If the user says something like "1" or "sanitize" but it's a new conversation wi
 → {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "about_bot"}]}
 
 [MESSAGE: What can you do?]
-→ {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "about_bot"}]}
+→ {"actions": [{"type": "help"}]}
+
+[MESSAGE: How do I update my preferences?]
+→ {"actions": [{"type": "help"}]}
+
+[MESSAGE: How can I support this project?]
+→ {"actions": [{"type": "support"}]}
+
+[MESSAGE: Can I donate?]
+→ {"actions": [{"type": "support"}]}
+
+[MESSAGE: Who made this bot?]
+→ {"actions": [{"type": "support"}]}
+
+[MESSAGE: How can I contribute?]
+→ {"actions": [{"type": "support"}]}
+
+[MESSAGE: What settings can I change?]
+→ {"actions": [{"type": "help"}]}
 
 [MESSAGE: Tell me about your privacy features]
 → {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "about_bot"}]}
@@ -355,7 +435,7 @@ If the user says something like "1" or "sanitize" but it's a new conversation wi
 
 [MESSAGE: Is this rash something I should worry about?]
 [ATTACHMENTS: 1 image (jpeg, 640x480)]
-→ {"actions": [{"type": "respond", "sensitivity": "sensitive", "task_hint": "vision"}]}
+→ {"actions": [{"type": "respond", "sensitivity": "insensitive", "task_hint": "vision", "has_pii": false}]}
 
 [MESSAGE: grok: what's in this image?]
 [ATTACHMENTS: 1 image (jpeg, 800x600)]
@@ -531,5 +611,29 @@ If the user says something like "1" or "sanitize" but it's a new conversation wi
 [MESSAGE: remove all my settings]
 [ATTACHMENTS: none]
 → {"actions": [{"type": "clear_profile"}]}
+
+[MESSAGE: what's in this image?]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "missing_attachment", "intent": "analyze an image"}]}
+
+[MESSAGE: can you read this document for me?]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "missing_attachment", "intent": "read a document"}]}
+
+[MESSAGE: analyze this screenshot]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "missing_attachment", "intent": "analyze a screenshot"}]}
+
+[MESSAGE: what does the chart show?]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "missing_attachment", "intent": "analyze a chart"}]}
+
+[MESSAGE: describe this photo]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "missing_attachment", "intent": "describe a photo"}]}
+
+[MESSAGE: check this out]
+[ATTACHMENTS: none]
+→ {"actions": [{"type": "missing_attachment", "intent": "view content"}]}
 
 Respond with JSON only. No explanation.

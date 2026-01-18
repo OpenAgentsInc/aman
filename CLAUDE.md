@@ -449,6 +449,7 @@ For detailed guides on extending the bot's capabilities:
 |-------|----------|-------------|
 | Adding Tools | `docs/ADDING_TOOLS.md` | How to add new agent-tools capabilities |
 | Adding Actions | `docs/ADDING_ACTIONS.md` | How to add new orchestrator actions |
+| Debugging | `docs/DEBUGGING.md` | How to debug with logging and real-time monitoring |
 
 ### Quick Reference
 

@@ -244,6 +244,20 @@ impl RoutingPlan {
             .iter()
             .any(|a| matches!(a, OrchestratorAction::ClearProfile))
     }
+
+    /// Check if the plan contains a missing_attachment action.
+    pub fn has_missing_attachment(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::MissingAttachment { .. }))
+    }
+
+    /// Check if the plan contains a support action.
+    pub fn has_support(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::Support))
+    }
 }
 
 /// Individual action in the routing plan.
@@ -268,6 +282,9 @@ pub enum OrchestratorAction {
 
     /// Show help information.
     Help,
+
+    /// Show support/donation information.
+    Support,
 
     /// Generate final response (may include gathered context).
     Respond {
@@ -390,6 +407,13 @@ pub enum OrchestratorAction {
 
     /// Clear all profile settings.
     ClearProfile,
+
+    /// User references an attachment that wasn't included.
+    /// Instead of hallucinating, we respond with a helpful message.
+    MissingAttachment {
+        /// What the user was trying to do (e.g., "analyze the image", "read the document").
+        intent: String,
+    },
 }
 
 impl OrchestratorAction {
@@ -585,6 +609,11 @@ impl OrchestratorAction {
         }
     }
 
+    /// Create a support action.
+    pub fn support() -> Self {
+        Self::Support
+    }
+
     /// Create a view_profile action.
     pub fn view_profile() -> Self {
         Self::ViewProfile
@@ -603,12 +632,20 @@ impl OrchestratorAction {
         Self::ClearProfile
     }
 
+    /// Create a missing_attachment action.
+    pub fn missing_attachment(intent: impl Into<String>) -> Self {
+        Self::MissingAttachment {
+            intent: intent.into(),
+        }
+    }
+
     /// Get a human-readable description of this action.
     pub fn description(&self) -> String {
         match self {
             Self::Search { query, .. } => format!("Search: {}", query),
             Self::ClearContext { .. } => "Clear conversation history".to_string(),
             Self::Help => "Show help information".to_string(),
+            Self::Support => "Show support information".to_string(),
             Self::Respond {
                 sensitivity,
                 task_hint,
@@ -655,6 +692,9 @@ impl OrchestratorAction {
                 None => format!("Clear profile field: {}", field),
             },
             Self::ClearProfile => "Clear all profile settings".to_string(),
+            Self::MissingAttachment { intent } => {
+                format!("Missing attachment (user wanted to: {})", intent)
+            }
         }
     }
 
@@ -838,6 +878,22 @@ mod tests {
 
         let plan: RoutingPlan = serde_json::from_str(json).unwrap();
         assert!(plan.is_ignore());
+    }
+
+    #[test]
+    fn test_parse_support() {
+        let json = r#"{"actions": [{"type": "support"}]}"#;
+
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_support());
+        assert!(matches!(plan.actions[0], OrchestratorAction::Support));
+    }
+
+    #[test]
+    fn test_support_helper() {
+        let action = OrchestratorAction::support();
+        assert!(matches!(action, OrchestratorAction::Support));
+        assert_eq!(action.description(), "Show support information");
     }
 
     #[test]
@@ -1356,5 +1412,37 @@ mod tests {
         let desc2 = action_with_subject.description();
         assert!(desc2.contains("Submit to inbox"));
         assert!(desc2.contains("Important"));
+    }
+
+    #[test]
+    fn test_parse_missing_attachment() {
+        let json = r#"{"actions": [{"type": "missing_attachment", "intent": "analyze an image"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_missing_attachment());
+
+        if let OrchestratorAction::MissingAttachment { intent } = &plan.actions[0] {
+            assert_eq!(intent, "analyze an image");
+        } else {
+            panic!("Expected MissingAttachment action");
+        }
+    }
+
+    #[test]
+    fn test_missing_attachment_helper() {
+        let action = OrchestratorAction::missing_attachment("read a document");
+
+        if let OrchestratorAction::MissingAttachment { intent } = action {
+            assert_eq!(intent, "read a document");
+        } else {
+            panic!("Expected MissingAttachment action");
+        }
+    }
+
+    #[test]
+    fn test_missing_attachment_description() {
+        let action = OrchestratorAction::missing_attachment("analyze a chart");
+        let desc = action.description();
+        assert!(desc.contains("Missing attachment"));
+        assert!(desc.contains("analyze a chart"));
     }
 }
