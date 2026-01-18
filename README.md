@@ -29,6 +29,7 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - Tool history + clear-context events feed memory snapshots (SQLite, if configured)
 - Memory prompt policy controls (PII redaction, per-sender overrides)
 - Memory prompt provenance hashes + optional background compaction
+- Optional Nostr-backed memory durability (publish + rehydrate preferences, summaries, tool history, clear-context)
 - Operator broadcasts and dashboards
 - Optional web UI for browser chat
 - OpenAI-compatible API gateway (echo, orchestrator, or OpenRouter proxy modes) with local/Nostr KB injection
@@ -36,7 +37,7 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 ## What it is not yet
 
 - Full RAG pipeline (planned)
-- Nostr-backed persistence (foundation only)
+- Full Nostr-backed retrieval (vector search + citations)
 - Long-term message transcript storage
 - Automated event ingestion from live feeds
 - End-to-end durable memory in the brain crates (Maple/Grok history is still in-memory)

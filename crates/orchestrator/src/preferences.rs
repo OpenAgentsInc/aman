@@ -5,8 +5,8 @@ use tokio::sync::RwLock;
 
 use brain_core::Sensitivity;
 use crate::nostr::MemoryPublisher;
-use database::Database;
-use database::preference as preference_store;
+use aman_database::Database;
+use aman_database::preference as preference_store;
 use tracing::warn;
 use crate::actions::UserPreference;
 

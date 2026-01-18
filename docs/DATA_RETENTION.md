@@ -36,15 +36,20 @@ This document defines what Aman stores, what it does not store, and the default 
 - Precise location data or unnecessary metadata.
 - Raw upstream requests/responses when retention is disabled (if supported by the provider).
 
-## Planned data categories (Phase 2+)
+## Optional Nostr durability (when enabled)
 
-These items are planned for the RAG and Nostr phases and are not part of the MVP.
+These items are stored only when Nostr is configured:
 
 - Nostr event log (`nostr_events`) with raw JSON for rehydration.
+- Memory event tables (`nostr_memory_*`) for preferences, summaries, tool history, clear-context.
 - Document manifests and chunk metadata (Nostr events).
+- Provenance fields in runtime SQLite tables (event id, created_at, relay, schema version).
+
+## Planned data categories (RAG phase)
+
 - Encrypted document blobs stored in object storage or IPFS.
 - Embedding artifacts or references used to rebuild the local vector DB.
-- Access policy and provenance events.
+- Access policy and provenance events for retrieval artifacts.
 
 ## Retention windows (defaults)
 

@@ -342,7 +342,7 @@ curl -s -X POST http://127.0.0.1:9001/events \
 
 You should see outbound alerts sent to all subscribers of the region.
 
-## 13) Run Nostr indexer locally (Phase 2 foundation)
+## 13) Run Nostr indexer locally (docs + memory)
 
 Pick relays that retain custom kinds. Relay retention varies by operator (see NIP-11).
 

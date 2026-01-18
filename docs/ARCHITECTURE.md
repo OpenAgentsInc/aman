@@ -505,6 +505,9 @@ If PII is detected, the router can request an explicit privacy choice before res
 4. `nostr-rehydrate-memory` projects memory events into the runtime SQLite DB.
 5. `api` reads from `NOSTR_DB_PATH` for knowledge base answers.
 
+Note: when built with `--features nostr`, the orchestrator also publishes memory
+events (preferences, summaries, tool history, clear-context) to the configured relays.
+
 ## Reliability
 
 - Deduplicate inbound messages using (message_id, timestamp window).
@@ -667,19 +670,24 @@ Planned additions beyond the Signal MVP:
 
 - RAG pipeline integrated into `agent_brain`.
 - Extend `ingester` crate for documents and YouTube transcripts.
-- Nostr relay integration for durable, syncable knowledge state.
 - Local vector DB (Qdrant, FAISS, or equivalent) rebuilt from Nostr events.
-- `nostr-persistence` crate to publish and index Nostr events into SQLite.
 
-### Planned data model (RAG + Nostr)
+Already implemented:
 
-- DocManifest event
+- Nostr relay integration for durable doc/chunk metadata and memory events.
+- `nostr-persistence` crate to publish/index Nostr events into SQLite, plus `nostr-rehydrate-memory`.
+
+### Data model (Nostr durability + planned RAG)
+
+- DocManifest event (implemented)
   - `doc_id`, `title`, `lang`, `mime`, `source_type`
   - `content_hash`, `blob_ref`, timestamps
   - inline `chunks` list (id, ord, offsets, chunk_hash, blob_ref)
-- ChunkRef event
+- ChunkRef event (implemented)
   - `chunk_id`, `doc_id`, `ord`, offsets
   - `chunk_hash`, `blob_ref`, timestamps
+- Memory events (implemented)
+  - Preferences, summaries, tool history, clear-context (see `docs/NOSTR_MEMORY_SCHEMA.md`)
 - Embedding artifact
   - model name/version
   - vector bytes (compressed) or reference
@@ -688,18 +696,22 @@ Planned additions beyond the Signal MVP:
   - who can read/share/export
   - audit history and signatures
 
-### Storage split (planned)
+### Storage split (RAG)
 
 - Nostr stores metadata, hashes, and access policy events.
 - Large blobs live in object storage or IPFS with references in Nostr.
 - Vector search happens locally; indexes are rebuilt from the relay log.
 
-### Nostr persistence implementation plan
+### Nostr persistence implementation (current)
 
 - Event kinds (parameterized replaceable, 30000-39999):
   - DocManifest: 30090 (d=doc_id)
   - ChunkRef: 30091 (d=chunk_id)
   - AccessPolicy: 30092 (d=scope_id)
+  - AmanPreference: 30093 (d=history_key:preference)
+  - AmanSummary: 30094 (d=history_key:summary)
+  - AmanToolHistoryEntry: 30095 (d=history_key:hash)
+  - AmanClearContextEvent: 30096 (d=history_key:hash)
 - Required tags:
   - d tag for addressability
   - k tag with semantic label (doc_manifest, chunk_ref, policy)

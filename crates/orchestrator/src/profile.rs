@@ -1,7 +1,7 @@
 //! User profile management for the orchestrator.
 
-use database::{user_profile, Database, ProfileField, UserProfile, ValidationError};
-use database::validation::{validate_bolt12_offer, validate_email, validate_model_length};
+use aman_database::{user_profile, Database, ProfileField, UserProfile, ValidationError};
+use aman_database::validation::{validate_bolt12_offer, validate_email, validate_model_length};
 use std::fmt;
 use tracing::{debug, warn};
 
@@ -44,8 +44,8 @@ impl From<ValidationError> for ProfileError {
     }
 }
 
-impl From<database::DatabaseError> for ProfileError {
-    fn from(e: database::DatabaseError) -> Self {
+impl From<aman_database::DatabaseError> for ProfileError {
+    fn from(e: aman_database::DatabaseError) -> Self {
         ProfileError::Database(e.to_string())
     }
 }

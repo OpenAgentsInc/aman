@@ -169,6 +169,16 @@ When enabled, the orchestrator formats a standardized memory block (summary firs
 after) and attaches it to routing metadata. Maple/Grok inject it as a system message and refresh
 their cached memory prompt per request, with provider-specific size caps.
 
+### Nostr memory publishing (optional)
+
+Enable Nostr publishing by building with the `nostr` feature. When `NOSTR_RELAYS` and
+`NOSTR_SECRET_KEY` are set, the orchestrator publishes preferences, summaries, tool history, and
+clear-context events to Nostr. If `NOSTR_SECRETBOX_KEY` is set, payloads are encrypted.
+
+```bash
+cargo run -p orchestrator --example orchestrated_bot --features nostr
+```
+
 ## Actions
 
 The router classifies messages and generates action plans:

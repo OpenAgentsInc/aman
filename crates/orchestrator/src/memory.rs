@@ -10,7 +10,7 @@ use brain_core::{
     MemoryToolEntry,
 };
 use crate::nostr::MemoryPublisher;
-use database::{
+use aman_database::{
     clear_context_event, conversation_summary, tool_history, ConversationSummary, Database,
 };
 use serde::Deserialize;
@@ -289,7 +289,7 @@ impl MemoryStore {
         &self,
         history_key: &str,
         policy: &MemoryPromptPolicy,
-    ) -> database::Result<MemorySnapshot> {
+    ) -> aman_database::Result<MemorySnapshot> {
         let summary_row = conversation_summary::get_summary(self.database.pool(), history_key)
             .await?
             .map(|row| row);
@@ -363,7 +363,7 @@ impl MemoryStore {
         history_key: &str,
         user_text: &str,
         assistant_text: &str,
-    ) -> database::Result<()> {
+    ) -> aman_database::Result<()> {
         let existing = conversation_summary::get_summary(self.database.pool(), history_key).await?;
         let (summary, message_count) =
             self.build_summary(existing.as_ref(), user_text, assistant_text);
@@ -394,7 +394,7 @@ impl MemoryStore {
         &self,
         history_key: &str,
         sender_id: Option<&str>,
-    ) -> database::Result<()> {
+    ) -> aman_database::Result<()> {
         conversation_summary::clear_summary(self.database.pool(), history_key).await?;
         clear_context_event::insert_event(self.database.pool(), history_key, sender_id).await?;
 
@@ -419,7 +419,7 @@ impl MemoryStore {
         content: &str,
         sender_id: Option<&str>,
         group_id: Option<&str>,
-    ) -> database::Result<()> {
+    ) -> aman_database::Result<()> {
         let content = truncate_text(content, self.settings.tool_output_max_chars);
         tool_history::insert_tool_history(
             self.database.pool(),
@@ -452,7 +452,7 @@ impl MemoryStore {
         Ok(())
     }
 
-    pub async fn compact(&self) -> database::Result<()> {
+    pub async fn compact(&self) -> aman_database::Result<()> {
         self.prune_all().await?;
 
         if let Some(max_rows) = self.settings.retention.max_tool_history_per_key {
@@ -467,7 +467,7 @@ impl MemoryStore {
         Ok(())
     }
 
-    async fn prune(&self, history_key: &str) -> database::Result<()> {
+    async fn prune(&self, history_key: &str) -> aman_database::Result<()> {
         self.prune_all().await?;
 
         if let Some(max_rows) = self.settings.retention.max_tool_history_per_key {
@@ -479,7 +479,7 @@ impl MemoryStore {
         Ok(())
     }
 
-    async fn prune_all(&self) -> database::Result<()> {
+    async fn prune_all(&self) -> aman_database::Result<()> {
         if let Some(ttl) = self.settings.retention.summary_ttl {
             let _ = conversation_summary::prune_older_than(self.database.pool(), ttl).await?;
         }

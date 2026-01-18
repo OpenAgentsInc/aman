@@ -8,7 +8,7 @@ use brain_core::{
     format_memory_prompt, hash_prompt, Brain, InboundMessage, OutboundMessage, ToolExecutor,
     ToolRequest,
 };
-use database::Database;
+use aman_database::Database;
 use grok_brain::{GrokBrain, GrokBrainConfig, GrokToolExecutor};
 use maple_brain::{MapleBrain, MapleBrainConfig};
 use chrono::Utc;
@@ -495,7 +495,15 @@ impl<S: MessageSender> Orchestrator<S> {
 
                 OrchestratorAction::MapleModel { query, model, task_hint } => {
                     return self
-                        .execute_maple_with_model(message, query, model, &context, *task_hint, history_key)
+                        .execute_maple_with_model(
+                            message,
+                            query,
+                            model,
+                            &context,
+                            *task_hint,
+                            history_key,
+                            memory_context,
+                        )
                         .await;
                 }
 
@@ -958,6 +966,7 @@ impl<S: MessageSender> Orchestrator<S> {
         context: &Context,
         task_hint: TaskHint,
         history_key: &str,
+        memory_context: Option<&MemoryContext>,
     ) -> Result<OutboundMessage, OrchestratorError> {
         use crate::model_selection::MapleModels;
 
@@ -995,7 +1004,7 @@ impl<S: MessageSender> Orchestrator<S> {
             effective_task_hint,
             Some(selected_model.clone()),
             false,
-            None, // No memory context for one-time model selection
+            memory_context,
         );
 
         // Process through Maple
@@ -1369,12 +1378,24 @@ impl<S: MessageSender> Orchestrator<S> {
         choice: PrivacyChoice,
         message: &InboundMessage,
     ) {
-        // Log the privacy choice for auditing purposes
-        // TODO: Add persistent storage if needed for compliance/auditing
-        debug!(
-            "Privacy choice recorded: {:?} for {} (sender: {})",
-            choice, history_key, message.sender
-        );
+        let Some(memory) = &self.memory else {
+            return;
+        };
+
+        let content = format!("choice={}", choice.description());
+        if let Err(err) = memory
+            .record_tool(
+                history_key,
+                "privacy_choice",
+                true,
+                &content,
+                Some(&message.sender),
+                message.group_id.as_deref(),
+            )
+            .await
+        {
+            warn!("Failed to record privacy choice: {}", err);
+        }
     }
 
     async fn load_persistence_from_env(
