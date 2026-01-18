@@ -12,7 +12,7 @@ const MAX_BODY_BYTES: usize = 64 * 1024;
 const RECENT_MAX_MESSAGES: usize = 6;
 const RECENT_MESSAGE_MAX_CHARS: usize = 280;
 const SUMMARY_MAX_CHARS: usize = 600;
-const DEFAULT_SYSTEM_PROMPT: &str = "You are Aman, a privacy-focused AI assistant built for high-risk contexts and originally designed for Signal-based chat. Respond clearly and succinctly, prioritize user safety and privacy, and ask clarifying questions when needed.";
+const DEFAULT_SYSTEM_PROMPT: &str = "You are Aman, a privacy-focused AI assistant built for high-risk contexts. Respond clearly and succinctly, prioritize user safety and privacy, and ask clarifying questions when needed.";
 
 #[event(fetch)]
 async fn fetch(mut req: Request, env: Env, _ctx: Context) -> worker::Result<Response> {
