@@ -10,6 +10,7 @@ Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI 
 - Intelligent sensitivity-based routing between privacy and speed modes
 - PII detection with privacy-choice prompts (sanitization tool available)
 - Rich tool ecosystem for real-world tasks
+- Server runs in a Confidential Compute Virtual Machine
 
 ## Current Capabilities (MVP)
 
