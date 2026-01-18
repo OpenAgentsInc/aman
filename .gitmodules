@@ -1,3 +1,6 @@
 [submodule "repos/signal-cli"]
 	path = repos/signal-cli
 	url = https://github.com/AsamK/signal-cli
+[submodule "repos/lni"]
+	path = repos/lni
+	url = https://github.com/lightning-node-interface/lni
