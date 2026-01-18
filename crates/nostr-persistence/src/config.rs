@@ -6,6 +6,10 @@ use nostr_sdk::prelude::*;
 
 use crate::crypto::PayloadCodec;
 use crate::events::{KIND_ACCESS_POLICY, KIND_CHUNK_REF, KIND_DOC_MANIFEST};
+use crate::memory::{
+    KIND_AMAN_CLEAR_CONTEXT, KIND_AMAN_PREFERENCE, KIND_AMAN_SUBSCRIPTION_STATE,
+    KIND_AMAN_SUMMARY, KIND_AMAN_TOOL_HISTORY,
+};
 use crate::Error;
 
 #[derive(Clone)]
@@ -13,6 +17,11 @@ pub struct NostrKinds {
     pub doc_manifest: Kind,
     pub chunk_ref: Kind,
     pub access_policy: Kind,
+    pub memory_preference: Kind,
+    pub memory_summary: Kind,
+    pub memory_tool_history: Kind,
+    pub memory_clear_context: Kind,
+    pub memory_subscription_state: Kind,
 }
 
 impl Default for NostrKinds {
@@ -21,6 +30,11 @@ impl Default for NostrKinds {
             doc_manifest: Kind::Custom(KIND_DOC_MANIFEST),
             chunk_ref: Kind::Custom(KIND_CHUNK_REF),
             access_policy: Kind::Custom(KIND_ACCESS_POLICY),
+            memory_preference: Kind::Custom(KIND_AMAN_PREFERENCE),
+            memory_summary: Kind::Custom(KIND_AMAN_SUMMARY),
+            memory_tool_history: Kind::Custom(KIND_AMAN_TOOL_HISTORY),
+            memory_clear_context: Kind::Custom(KIND_AMAN_CLEAR_CONTEXT),
+            memory_subscription_state: Kind::Custom(KIND_AMAN_SUBSCRIPTION_STATE),
         }
     }
 }

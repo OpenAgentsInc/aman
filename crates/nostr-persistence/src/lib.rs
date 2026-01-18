@@ -109,10 +109,10 @@ pub use events::{
 };
 pub use indexer::{NostrIndexer, NostrIndexerImpl};
 pub use memory::{
-    decode_payload, encode_payload, hk_tag, ts_tag, v_tag, AmanClearContextEvent,
+    decode_payload, encode_payload, hk_tag, project_memory, ts_tag, v_tag, AmanClearContextEvent,
     AmanPreferenceEvent, AmanSummaryEvent, AmanToolHistoryEvent, KIND_AMAN_CLEAR_CONTEXT,
-    KIND_AMAN_PREFERENCE, KIND_AMAN_SUBSCRIPTION_STATE, KIND_AMAN_SUMMARY,
-    KIND_AMAN_TOOL_HISTORY, MEMORY_SCHEMA_VERSION, MemoryPublisherConfig, NostrMemoryPublisher,
+    KIND_AMAN_PREFERENCE, KIND_AMAN_SUBSCRIPTION_STATE, KIND_AMAN_SUMMARY, KIND_AMAN_TOOL_HISTORY,
+    MEMORY_SCHEMA_VERSION, MemoryProjectionStats, MemoryPublisherConfig, NostrMemoryPublisher,
     NostrMemoryPublisherImpl, TAG_KIND_AMAN_CLEAR_CONTEXT, TAG_KIND_AMAN_PREFERENCE,
     TAG_KIND_AMAN_SUBSCRIPTION_STATE, TAG_KIND_AMAN_SUMMARY, TAG_KIND_AMAN_TOOL_HISTORY,
 };
