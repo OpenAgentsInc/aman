@@ -11,6 +11,7 @@ const MAX_BODY_BYTES: usize = 64 * 1024;
 const RECENT_MAX_MESSAGES: usize = 6;
 const RECENT_MESSAGE_MAX_CHARS: usize = 280;
 const SUMMARY_MAX_CHARS: usize = 600;
+const DEFAULT_SYSTEM_PROMPT: &str = "You are Aman, a privacy-focused AI assistant built for high-risk contexts and originally designed for Signal-based chat. Respond clearly and succinctly, prioritize user safety and privacy, and ask clarifying questions when needed.";
 
 #[event(fetch)]
 async fn fetch(mut req: Request, env: Env, _ctx: Context) -> worker::Result<Response> {
@@ -180,6 +181,7 @@ struct Settings {
     openrouter_x_title: Option<String>,
     default_model: String,
     summary_model: String,
+    system_prompt: String,
     memory_max_chars: usize,
     memory_summarize_every_turns: u64,
     allow_anon: bool,
@@ -200,6 +202,8 @@ impl Settings {
             .unwrap_or_else(|| "openai/gpt-4o-mini".to_string());
         let summary_model = env_string(env, "SUMMARY_MODEL")
             .unwrap_or_else(|| "mistral-small".to_string());
+        let system_prompt = env_string(env, "SYSTEM_PROMPT")
+            .unwrap_or_else(|| DEFAULT_SYSTEM_PROMPT.to_string());
         let memory_max_chars = env_usize(env, "MEMORY_MAX_CHARS", 1200);
         let memory_summarize_every_turns = env_u64(env, "MEMORY_SUMMARIZE_EVERY_TURNS", 6);
         let allow_anon = env_bool(env, "ALLOW_ANON", true);
@@ -224,6 +228,7 @@ impl Settings {
             openrouter_x_title: env_string(env, "OPENROUTER_X_TITLE"),
             default_model,
             summary_model,
+            system_prompt,
             memory_max_chars,
             memory_summarize_every_turns,
             allow_anon,
@@ -303,8 +308,9 @@ async fn handle_chat_completions(req: &mut Request, env: &Env) -> ApiResult<Resp
         .map_err(|err| ApiError::internal(format!("KV read failed: {err}")))?
         .unwrap_or_default();
 
+    let messages = inject_system_prompt(request.messages.clone(), &settings.system_prompt);
     let memory_prompt = build_memory_prompt(&snapshot, settings.memory_max_chars);
-    let messages = inject_memory(request.messages.clone(), memory_prompt);
+    let messages = inject_memory(messages, memory_prompt);
 
     let model = request
         .model
@@ -575,6 +581,32 @@ fn build_memory_prompt(snapshot: &MemorySnapshot, max_chars: usize) -> Option<St
     } else {
         Some(trimmed)
     }
+}
+
+fn inject_system_prompt(mut messages: Vec<ChatMessage>, prompt: &str) -> Vec<ChatMessage> {
+    let trimmed = prompt.trim();
+    if trimmed.is_empty() {
+        return messages;
+    }
+
+    if let Some(first) = messages.first() {
+        if first.role == "system" {
+            if let Value::String(content) = &first.content {
+                if content.trim() == trimmed {
+                    return messages;
+                }
+            }
+        }
+    }
+
+    messages.insert(
+        0,
+        ChatMessage {
+            role: "system".to_string(),
+            content: Value::String(trimmed.to_string()),
+        },
+    );
+    messages
 }
 
 fn inject_memory(mut messages: Vec<ChatMessage>, memory_prompt: Option<String>) -> Vec<ChatMessage> {
