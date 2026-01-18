@@ -5,7 +5,7 @@ use reqwest::Client;
 use tracing::{debug, info, warn};
 
 use crate::api_types::{
-    ApiError, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, SearchParameters,
+    ApiError, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, XaiTool,
 };
 use crate::config::GrokBrainConfig;
 use crate::history::ConversationHistory;
@@ -14,7 +14,7 @@ use crate::history::ConversationHistory;
 ///
 /// GrokBrain maintains per-sender conversation history and communicates
 /// with the xAI API for AI interactions. Optionally supports real-time
-/// search via the Live Search API.
+/// X Search and Web Search tools.
 pub struct GrokBrain {
     client: Client,
     config: GrokBrainConfig,
@@ -89,18 +89,22 @@ impl GrokBrain {
         messages
     }
 
-    /// Build search parameters based on configuration.
-    fn build_search_parameters(&self) -> Option<SearchParameters> {
-        if !self.config.enable_x_search && !self.config.enable_web_search {
-            return None;
+    /// Build the tools array based on configuration.
+    fn build_tools(&self) -> Option<Vec<XaiTool>> {
+        let mut tools = Vec::new();
+
+        if self.config.enable_x_search {
+            tools.push(XaiTool::x_search());
         }
 
-        if self.config.enable_x_search && self.config.enable_web_search {
-            Some(SearchParameters::all_sources())
-        } else if self.config.enable_x_search {
-            Some(SearchParameters::x_only())
+        if self.config.enable_web_search {
+            tools.push(XaiTool::web_search());
+        }
+
+        if tools.is_empty() {
+            None
         } else {
-            Some(SearchParameters::web_only())
+            Some(tools)
         }
     }
 
@@ -116,7 +120,7 @@ impl GrokBrain {
             messages,
             max_tokens: self.config.max_tokens,
             temperature: self.config.temperature,
-            search_parameters: self.build_search_parameters(),
+            tools: self.build_tools(),
         };
 
         debug!("Sending request to xAI API: {:?}", request);
@@ -214,7 +218,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_search_parameters_none() {
+    fn test_build_tools_none() {
         let config = GrokBrainConfig::builder()
             .api_key("test-key")
             .enable_x_search(false)
@@ -222,11 +226,11 @@ mod tests {
             .build();
 
         let brain = GrokBrain::new(config).unwrap();
-        assert!(brain.build_search_parameters().is_none());
+        assert!(brain.build_tools().is_none());
     }
 
     #[test]
-    fn test_build_search_parameters_x_only() {
+    fn test_build_tools_x_search() {
         let config = GrokBrainConfig::builder()
             .api_key("test-key")
             .enable_x_search(true)
@@ -234,14 +238,13 @@ mod tests {
             .build();
 
         let brain = GrokBrain::new(config).unwrap();
-        let params = brain.build_search_parameters().unwrap();
-        let sources = params.sources.unwrap();
-        assert_eq!(sources.len(), 1);
-        assert_eq!(sources[0].source_type, "x");
+        let tools = brain.build_tools().unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].xai_tool.spec_type, "x_search");
     }
 
     #[test]
-    fn test_build_search_parameters_both() {
+    fn test_build_tools_both() {
         let config = GrokBrainConfig::builder()
             .api_key("test-key")
             .enable_x_search(true)
@@ -249,9 +252,8 @@ mod tests {
             .build();
 
         let brain = GrokBrain::new(config).unwrap();
-        let params = brain.build_search_parameters().unwrap();
-        let sources = params.sources.unwrap();
-        assert_eq!(sources.len(), 3); // web, news, x
+        let tools = brain.build_tools().unwrap();
+        assert_eq!(tools.len(), 2);
     }
 
     #[test]
