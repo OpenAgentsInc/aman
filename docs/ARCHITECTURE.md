@@ -223,6 +223,21 @@ Note: Attachment-only messages are processed by default (`process_attachment_onl
 5. `Orchestrator` stops typing indicator.
 6. `Orchestrator` returns final response for delivery.
 
+**Sensitivity Classification:**
+- **Sensitive** → Routes to Maple (health, finances, legal, personal, controversial)
+- **Insensitive** → Can use Grok (weather, news, coding, entertainment, how-to)
+- **Uncertain** → Follows user preference or defaults to Maple
+
+**Task Hints for Model Selection:**
+- `general` - Standard conversations (llama-3.3-70b)
+- `coding` - Programming and technical (deepseek-r1-0528)
+- `math` - Mathematical reasoning (deepseek-r1-0528)
+- `creative` - Stories, poems, brainstorming (gpt-oss-120b)
+- `multilingual` - Non-English or translation (qwen2-5-72b)
+- `quick` - Yes/no, simple lookups (mistral-small-3-1-24b)
+- `vision` - Image analysis (qwen3-vl-30b, forces Maple)
+- `about_bot` - Questions about Aman itself
+
 ### Tool execution flow (optional)
 
 1. MapleBrain receives a request that needs real-time information.
@@ -340,6 +355,49 @@ Attachment paths are resolved relative to the signal-cli data directory
 (default `$XDG_DATA_HOME/signal-cli` or `$HOME/.local/share/signal-cli`). If you
 run signal-cli with a custom `--config` path, ensure your services configure
 the matching data directory (e.g., via `DaemonConfig::with_data_dir`).
+
+## Privacy architecture
+
+Aman implements a three-layer privacy model:
+
+### Transport Layer (Signal)
+- End-to-end encryption for all messages
+- Trusted contact verification
+- Disappearing messages support
+
+### Processing Layer (Maple TEE)
+- Messages processed in secure enclave (OpenSecret)
+- Attestation handshake verifies enclave integrity
+- Original content never leaves TEE for tool queries
+- Per-sender conversation isolation
+
+### Tool Layer (Privacy Boundary)
+- Tool executors receive only AI-crafted sanitized queries
+- Grok (for search) sees AI-generated queries, not user messages
+- PII detection before any external processing
+
+### Privacy Decision Flow
+
+```
+User Message
+     ↓
+Router (in Maple TEE)
+     ├─ Detects PII? → AskPrivacyChoice prompt
+     ├─ Sensitive topic? → Route to Maple only
+     └─ Insensitive? → May use Grok (per preference)
+     ↓
+If tool needed (search):
+     ├─ AI crafts sanitized query (in TEE)
+     ├─ Only query sent to Grok
+     └─ Results returned to TEE for response
+```
+
+### PII Detection
+
+The router detects 12 types of PII:
+- name, phone, email, ssn
+- card, account, address, dob
+- medical, income, financial, id
 
 ## Safety posture
 
@@ -477,7 +535,10 @@ AccessPolicy content:
 - **grok-brain**: xAI Grok Brain and GrokToolExecutor implementations.
 - **orchestrator**: message routing and action plan execution coordinator.
 - **ToolExecutor**: interface for executing external tools (e.g., real-time search).
-- **RoutingPlan**: list of actions (search, clear context, respond, show help) to execute.
+- **RoutingPlan**: list of actions (search, use_tool, clear_context, respond, grok, maple, help, skip, ignore, ask_privacy_choice, set_preference) to execute.
+- **agent-tools**: extensible tool registry with 11 built-in tools (Calculator, Weather, WebFetch, Dictionary, WorldTime, BitcoinPrice, CryptoPrice, CurrencyConverter, UnitConverter, RandomNumber, Sanitize).
+- **ModelSelector**: component that chooses optimal model based on task hints (general, coding, math, creative, multilingual, quick, vision).
+- **PreferenceStore**: per-user storage for agent preferences (prefer_speed, prefer_privacy, default).
 - **ConversationHistory**: per-sender message history with auto-trimming (in brain-core).
 - **DocManifest**: planned event describing a document and its chunks.
 - **Chunk**: planned unit of text for retrieval and citations.

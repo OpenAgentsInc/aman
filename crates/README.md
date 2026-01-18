@@ -3,6 +3,8 @@
 This directory contains the Rust crates that make up Aman. Each crate has its own README
 with configuration and usage details.
 
+## Core Crates (Production-ready)
+
 | Crate | Description |
 | --- | --- |
 | `signal-daemon` | Core client for signal-cli daemon (HTTP/SSE) |

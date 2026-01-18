@@ -353,7 +353,21 @@ impl<S: MessageSender> Orchestrator<S> {
                 OrchestratorAction::Respond {
                     sensitivity,
                     task_hint,
+                    has_pii,
+                    pii_types,
                 } => {
+                    // If PII is detected, ask user how they want to handle it
+                    if *has_pii && !pii_types.is_empty() {
+                        return self
+                            .execute_ask_privacy_choice(
+                                message,
+                                pii_types,
+                                &message.text,
+                                *sensitivity,
+                                *task_hint,
+                            )
+                            .await;
+                    }
                     return self
                         .execute_respond(message, &context, *sensitivity, *task_hint, history_key)
                         .await;
@@ -403,6 +417,29 @@ impl<S: MessageSender> Orchestrator<S> {
                         is_group,
                     )
                     .await?;
+                }
+
+                OrchestratorAction::AskPrivacyChoice {
+                    pii_types,
+                    original_message,
+                    sensitivity,
+                    task_hint,
+                } => {
+                    return self
+                        .execute_ask_privacy_choice(
+                            message,
+                            pii_types,
+                            original_message,
+                            *sensitivity,
+                            *task_hint,
+                        )
+                        .await;
+                }
+
+                OrchestratorAction::PrivacyChoiceResponse { choice } => {
+                    return self
+                        .execute_privacy_choice_response(message, *choice, history_key)
+                        .await;
                 }
             }
         }
@@ -584,7 +621,7 @@ impl<S: MessageSender> Orchestrator<S> {
         let force_maple = effective_task_hint == TaskHint::Vision;
 
         // Determine which agent to use based on sensitivity and user preference
-        // (unless vision task forces Maple)
+        // (unless vision/images force Maple)
         let use_grok = if force_maple {
             false
         } else {

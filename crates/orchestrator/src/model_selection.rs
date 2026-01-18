@@ -49,6 +49,8 @@ impl MapleModels {
             TaskHint::Multilingual => &self.multilingual,
             TaskHint::Quick => &self.quick,
             TaskHint::Vision => &self.vision,
+            // About bot questions use general model
+            TaskHint::AboutBot => &self.general,
         }
     }
 
@@ -123,6 +125,8 @@ impl GrokModels {
             TaskHint::Quick => &self.quick,
             // Grok doesn't support vision - fall back to general
             TaskHint::Vision => &self.general,
+            // About bot questions use general model
+            TaskHint::AboutBot => &self.general,
         }
     }
 

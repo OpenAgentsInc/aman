@@ -1,12 +1,17 @@
-# Aman - Signal-native assistant and alert system
+# Aman - Privacy-focused AI assistant for Signal
 
 ## What is Aman?
 
-Aman is a Signal-native assistant and activist notification system built for organizers, journalists,
-and human-rights defenders. It lets people ask questions, get guidance, and opt into regional alerts
-without leaving Signal. The focus is on minimal retention and operational safety.
+Aman (meaning "trust" or "safety" in several languages) is a privacy-focused AI chatbot for activists, journalists, and human rights defenders that operates entirely through Signal messenger. The system provides intelligent, privacy-respecting assistance through a dual-brain architecture: **Maple AI** (OpenSecret TEE) for sensitive requests and **Grok AI** (xAI) for speed and real-time search.
 
-## What it enables today (MVP)
+**Key Differentiators:**
+- End-to-end encrypted communications via Signal
+- Privacy-preserving AI processing using Trusted Execution Environments (TEE)
+- Intelligent sensitivity-based routing between privacy and speed modes
+- PII detection and sanitization capabilities
+- Rich tool ecosystem for real-world tasks
+
+## Current Capabilities (MVP)
 
 - Signal-based chat via a dedicated account
 - Orchestrated routing with Maple (privacy) + Grok (speed) and action plans
@@ -56,7 +61,7 @@ Edit these files to customize the bot's personality, tone, and routing behavior 
 - `crates/orchestrator/README.md` - routing + action orchestration
 - `web/README.md` - browser UI
 
-## Safety posture
+## Safety Posture
 
 Aman is designed for high-risk contexts: opt-in alerts only, "stop" honored everywhere,
 minimal retention, and no message body logging by default. Routing and classification

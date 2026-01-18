@@ -8,13 +8,7 @@ use tracing::debug;
 use crate::error::ToolError;
 use crate::tool::{Tool, ToolArgs, ToolOutput};
 
-/// Response from CoinGecko simple/price endpoint.
-#[derive(Debug, Deserialize)]
-struct CoinGeckoPrice {
-    #[serde(flatten)]
-    prices: HashMap<String, PriceData>,
-}
-
+/// Price data for a single cryptocurrency from CoinGecko.
 #[derive(Debug, Deserialize)]
 struct PriceData {
     usd: Option<f64>,

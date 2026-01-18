@@ -82,6 +82,39 @@ impl ToolArgs {
                 reason: "expected number".to_string(),
             })
     }
+
+    /// Alias for get_f64 for convenience.
+    pub fn get_number(&self, key: &str) -> Result<f64, ToolError> {
+        self.get_f64(key)
+    }
+
+    /// Get an optional f64 parameter.
+    pub fn get_number_opt(&self, key: &str) -> Result<Option<f64>, ToolError> {
+        match self.params.get(key) {
+            Some(v) => {
+                let num = v.as_f64().ok_or_else(|| ToolError::InvalidParameter {
+                    name: key.to_string(),
+                    reason: "expected number".to_string(),
+                })?;
+                Ok(Some(num))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Get an optional boolean parameter.
+    pub fn get_bool_opt(&self, key: &str) -> Result<Option<bool>, ToolError> {
+        match self.params.get(key) {
+            Some(v) => {
+                let b = v.as_bool().ok_or_else(|| ToolError::InvalidParameter {
+                    name: key.to_string(),
+                    reason: "expected boolean".to_string(),
+                })?;
+                Ok(Some(b))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 /// Output from a tool execution.

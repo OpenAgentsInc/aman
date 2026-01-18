@@ -20,6 +20,8 @@
 //! - [`WebFetch`] - Fetch URL content, convert HTML to text, optionally summarize.
 //! - [`Dictionary`] - Word definitions via Free Dictionary API.
 //! - [`WorldTime`] - Current time in any timezone via WorldTimeAPI.
+//! - [`UnitConverter`] - Convert between common units (length, weight, temperature, etc.).
+//! - [`RandomNumber`] - Generate random numbers, dice rolls, or coin flips.
 //!
 //! ## Financial Tools
 //! - [`BitcoinPrice`] - Bitcoin price via mempool.space (privacy-friendly).
@@ -58,14 +60,17 @@ pub use executor::{RateLimit, RegistryToolExecutor, ToolPolicy};
 pub use registry::ToolRegistry;
 pub use tool::{Tool, ToolArgs, ToolOutput};
 pub use tools::{
-    BitcoinPrice, Calculator, CryptoPrice, CurrencyConverter, Dictionary, Weather, WebFetch,
-    WorldTime,
+    sanitize_system_prompt, BitcoinPrice, Calculator, CryptoPrice, CurrencyConverter, Dictionary,
+    RandomNumber, Sanitize, UnitConverter, Weather, WebFetch, WorldTime,
 };
 
 // Re-export async_trait for convenience
 pub use async_trait::async_trait;
 
 /// Create a new registry with all built-in tools registered.
+///
+/// Note: The `sanitize` tool requires a brain for PII detection.
+/// Call `registry.set_brain(brain)` to enable it.
 pub fn default_registry() -> ToolRegistry {
     let mut registry = ToolRegistry::new();
 
@@ -75,11 +80,16 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(WebFetch::new());
     registry.register(Dictionary::new());
     registry.register(WorldTime::new());
+    registry.register(UnitConverter::new());
+    registry.register(RandomNumber::new());
 
     // Financial tools
     registry.register(BitcoinPrice::new());
     registry.register(CryptoPrice::new());
     registry.register(CurrencyConverter::new());
+
+    // AI-powered tools (require brain to be set)
+    registry.register(Sanitize::new());
 
     registry
 }

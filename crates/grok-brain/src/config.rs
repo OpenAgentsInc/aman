@@ -2,6 +2,10 @@
 
 use brain_core::BrainError;
 use std::env;
+use std::path::Path;
+
+/// Default system prompt file name.
+pub const DEFAULT_PROMPT_FILE: &str = "SYSTEM_PROMPT.md";
 
 /// Configuration for GrokBrain.
 #[derive(Debug, Clone)]
@@ -59,12 +63,18 @@ impl GrokBrainConfig {
     /// Optional environment variables:
     /// - `GROK_API_URL` - API URL (default: https://api.x.ai)
     /// - `GROK_MODEL` - Model name (default: grok-4-1-fast)
-    /// - `GROK_SYSTEM_PROMPT` - System prompt
+    /// - `GROK_SYSTEM_PROMPT` - System prompt (overrides prompt file)
+    /// - `GROK_PROMPT_FILE` - Path to system prompt file (default: SYSTEM_PROMPT.md)
     /// - `GROK_MAX_TOKENS` - Max tokens (default: 1024)
     /// - `GROK_TEMPERATURE` - Temperature (default: 0.7)
     /// - `GROK_MAX_HISTORY_TURNS` - Max history turns (default: 10)
     /// - `GROK_ENABLE_X_SEARCH` - Enable X Search tool (default: false)
     /// - `GROK_ENABLE_WEB_SEARCH` - Enable Web Search tool (default: false)
+    ///
+    /// System prompt priority:
+    /// 1. `GROK_SYSTEM_PROMPT` env var (if set)
+    /// 2. Contents of prompt file (if exists)
+    /// 3. None
     pub fn from_env() -> Result<Self, BrainError> {
         let api_key = env::var("GROK_API_KEY")
             .map_err(|_| BrainError::Configuration("GROK_API_KEY not set".to_string()))?;
@@ -74,7 +84,15 @@ impl GrokBrainConfig {
         let model =
             env::var("GROK_MODEL").unwrap_or_else(|_| "grok-4-1-fast".to_string());
 
-        let system_prompt = env::var("GROK_SYSTEM_PROMPT").ok();
+        // System prompt: env var takes precedence, then try loading from file
+        let system_prompt = if let Ok(prompt) = env::var("GROK_SYSTEM_PROMPT") {
+            Some(prompt)
+        } else {
+            // Try to load from prompt file
+            let prompt_file = env::var("GROK_PROMPT_FILE")
+                .unwrap_or_else(|_| DEFAULT_PROMPT_FILE.to_string());
+            load_prompt_file(&prompt_file)
+        };
 
         let max_tokens = env::var("GROK_MAX_TOKENS")
             .ok()
@@ -185,6 +203,34 @@ impl GrokBrainConfigBuilder {
     pub fn build(self) -> GrokBrainConfig {
         self.config
     }
+
+    /// Load system prompt from a file.
+    ///
+    /// If the file exists and is non-empty, sets the system prompt.
+    /// Returns self for chaining.
+    pub fn load_prompt_file(mut self, path: impl AsRef<Path>) -> Self {
+        if let Some(prompt) = load_prompt_file(path) {
+            self.config.system_prompt = Some(prompt);
+        }
+        self
+    }
+}
+
+/// Load a prompt file, returning None if not found or empty.
+fn load_prompt_file(path: impl AsRef<Path>) -> Option<String> {
+    let path = path.as_ref();
+
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            let trimmed = content.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Err(_) => None,
+    }
 }
 
 #[cfg(test)]
@@ -254,6 +300,7 @@ mod tests {
             std::env::remove_var("GROK_API_URL");
             std::env::remove_var("GROK_MODEL");
             std::env::remove_var("GROK_SYSTEM_PROMPT");
+            std::env::remove_var("GROK_PROMPT_FILE");
             std::env::remove_var("GROK_MAX_TOKENS");
             std::env::remove_var("GROK_TEMPERATURE");
             std::env::remove_var("GROK_MAX_HISTORY_TURNS");

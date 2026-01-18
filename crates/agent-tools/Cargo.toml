@@ -19,6 +19,7 @@ tracing = "0.1"
 reqwest = { version = "0.12", features = ["json"] }
 meval = "0.2"
 html2text = "0.14"
+rand = "0.8"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

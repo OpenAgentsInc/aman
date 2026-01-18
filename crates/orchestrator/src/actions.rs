@@ -4,7 +4,35 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use brain_core::{Sensitivity, TaskHint};
+
+/// Sensitivity level for a request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Sensitivity {
+    /// Sensitive content - use privacy-preserving mode (Maple TEE).
+    /// Examples: health, finances, legal, personal info, relationships.
+    Sensitive,
+
+    /// Insensitive content - can use fast mode (Grok).
+    /// Examples: weather, news, sports, general knowledge, coding.
+    #[default]
+    Insensitive,
+
+    /// Uncertain - could go either way, follow user preference.
+    Uncertain,
+}
+
+impl Sensitivity {
+    /// Check if this sensitivity level should use Maple (privacy mode).
+    pub fn prefers_maple(&self) -> bool {
+        matches!(self, Sensitivity::Sensitive | Sensitivity::Uncertain)
+    }
+
+    /// Check if this sensitivity level can use Grok (fast mode).
+    pub fn allows_grok(&self) -> bool {
+        matches!(self, Sensitivity::Insensitive)
+    }
+}
 
 /// User preference for which agent to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -19,6 +47,42 @@ pub enum UserPreference {
 
     /// Prefer speed: always use Grok (except explicit sensitive detection overrides).
     PreferSpeed,
+}
+
+/// Task hint for model selection.
+///
+/// The router classifies the type of task to help select the best model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskHint {
+    /// General conversation and questions (default).
+    #[default]
+    General,
+
+    /// Programming and technical development tasks.
+    /// Best models: qwen3-coder-480b, deepseek-r1, grok-3
+    Coding,
+
+    /// Mathematical and analytical reasoning.
+    /// Best models: deepseek-r1-0528
+    Math,
+
+    /// Creative writing and content generation.
+    /// Best models: gpt-oss-120b
+    Creative,
+
+    /// Non-English or translation tasks.
+    /// Best models: qwen2-5-72b
+    Multilingual,
+
+    /// Simple queries needing fast responses.
+    /// Best models: grok-3-mini, mistral-small-3-1-24b
+    Quick,
+
+    /// Image/vision analysis tasks.
+    /// Best models: qwen3-vl-30b (Maple only - Grok has no vision support)
+    /// Note: Vision tasks MUST use Maple regardless of sensitivity.
+    Vision,
 }
 
 impl UserPreference {
@@ -69,6 +133,8 @@ impl RoutingPlan {
             actions: vec![OrchestratorAction::Respond {
                 sensitivity: Sensitivity::default(),
                 task_hint: TaskHint::default(),
+                has_pii: false,
+                pii_types: Vec::new(),
             }],
         }
     }
@@ -79,6 +145,8 @@ impl RoutingPlan {
             actions: vec![OrchestratorAction::Respond {
                 sensitivity,
                 task_hint: TaskHint::default(),
+                has_pii: false,
+                pii_types: Vec::new(),
             }],
         }
     }
@@ -89,6 +157,8 @@ impl RoutingPlan {
             actions: vec![OrchestratorAction::Respond {
                 sensitivity,
                 task_hint,
+                has_pii: false,
+                pii_types: Vec::new(),
             }],
         }
     }
@@ -144,6 +214,25 @@ impl RoutingPlan {
             .iter()
             .any(|a| matches!(a, OrchestratorAction::UseTool { .. }))
     }
+
+    /// Check if the plan contains an ask_privacy_choice action.
+    pub fn has_ask_privacy_choice(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::AskPrivacyChoice { .. }))
+    }
+
+    /// Check if any action in the plan detected PII.
+    pub fn has_pii(&self) -> bool {
+        self.actions.iter().any(|a| a.has_pii())
+    }
+
+    /// Check if the plan contains a privacy_choice_response action.
+    pub fn has_privacy_choice_response(&self) -> bool {
+        self.actions
+            .iter()
+            .any(|a| matches!(a, OrchestratorAction::PrivacyChoiceResponse { .. }))
+    }
 }
 
 /// Individual action in the routing plan.
@@ -177,6 +266,12 @@ pub enum OrchestratorAction {
         /// Task hint for model selection.
         #[serde(default)]
         task_hint: TaskHint,
+        /// Whether the message contains personally identifiable information.
+        #[serde(default)]
+        has_pii: bool,
+        /// Types of PII detected (e.g., ["name", "ssn", "medical"]).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pii_types: Vec<String>,
     },
 
     /// Route directly to Grok (user explicitly requested).
@@ -224,6 +319,29 @@ pub enum OrchestratorAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         message: Option<String>,
     },
+
+    /// Ask user how to handle detected PII before responding.
+    /// This action is generated when PII is detected in a message.
+    AskPrivacyChoice {
+        /// Types of PII detected in the message.
+        pii_types: Vec<String>,
+        /// The original message text (for reference).
+        original_message: String,
+        /// Sensitivity level for the request.
+        #[serde(default)]
+        sensitivity: Sensitivity,
+        /// Task hint for model selection.
+        #[serde(default)]
+        task_hint: TaskHint,
+    },
+
+    /// User's response to a privacy choice prompt.
+    /// This action is generated when the router detects the user is responding
+    /// to a previous AskPrivacyChoice prompt (based on conversation history).
+    PrivacyChoiceResponse {
+        /// The user's choice: "sanitize", "private", or "cancel".
+        choice: PrivacyChoice,
+    },
 }
 
 impl OrchestratorAction {
@@ -260,6 +378,8 @@ impl OrchestratorAction {
         Self::Respond {
             sensitivity,
             task_hint: TaskHint::default(),
+            has_pii: false,
+            pii_types: Vec::new(),
         }
     }
 
@@ -268,6 +388,22 @@ impl OrchestratorAction {
         Self::Respond {
             sensitivity,
             task_hint,
+            has_pii: false,
+            pii_types: Vec::new(),
+        }
+    }
+
+    /// Create a respond action with PII information.
+    pub fn respond_with_pii(
+        sensitivity: Sensitivity,
+        task_hint: TaskHint,
+        pii_types: Vec<String>,
+    ) -> Self {
+        Self::Respond {
+            sensitivity,
+            task_hint,
+            has_pii: !pii_types.is_empty(),
+            pii_types,
         }
     }
 
@@ -339,6 +475,26 @@ impl OrchestratorAction {
         }
     }
 
+    /// Create an ask_privacy_choice action for PII handling.
+    pub fn ask_privacy_choice(
+        pii_types: Vec<String>,
+        original_message: impl Into<String>,
+        sensitivity: Sensitivity,
+        task_hint: TaskHint,
+    ) -> Self {
+        Self::AskPrivacyChoice {
+            pii_types,
+            original_message: original_message.into(),
+            sensitivity,
+            task_hint,
+        }
+    }
+
+    /// Create a privacy_choice_response action.
+    pub fn privacy_choice_response(choice: PrivacyChoice) -> Self {
+        Self::PrivacyChoiceResponse { choice }
+    }
+
     /// Get a human-readable description of this action.
     pub fn description(&self) -> String {
         match self {
@@ -348,7 +504,18 @@ impl OrchestratorAction {
             Self::Respond {
                 sensitivity,
                 task_hint,
-            } => format!("Generate response ({:?}, {:?})", sensitivity, task_hint),
+                has_pii,
+                ..
+            } => {
+                if *has_pii {
+                    format!(
+                        "Generate response ({:?}, {:?}, PII detected)",
+                        sensitivity, task_hint
+                    )
+                } else {
+                    format!("Generate response ({:?}, {:?})", sensitivity, task_hint)
+                }
+            }
             Self::Grok { query, task_hint } => {
                 format!("Direct Grok ({:?}): {}", task_hint, query)
             }
@@ -361,6 +528,12 @@ impl OrchestratorAction {
             Self::UseTool { name, args, .. } => {
                 format!("Use tool '{}' with {} args", name, args.len())
             }
+            Self::AskPrivacyChoice { pii_types, .. } => {
+                format!("Ask privacy choice (PII: {})", pii_types.join(", "))
+            }
+            Self::PrivacyChoiceResponse { choice } => {
+                format!("Privacy choice response: {}", choice.description())
+            }
         }
     }
 
@@ -370,6 +543,25 @@ impl OrchestratorAction {
             Self::Respond { task_hint, .. } => Some(*task_hint),
             Self::Grok { task_hint, .. } => Some(*task_hint),
             Self::Maple { task_hint, .. } => Some(*task_hint),
+            Self::AskPrivacyChoice { task_hint, .. } => Some(*task_hint),
+            _ => None,
+        }
+    }
+
+    /// Check if this action indicates PII was detected.
+    pub fn has_pii(&self) -> bool {
+        match self {
+            Self::Respond { has_pii, .. } => *has_pii,
+            Self::AskPrivacyChoice { .. } => true, // Always has PII
+            _ => false,
+        }
+    }
+
+    /// Get the PII types detected for this action, if any.
+    pub fn pii_types(&self) -> Option<&[String]> {
+        match self {
+            Self::Respond { pii_types, .. } => Some(pii_types),
+            Self::AskPrivacyChoice { pii_types, .. } => Some(pii_types),
             _ => None,
         }
     }
@@ -590,6 +782,7 @@ mod tests {
         if let OrchestratorAction::Respond {
             sensitivity,
             task_hint,
+            ..
         } = &plan.actions[0]
         {
             assert_eq!(*sensitivity, Sensitivity::Insensitive);
@@ -639,7 +832,7 @@ mod tests {
 
     #[test]
     fn test_all_task_hints_parse() {
-        let hints = ["general", "coding", "math", "creative", "multilingual", "quick"];
+        let hints = ["general", "coding", "math", "creative", "multilingual", "quick", "vision", "about_bot"];
         let expected = [
             TaskHint::General,
             TaskHint::Coding,
@@ -647,6 +840,8 @@ mod tests {
             TaskHint::Creative,
             TaskHint::Multilingual,
             TaskHint::Quick,
+            TaskHint::Vision,
+            TaskHint::AboutBot,
         ];
 
         for (hint_str, expected_hint) in hints.iter().zip(expected.iter()) {
@@ -690,13 +885,57 @@ mod tests {
         if let OrchestratorAction::Respond {
             sensitivity,
             task_hint,
+            has_pii,
+            pii_types,
         } = &plan.actions[0]
         {
             assert_eq!(*sensitivity, Sensitivity::Sensitive);
             assert_eq!(*task_hint, TaskHint::Math);
+            assert!(!has_pii);
+            assert!(pii_types.is_empty());
         } else {
             panic!("Expected Respond action");
         }
+    }
+
+    #[test]
+    fn test_parse_respond_with_pii() {
+        let json = r#"{"actions": [{"type": "respond", "sensitivity": "sensitive", "task_hint": "general", "has_pii": true, "pii_types": ["name", "ssn"]}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+
+        if let OrchestratorAction::Respond {
+            sensitivity,
+            task_hint,
+            has_pii,
+            pii_types,
+        } = &plan.actions[0]
+        {
+            assert_eq!(*sensitivity, Sensitivity::Sensitive);
+            assert_eq!(*task_hint, TaskHint::General);
+            assert!(*has_pii);
+            assert_eq!(pii_types, &vec!["name".to_string(), "ssn".to_string()]);
+        } else {
+            panic!("Expected Respond action");
+        }
+    }
+
+    #[test]
+    fn test_respond_with_pii_helper() {
+        let pii_types = vec!["medical".to_string(), "address".to_string()];
+        let action =
+            OrchestratorAction::respond_with_pii(Sensitivity::Sensitive, TaskHint::General, pii_types.clone());
+
+        assert!(action.has_pii());
+        assert_eq!(action.pii_types(), Some(pii_types.as_slice()));
+    }
+
+    #[test]
+    fn test_respond_without_pii_default() {
+        let json = r#"{"actions": [{"type": "respond", "sensitivity": "insensitive"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+
+        // has_pii should default to false
+        assert!(!plan.actions[0].has_pii());
     }
 
     #[test]
@@ -741,6 +980,163 @@ mod tests {
             assert!(message.is_none());
         } else {
             panic!("Expected UseTool action");
+        }
+    }
+
+    #[test]
+    fn test_parse_ask_privacy_choice() {
+        let json = r#"{"actions": [{"type": "ask_privacy_choice", "pii_types": ["name", "ssn"], "original_message": "My name is John and my SSN is 123-45-6789", "sensitivity": "sensitive", "task_hint": "general"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_ask_privacy_choice());
+        assert!(plan.has_pii());
+
+        if let OrchestratorAction::AskPrivacyChoice {
+            pii_types,
+            original_message,
+            sensitivity,
+            task_hint,
+        } = &plan.actions[0]
+        {
+            assert_eq!(pii_types, &vec!["name".to_string(), "ssn".to_string()]);
+            assert_eq!(original_message, "My name is John and my SSN is 123-45-6789");
+            assert_eq!(*sensitivity, Sensitivity::Sensitive);
+            assert_eq!(*task_hint, TaskHint::General);
+        } else {
+            panic!("Expected AskPrivacyChoice action");
+        }
+    }
+
+    #[test]
+    fn test_ask_privacy_choice_helper() {
+        let pii_types = vec!["medical".to_string(), "income".to_string()];
+        let action = OrchestratorAction::ask_privacy_choice(
+            pii_types.clone(),
+            "I have diabetes and make $100k",
+            Sensitivity::Sensitive,
+            TaskHint::General,
+        );
+
+        assert!(action.has_pii());
+        assert_eq!(action.pii_types(), Some(pii_types.as_slice()));
+        assert_eq!(action.task_hint(), Some(TaskHint::General));
+
+        if let OrchestratorAction::AskPrivacyChoice {
+            original_message, ..
+        } = action
+        {
+            assert_eq!(original_message, "I have diabetes and make $100k");
+        } else {
+            panic!("Expected AskPrivacyChoice action");
+        }
+    }
+
+    #[test]
+    fn test_ask_privacy_choice_description() {
+        let action = OrchestratorAction::ask_privacy_choice(
+            vec!["phone".to_string(), "email".to_string()],
+            "Call me at 555-1234",
+            Sensitivity::Insensitive,
+            TaskHint::Quick,
+        );
+
+        let desc = action.description();
+        assert!(desc.contains("Ask privacy choice"));
+        assert!(desc.contains("phone"));
+        assert!(desc.contains("email"));
+    }
+
+    #[test]
+    fn test_plan_has_pii() {
+        // Plan with PII in respond
+        let json = r#"{"actions": [{"type": "respond", "sensitivity": "sensitive", "has_pii": true, "pii_types": ["name"]}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_pii());
+
+        // Plan without PII
+        let json = r#"{"actions": [{"type": "respond", "sensitivity": "insensitive"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(!plan.has_pii());
+
+        // Plan with ask_privacy_choice (always has PII)
+        let json = r#"{"actions": [{"type": "ask_privacy_choice", "pii_types": ["ssn"], "original_message": "test"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_pii());
+    }
+
+    #[test]
+    fn test_privacy_choice_from_input() {
+        // Sanitize options
+        assert_eq!(PrivacyChoice::from_input("1"), Some(PrivacyChoice::Sanitize));
+        assert_eq!(PrivacyChoice::from_input("sanitize"), Some(PrivacyChoice::Sanitize));
+        assert_eq!(PrivacyChoice::from_input("SANITIZE"), Some(PrivacyChoice::Sanitize));
+        assert_eq!(PrivacyChoice::from_input("fast"), Some(PrivacyChoice::Sanitize));
+
+        // Private options
+        assert_eq!(PrivacyChoice::from_input("2"), Some(PrivacyChoice::Private));
+        assert_eq!(PrivacyChoice::from_input("private"), Some(PrivacyChoice::Private));
+        assert_eq!(PrivacyChoice::from_input("secure"), Some(PrivacyChoice::Private));
+        assert_eq!(PrivacyChoice::from_input("maple"), Some(PrivacyChoice::Private));
+
+        // Cancel options
+        assert_eq!(PrivacyChoice::from_input("3"), Some(PrivacyChoice::Cancel));
+        assert_eq!(PrivacyChoice::from_input("cancel"), Some(PrivacyChoice::Cancel));
+        assert_eq!(PrivacyChoice::from_input("no"), Some(PrivacyChoice::Cancel));
+        assert_eq!(PrivacyChoice::from_input("nevermind"), Some(PrivacyChoice::Cancel));
+
+        // Invalid
+        assert_eq!(PrivacyChoice::from_input("hello"), None);
+        assert_eq!(PrivacyChoice::from_input("4"), None);
+    }
+
+    #[test]
+    fn test_parse_privacy_choice_response() {
+        let json = r#"{"actions": [{"type": "privacy_choice_response", "choice": "sanitize"}]}"#;
+        let plan: RoutingPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.has_privacy_choice_response());
+
+        if let OrchestratorAction::PrivacyChoiceResponse { choice } = &plan.actions[0] {
+            assert_eq!(*choice, PrivacyChoice::Sanitize);
+        } else {
+            panic!("Expected PrivacyChoiceResponse action");
+        }
+    }
+
+    #[test]
+    fn test_privacy_choice_response_helper() {
+        let action = OrchestratorAction::privacy_choice_response(PrivacyChoice::Private);
+
+        if let OrchestratorAction::PrivacyChoiceResponse { choice } = action {
+            assert_eq!(choice, PrivacyChoice::Private);
+        } else {
+            panic!("Expected PrivacyChoiceResponse action");
+        }
+    }
+
+    #[test]
+    fn test_privacy_choice_response_description() {
+        let action = OrchestratorAction::privacy_choice_response(PrivacyChoice::Cancel);
+        let desc = action.description();
+        assert!(desc.contains("Privacy choice response"));
+        assert!(desc.contains("cancel"));
+    }
+
+    #[test]
+    fn test_all_privacy_choices_parse() {
+        let choices = ["sanitize", "private", "cancel"];
+        let expected = [PrivacyChoice::Sanitize, PrivacyChoice::Private, PrivacyChoice::Cancel];
+
+        for (choice_str, expected_choice) in choices.iter().zip(expected.iter()) {
+            let json = format!(
+                r#"{{"actions": [{{"type": "privacy_choice_response", "choice": "{}"}}]}}"#,
+                choice_str
+            );
+            let plan: RoutingPlan = serde_json::from_str(&json).unwrap();
+
+            if let OrchestratorAction::PrivacyChoiceResponse { choice } = &plan.actions[0] {
+                assert_eq!(choice, expected_choice, "Failed for choice: {}", choice_str);
+            } else {
+                panic!("Expected PrivacyChoiceResponse action");
+            }
         }
     }
 }
