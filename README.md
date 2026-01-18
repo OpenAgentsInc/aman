@@ -3,19 +3,29 @@
 ## What is Aman?
 
 Aman is a Signal-native assistant and activist notification system.
-It also includes a separate web UI in `web/` for browser-based chat and an admin web panel for dashboards/broadcasts.
-It runs a dedicated Signal account on a server using `signal-cli`.
-Inbound messages are decrypted locally and normalized by `message_listener`.
-An `agent_brain` service handles onboarding and routing decisions.
-Signal message handling can use pluggable Brain implementations (see `brain-core`), including MapleBrain (OpenSecret)
-with optional image/tool support, GrokBrain (xAI), or mock brains for testing.
-The web UI uses an OpenAI-compatible chat completions API for generation (see `crates/api/README.md`).
-Replies are sent back to Signal via `broadcaster`.
-Aman can also deliver opt-in regional alerts to subscribed contacts.
-Alerts are driven by a regional event listener and a subscription state machine.
-The MVP is text-first with minimal retention and minimal logging.
-Components are decoupled so receiving never blocks on generation.
-The web UI currently talks directly to the OpenAI-compatible API and is not yet wired into the Signal services.
+It gives organizers, journalists, and human-rights defenders a safe, familiar way to ask questions, get guidance, and receive
+opt-in regional alerts inside Signal.
+You can use Aman for quick situational updates, communication support, and practical workflows without having to move to a
+new platform.
+The system is designed for minimal retention and respectful data handling so sensitive conversations stay focused and
+operational.
+
+### What this enables (MVP)
+
+- Private, Signal-based chat for urgent questions and coordination.
+- Opt-in regional alerts (e.g., outages, throttling, advisories) delivered directly to subscribers.
+- A lightweight web UI for browser chat when a larger screen is useful.
+- Operator tools for broadcast messages and monitoring.
+
+### How it works (technical overview)
+
+- A dedicated Signal account runs on a server using `signal-cli`.
+- Inbound messages are decrypted locally and normalized by `message_listener`.
+- An `agent_brain` service handles onboarding and routing decisions.
+- Responses are sent back via `broadcaster`.
+- Optional Brain backends include MapleBrain (OpenSecret) and GrokBrain (xAI).
+- A separate web UI (`web/`) uses an OpenAI-compatible API for browser chat.
+- Regional alerts are powered by a subscription state machine and event ingesters.
 
 ## Aman MVP
 
